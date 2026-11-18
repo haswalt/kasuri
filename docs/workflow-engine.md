@@ -70,7 +70,7 @@ Persist-before-dispatch closes one failure window but does **not** guarantee exa
 
 Missing input paths fail with `missing_input`; explicit JSON null remains a value. Empty JSON Pointer selects the whole input, and escaped segments such as `/a~1b` work. This is intentionally a bounded reference mechanism; expression evaluation, `{{ ... }}` templates and arbitrary code are not implemented. Node manifests expose configuration metadata for future schema-driven forms; they do not yet generate React forms or replace execution-time checks.
 
-Unsupported types (including HTTP, SaaS and Code) fail explicitly through `unsupported_node`. The SDK provides the task/result boundary for their future adapters; their presence in the frontend catalogue does not indicate implementation.
+The pure CoreConnector rejects unsupported types. The Rust host dispatches HTTP Request separately, persisting its claim before network I/O and applying results to the latest workspace state. SaaS and Code nodes remain unsupported; their presence in the catalogue does not indicate implementation. See [connector behavior](connectors.md).
 
 ## Limits and lifecycle
 

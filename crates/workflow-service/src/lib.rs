@@ -2,7 +2,7 @@
 //! All workspace data is persistent. No sample workflows, seed data or expiry mode.
 use chrono::{DateTime, SecondsFormat, Utc};
 use chrono_tz::Tz;
-use connector_sdk::Connector;
+use connector_sdk::{Connector, FailureCode, Outcome, Task};
 use connectors_core::CoreConnector;
 use croner::Cron;
 use serde::{Deserialize, Serialize};
@@ -65,7 +65,15 @@ pub enum Mode {
 }
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
+pub struct ExternalTask {
+    pub task: Task,
+    pub dispatched: bool,
+}
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct RunRecord {
+    #[serde(default)]
+    pub external: Option<ExternalTask>,
     pub checkpoint: String,
     pub mode: Mode,
     pub created_at: u64,
@@ -108,6 +116,27 @@ impl RunRecord {
     }
     fn advance(&mut self, now: u64) -> Result<(), ApiError> {
         let mut run = self.restore()?;
+        if let Some(external) = &self.external {
+            if run.status() == RunStatus::Paused {
+                self.wake_at = None;
+                return Ok(());
+            }
+            if now < external.task.deadline_ms {
+                self.wake_at = Some(if external.dispatched {
+                    external.task.deadline_ms
+                } else {
+                    now.saturating_add(1)
+                });
+                return Ok(());
+            }
+            run.complete(
+                &external.task.id,
+                connectors_http::failure(FailureCode::OutcomeUnknown, false),
+                now,
+            )
+            .map_err(|e| error(500, e.to_string()))?;
+            self.external = None;
+        }
         let mut clock = now;
         self.wake_at = None;
         let budget = if self.mode == Mode::Simulation {
@@ -117,9 +146,23 @@ impl RunRecord {
         };
         for _ in 0..budget {
             match run.next(clock).map_err(|e| error(400, e.to_string()))? {
-                Dispatch::Task(task) => run
-                    .complete(&task.id, CoreConnector.execute(&task), clock)
-                    .map_err(|e| error(400, e.to_string()))?,
+                Dispatch::Task(task) => {
+                    if task.node.kind == "HTTP Request" && self.mode != Mode::Simulation {
+                        self.external = Some(ExternalTask {
+                            task: *task,
+                            dispatched: false,
+                        });
+                        self.wake_at = Some(clock.saturating_add(1));
+                        break;
+                    }
+                    let outcome = if task.node.kind == "HTTP Request" {
+                        connectors_http::simulate(&task)
+                    } else {
+                        CoreConnector.execute(&task)
+                    };
+                    run.complete(&task.id, outcome, clock)
+                        .map_err(|e| error(400, e.to_string()))?;
+                }
                 Dispatch::SleepUntil(at) => {
                     if self.mode == Mode::Simulation {
                         clock = at
@@ -186,7 +229,7 @@ impl Workspace {
     }
     pub fn snapshot(&self) -> Result<Value, ApiError> {
         Ok(
-            json!({"workflows":self.workflows,"runs":self.runs.iter().take(100).map(|r|r.view(true)).collect::<Result<Vec<_>,_>>()?,"connectors":connectors_core::manifests()}),
+            json!({"workflows":self.workflows,"runs":self.runs.iter().take(100).map(|r|r.view(true)).collect::<Result<Vec<_>,_>>()?,"connectors":manifests()}),
         )
     }
     fn index(&self, id: &str) -> Result<usize, ApiError> {
@@ -200,8 +243,14 @@ impl Workspace {
             .graph
             .validate()
             .map_err(|e| error(400, e.to_string()))?;
-        let manifests = connectors_core::manifests();
+        let manifests = manifests();
         for node in &document.graph.nodes {
+            if node.kind == "HTTP Request" {
+                let mut node = node.clone();
+                node.config.remove("query");
+                node.config.remove("body");
+                connectors_http::validate(&Task{id:"validate".into(),idempotency_key:"validate".into(),node,input:Value::Null,attempt:1,deadline_ms:1}).map_err(|_|error(400,"Invalid HTTP request: use a public HTTPS URL; write retries and credential headers are unsupported"))?;
+            }
             if !manifests
                 .iter()
                 .any(|m| m.kind == node.kind && m.version == node.version)
@@ -238,6 +287,7 @@ impl Workspace {
         let run = Run::new(id, doc.graph.clone(), input, now, Limits::default())
             .map_err(|e| error(400, e.to_string()))?;
         let mut record = RunRecord {
+            external: None,
             checkpoint: run.checkpoint().map_err(|e| error(400, e.to_string()))?,
             mode,
             created_at: now,
@@ -369,6 +419,9 @@ impl Workspace {
                 .map_err(|e| error(409, e.to_string()))?;
                 record.checkpoint = run.checkpoint().map_err(|e| error(400, e.to_string()))?;
                 record.wake_at = None;
+                if parts[3] == "cancel" {
+                    record.external = None;
+                }
                 if parts[3] == "resume" {
                     record.advance(now)?
                 }
@@ -377,6 +430,56 @@ impl Workspace {
         }
         Err(error(404, "Route not found"))
     }
+    /// Claim before network I/O and persist the returned task with its dispatched marker.
+    pub fn claim_external(&mut self, now: u64) -> Result<Option<(String, Task)>, ApiError> {
+        for record in &mut self.runs {
+            if record.status()? != RunStatus::Running {
+                continue;
+            }
+            let run_id = record.restore()?.id().to_string();
+            if let Some(external) = &mut record.external {
+                if !external.dispatched && now < external.task.deadline_ms {
+                    external.dispatched = true;
+                    record.wake_at = Some(external.task.deadline_ms);
+                    return Ok(Some((run_id, external.task.clone())));
+                }
+            }
+        }
+        Ok(None)
+    }
+    /// Apply to the latest persisted state so pause/cancel cannot be overwritten by I/O.
+    pub fn complete_external(
+        &mut self,
+        id: &str,
+        task_id: &str,
+        outcome: Outcome,
+        now: u64,
+    ) -> Result<bool, ApiError> {
+        let Some(record) = self
+            .runs
+            .iter_mut()
+            .find(|r| r.restore().is_ok_and(|run| run.id() == id))
+        else {
+            return Ok(false);
+        };
+        if !record
+            .external
+            .as_ref()
+            .is_some_and(|e| e.dispatched && e.task.id == task_id)
+        {
+            return Ok(false);
+        }
+        let mut run = record.restore()?;
+        if !matches!(run.status(), RunStatus::Running | RunStatus::Paused) {
+            return Ok(false);
+        }
+        run.complete(task_id, outcome, now)
+            .map_err(|e| error(500, e.to_string()))?;
+        record.external = None;
+        record.checkpoint = run.checkpoint().map_err(|e| error(500, e.to_string()))?;
+        record.advance(now)?;
+        Ok(true)
+    }
     pub fn alarm(&mut self, now: u64) -> Result<(), ApiError> {
         for record in &mut self.runs {
             if record.wake_at.is_some_and(|at| at <= now)
@@ -384,6 +487,7 @@ impl Workspace {
             {
                 record.host_error = Some("engine_transition_failed".into());
                 record.wake_at = None;
+                record.external = None;
             }
         }
         let due: Vec<_> = self
@@ -454,4 +558,10 @@ pub fn schedule(workflow: &Workflow, after: u64) -> Result<Option<Schedule>, Api
     Ok(Some(Schedule {
         at: next.timestamp_millis() as u64,
     }))
+}
+
+pub fn manifests() -> Vec<connector_sdk::NodeManifest> {
+    let mut manifests = connectors_core::manifests();
+    manifests.push(connectors_http::manifest());
+    manifests
 }

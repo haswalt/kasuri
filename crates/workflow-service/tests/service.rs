@@ -91,3 +91,87 @@ fn invalid_cron_is_rejected_without_publishing() {
     );
     assert_eq!(ws.snapshot().unwrap()["workflows"][0]["status"], "draft");
 }
+
+fn http_workspace(method: &str) -> Workspace {
+    let mut ws = Workspace::default();
+    let mut doc = document("Manual Trigger");
+    doc["nodes"][1]["type"] = json!("HTTP Request");
+    doc["nodes"][1]["config"] = json!({"url":"https://api.example.com/items","method":method,"simulationResponse":{"status":200,"body":{"ok":true}}});
+    save(&mut ws, &doc);
+    ws.handle(
+        "POST",
+        "/api/runs",
+        br#"{"workflowId":"flow","mode":"run","input":{}}"#,
+        0,
+        "http-run",
+    )
+    .unwrap();
+    ws
+}
+#[test]
+fn http_dispatch_is_checkpointed_claimed_once_and_completes_after_restart() {
+    let mut ws = http_workspace("GET");
+    assert_eq!(ws.runs[0].view(false).unwrap()["status"], "running");
+    let (id, task) = ws.claim_external(1).unwrap().unwrap();
+    assert!(ws.claim_external(1).unwrap().is_none());
+    let mut ws = Workspace::from_json(&ws.checkpoint().unwrap()).unwrap();
+    assert!(ws.claim_external(2).unwrap().is_none());
+    assert!(
+        ws.complete_external(
+            &id,
+            &task.id,
+            connector_sdk::Outcome::success(json!({"body":[]})),
+            2
+        )
+        .unwrap()
+    );
+    assert_eq!(ws.runs[0].view(false).unwrap()["status"], "succeeded");
+    assert!(
+        !ws.complete_external(&id, &task.id, connector_sdk::Outcome::success(json!({})), 3)
+            .unwrap()
+    );
+}
+#[test]
+fn cancel_and_pause_are_preserved_when_http_result_arrives() {
+    for action in ["pause", "cancel"] {
+        let mut ws = http_workspace("POST");
+        let (id, task) = ws.claim_external(1).unwrap().unwrap();
+        ws.handle("POST", &format!("/api/runs/http-run/{action}"), b"", 2, "")
+            .unwrap();
+        ws.complete_external(&id, &task.id, connector_sdk::Outcome::success(json!({})), 3)
+            .unwrap();
+        assert_eq!(
+            ws.runs[0].view(false).unwrap()["status"],
+            if action == "pause" {
+                "paused"
+            } else {
+                "cancelled"
+            }
+        );
+    }
+}
+#[test]
+fn recovered_write_with_unknown_outcome_is_not_dispatched_again() {
+    let mut ws = http_workspace("POST");
+    let (_, task) = ws.claim_external(1).unwrap().unwrap();
+    let mut ws = Workspace::from_json(&ws.checkpoint().unwrap()).unwrap();
+    ws.alarm(task.deadline_ms).unwrap();
+    assert!(ws.claim_external(task.deadline_ms).unwrap().is_none());
+    assert_eq!(ws.runs[0].view(false).unwrap()["status"], "failed");
+}
+#[test]
+fn http_simulation_never_creates_an_external_dispatch() {
+    let mut ws = http_workspace("GET");
+    let (_, run) = ws
+        .handle(
+            "POST",
+            "/api/runs",
+            br#"{"workflowId":"flow","mode":"simulation","input":{}}"#,
+            1,
+            "http-sim",
+        )
+        .unwrap();
+    assert_eq!(run["status"], "succeeded");
+    assert!(ws.runs[0].external.is_none());
+    assert_eq!(run["nodes"][1]["output"]["body"]["ok"], true);
+}

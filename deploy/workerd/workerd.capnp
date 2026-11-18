@@ -10,7 +10,8 @@ const config :Workerd.Config = (
       bindings = [
         (name = "WORKSPACES", durableObjectNamespace = "WorkflowWorkspace"),
         (name = "ASSETS", service = "assets"),
-        (name = "BASIC_AUTH", fromEnvironment = "BASIC_AUTH")
+        (name = "BASIC_AUTH", fromEnvironment = "BASIC_AUTH"),
+        (name = "HTTP_ALLOWED_HOSTS", fromEnvironment = "HTTP_ALLOWED_HOSTS")
       ],
       durableObjectNamespaces = [(className = "WorkflowWorkspace", uniqueKey = "workspaces", enableSql = true)],
       durableObjectStorage = (localDisk = "storage")

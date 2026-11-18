@@ -30,6 +30,8 @@ spec:
             - name: http
               containerPort: 8080
           env:
+            - name: HTTP_ALLOWED_HOSTS
+              value: ""
             - name: BASIC_AUTH_FILE
               value: /run/secrets/kasuri/credentials
           resources:

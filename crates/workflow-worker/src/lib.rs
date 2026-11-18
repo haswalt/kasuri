@@ -1,4 +1,5 @@
 //! HTTP, SQLite persistence and alarms, implemented directly with workers-rs.
+mod http;
 use base64::{Engine, engine::general_purpose::STANDARD};
 use futures_util::StreamExt;
 use serde::Deserialize;
@@ -206,7 +207,17 @@ impl DurableObject for WorkflowWorkspace {
     async fn alarm(&self) -> Result<Response> {
         let mut workspace = self.load()?;
         workspace.alarm(now()).map_err(internal)?;
+        let claimed = workspace.claim_external(now()).map_err(internal)?;
         self.save(&mut workspace).await?;
+        if let Some((id, task)) = claimed {
+            let outcome = http::execute(&task, &self.env).await;
+            // Requests can pause or cancel a run while the upstream request is outstanding.
+            let mut latest = self.load()?;
+            latest
+                .complete_external(&id, &task.id, outcome, now())
+                .map_err(internal)?;
+            self.save(&mut latest).await?;
+        }
         Response::empty()
     }
 }

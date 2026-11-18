@@ -113,6 +113,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "connectors-http"
+version = "0.1.0"
+dependencies = [
+ "connector-sdk",
+ "serde_json",
+ "url",
+]
+
+[[package]]
 name = "core-foundation-sys"
 version = "0.8.7"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1112,6 +1121,7 @@ dependencies = [
  "chrono-tz",
  "connector-sdk",
  "connectors-core",
+ "connectors-http",
  "croner",
  "serde",
  "serde_json",
@@ -1124,6 +1134,8 @@ name = "workflow-worker"
 version = "0.1.0"
 dependencies = [
  "base64",
+ "connector-sdk",
+ "connectors-http",
  "futures-util",
  "serde",
  "serde_json",

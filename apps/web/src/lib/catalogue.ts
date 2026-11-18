@@ -203,7 +203,7 @@ export const catalogue = [
 ]
 
 export const fields: Record<string, { key: string; label: string; placeholder: string }[]> = {
-  "HTTP Request": [{ key: "url", label: "Request URL", placeholder: "https://api.example.com/data" }, { key: "method", label: "Method", placeholder: "GET" }],
+  "HTTP Request": [{ key: "url", label: "HTTPS URL (host must be approved on deployment)", placeholder: "https://api.example.com/data" }, { key: "method", label: "Method: GET, HEAD, POST, PUT, PATCH, DELETE", placeholder: "GET" }, { key: "query", label: "Query parameters (JSON)", placeholder: '{ "q": { "$input": "/query" } }' }, { key: "headers", label: "Headers (JSON: accept, content-type, user-agent)", placeholder: '{ "accept": "application/json" }' }, { key: "body", label: "JSON request body (write methods only)", placeholder: '{ "name": { "$input": "/name" } }' }, { key: "responseType", label: "Response: json or text", placeholder: "json" }, { key: "simulationResponse", label: "Simulation response (JSON; no network request)", placeholder: '{ "status": 200, "body": { "items": [] } }' }],
   Schedule: [{ key: "cron", label: "Cron expression", placeholder: "0 9 * * *" }, { key: "timezone", label: "Timezone", placeholder: "Europe/London" }],
   Webhook: [{ key: "path", label: "Webhook path", placeholder: "/incoming-event" }],
   "Map / Transform": [{ key: "mapping", label: "Mapping definition", placeholder: '{ "name": { "$input": "/name" } }' }],

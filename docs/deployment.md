@@ -48,3 +48,7 @@ pnpm deploy:check
 ```
 
 Local runtime checks exercise the actual Rust Wasm Worker in workerd, including authentication, simulations, wait recovery after restart, schedule persistence and cross-site protection. No Cloudflare account is needed for these checks.
+
+## HTTP egress
+
+Set the deployment variable `HTTP_ALLOWED_HOSTS` to approved exact public hostnames before using HTTP Request. It defaults to deny all. See [connector configuration, simulation and recovery semantics](connectors.md).

@@ -57,3 +57,7 @@ BASIC_AUTH='username:password' pnpm start
 The process runs from `dist/`, serves on port 8080 and stores data in the root `data/` directory. `dist/` contains the Wasm binary, generated module, assets and `workerd.capnp`. Distribute it with a compatible workerd binary if Node.js is unavailable on the destination. From that directory run `workerd serve workerd.capnp`. The binary itself requires no Node.js runtime.
 
 For a different address or storage path, use workerd's `--socket-addr http=127.0.0.1:8090` and `--directory-path storage=/absolute/data/path` options. Create the storage directory first.
+
+## Outbound HTTP connectors
+
+Set `HTTP_ALLOWED_HOSTS` in the Compose `.env`, standalone environment, or Kubernetes container environment to a comma-separated list of exact public HTTPS hosts. It defaults to deny all; redirects and private destinations are unsupported. See [connector configuration](connectors.md).

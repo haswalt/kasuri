@@ -13,3 +13,4 @@ workflow-engine = { path = "../workflow-engine" }
 chrono = { version = "0.4", default-features = false, features = ["std"] }
 chrono-tz = "0.10"
 croner = "3"
+connectors-http = { path = "../connectors-http" }
