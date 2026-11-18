@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { ReactFlow, ReactFlowProvider, Background, Controls, Handle, Position, MarkerType, useReactFlow, useNodesState, useEdgesState } from '@xyflow/react'
+import { ReactFlow, ReactFlowProvider, Background, Controls, Handle, Position, MarkerType, ConnectionLineType, useReactFlow, useNodesState, useEdgesState } from '@xyflow/react'
 import type { Node, NodeProps, Connection, Edge } from '@xyflow/react'
 import type { Workflow, WorkflowNode } from '../lib/workflows'
 import { addCanvasNode, connect, connectionError, edgeNear, isTrigger, layout, NODE_WIDTH, ports } from '../lib/canvas'
@@ -32,7 +32,7 @@ function Canvas({ workflow, selectedId, select, update, showPalette, addType, on
     setNodes(workflow.nodes.map(node => ({ id: node.id, type: 'workflow', position: positions.get(node.id)!, data: { node }, selected: node.id === selectedId, width: NODE_WIDTH, ariaLabel: `${node.label}, ${node.type}` })))
     setEdges(workflow.edges.map(edge => {
       const port = edge.sourcePort ?? 'success'
-      return { ...edge, sourceHandle: port, targetHandle: 'input', type: 'smoothstep', label: port === 'success' ? undefined : port, markerEnd: { type: MarkerType.ArrowClosed, color: edgeColor(port) }, style: { stroke: edgeColor(port), strokeWidth: 1.8, ...(port === 'error' ? { strokeDasharray: '5 4' } : {}) }, interactionWidth: 24 }
+      return { ...edge, sourceHandle: port, targetHandle: 'input', type: 'default', pathOptions: { curvature: .4 }, label: port === 'success' ? undefined : port, markerEnd: { type: MarkerType.ArrowClosed, color: edgeColor(port) }, style: { stroke: edgeColor(port), strokeWidth: 1.8, ...(port === 'error' ? { strokeDasharray: '5 4' } : {}) }, interactionWidth: 24 }
     }))
   }, [graphKey, selectedId])
   const root = useRef<HTMLElement>(null)
@@ -83,6 +83,7 @@ function Canvas({ workflow, selectedId, select, update, showPalette, addType, on
     <ReactFlow<CanvasNode> nodes={nodes} edges={edges} nodeTypes={nodeTypes} onNodesChange={onNodesChange} onEdgesChange={onEdgesChange}
       onNodeClick={(_, node) => select(node.id)} onPaneClick={() => select(undefined)}
       onNodeDragStop={(_, moved, group) => { const movedPositions = new Map((group.length ? group : [moved]).map(n => [n.id, n.position])); update({ ...workflow, nodes: workflow.nodes.map(n => movedPositions.has(n.id) ? { ...n, position: movedPositions.get(n.id) } : n) }) }}
+      connectionLineType={ConnectionLineType.Bezier}
       onConnect={connection => createConnection(connection)} onReconnectStart={(_, edge) => { reconnectingId.current = edge.id }} onReconnectEnd={() => { reconnectingId.current = undefined }} onReconnect={(old, connection) => createConnection(connection, old.id)}
       isValidConnection={c => !connectionError(workflow, c.source, c.target, c.sourceHandle ?? 'success', reconnectingId.current)}
       onDelete={({ nodes: deletedNodes, edges: deletedEdges }) => { const nodeIds = new Set(deletedNodes.map(n => n.id)); const edgeIds = new Set(deletedEdges.map(e => e.id)); update({ ...workflow, nodes: workflow.nodes.filter(n => !nodeIds.has(n.id)), edges: workflow.edges.filter(e => !edgeIds.has(e.id) && !nodeIds.has(e.source) && !nodeIds.has(e.target)) }); if (selectedId && nodeIds.has(selectedId)) select(undefined) }}
