@@ -10,7 +10,7 @@ Status: selected requirements; not implemented yet. Catalogue entries must remai
 | Cloudflare MCP Portals | Access tools through a Cloudflare-managed MCP portal | Connect to an operator-provided portal endpoint; discover permitted native/aggregated tools; invoke tools within portal and Kasuri policies; support appropriate machine authentication and reconnect behavior |
 | AI Agent | Orchestrate model and tool calls | Combine a model/provider or gateway connection with direct MCP/portal tool sources; bounded iterative execution, structured results, explicit permission/approval policies and audit events |
 
-AI Gateway and MCP Portals are separate integration options. AI Gateway fronts model requests; an MCP portal provides an endpoint for curated MCP server capabilities. Neither replaces Kasuri's planned inbound [MCP management server](agent-mcp.md), which allows external agents to manage Kasuri itself.
+AI Gateway and MCP Portals are separate integration options. AI Gateway fronts model requests; an MCP portal provides an endpoint for curated MCP server capabilities. Neither replaces Kasuri's inbound [MCP management server](agent-mcp.md), which allows external agents to manage Kasuri itself.
 
 ## Implementation requirements
 

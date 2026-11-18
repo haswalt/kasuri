@@ -1,0 +1,14 @@
+[package]
+name = "workflow-mcp"
+version.workspace = true
+edition.workspace = true
+
+[dependencies]
+serde.workspace = true
+serde_json.workspace = true
+workflow-service = { path = "../workflow-service" }
+workflow-schema.workspace = true
+sha2 = "0.10"
+base64 = "0.22"
+subtle = "2"
+url = "2"

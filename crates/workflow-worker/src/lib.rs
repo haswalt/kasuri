@@ -1,5 +1,6 @@
 //! HTTP, SQLite persistence and alarms, implemented directly with workers-rs.
 mod http;
+mod mcp;
 mod webhook;
 use base64::{Engine, engine::general_purpose::STANDARD};
 use futures_util::StreamExt;
@@ -25,6 +26,19 @@ pub async fn main(req: Request, env: Env, _ctx: Context) -> Result<Response> {
     let url = req.url()?;
     if url.path() == "/api/health" && req.method() == Method::Get {
         return Response::from_json(&json!({"ok":true,"engine":"rust-wasm","version":1}));
+    }
+    // Agent endpoints have their own bearer/OAuth authentication; browser cookies
+    // and installation Basic credentials never authorize an MCP request.
+    if let Some(workspace) = mcp::public_workspace(url.path()) {
+        if workspace.len() != 64 || !workspace.bytes().all(|b| b.is_ascii_hexdigit()) {
+            return api_error(404, "MCP workspace not found");
+        }
+        let namespace = env.durable_object("WORKSPACES")?;
+        let id = match namespace.id_from_string(workspace) {
+            Ok(id) => id,
+            Err(_) => return api_error(404, "MCP workspace not found"),
+        };
+        return id.get_stub()?.fetch_with_request(req).await;
     }
     // Webhooks use their own event authentication and never inherit browser cookies.
     if url.path().starts_with("/api/hooks/") {
@@ -107,11 +121,27 @@ pub async fn main(req: Request, env: Env, _ctx: Context) -> Result<Response> {
             .set("X-Content-Type-Options", "nosniff")?;
         return Ok(response);
     }
+    // A configured public origin is explicit trust for a TLS-terminating proxy;
+    // never infer it from arbitrary X-Forwarded-* request headers.
+    let configured_origin = env
+        .var("PUBLIC_ORIGIN")
+        .map(|v| v.to_string())
+        .unwrap_or_default();
+    let expected_origin = if configured_origin.is_empty() {
+        url.origin().ascii_serialization()
+    } else {
+        if Url::parse(&configured_origin).ok().is_none_or(|v| {
+            v.scheme() != "https" || v.origin().ascii_serialization() != configured_origin
+        }) {
+            return api_error(500, "PUBLIC_ORIGIN must be a canonical HTTPS origin");
+        }
+        configured_origin
+    };
     if !matches!(req.method(), Method::Get | Method::Head) {
         let origin = req.headers().get("Origin")?;
         if origin
             .as_ref()
-            .is_some_and(|o| o != url.origin().ascii_serialization().as_str())
+            .is_some_and(|o| o != expected_origin.as_str())
             || req.headers().get("Sec-Fetch-Site")?.as_deref() == Some("cross-site")
         {
             return api_error(403, "Cross-site mutation rejected");
@@ -156,7 +186,7 @@ pub async fn main(req: Request, env: Env, _ctx: Context) -> Result<Response> {
             "Set-Cookie",
             &format!(
                 "kasuri_session={id}.{session_token}; HttpOnly; SameSite=Strict; Path=/; Max-Age=31536000{}",
-                if url.scheme() == "https" {
+                if expected_origin.starts_with("https://") {
                     "; Secure"
                 } else {
                     ""
@@ -208,12 +238,18 @@ impl DurableObject for WorkflowWorkspace {
     }
     async fn fetch(&self, mut req: Request) -> Result<Response> {
         let path = req.url()?.path().to_string();
+        if mcp::public_workspace(&path).is_some() {
+            return self.mcp_public(req).await;
+        }
         if path.starts_with("/api/hooks/") {
             return self.incoming_webhook(req).await;
         }
         let token = req.headers().get("X-Kasuri-Session")?.unwrap_or_default();
         if !self.authorize_session(&token)? {
             return api_error(403, "Invalid workspace session");
+        }
+        if path == "/api/mcp" || path.starts_with("/api/mcp/") {
+            return self.mcp_management(req).await;
         }
         if let Some(response) = self.webhook_management(&path, req.method()).await? {
             return Ok(response);
@@ -236,6 +272,16 @@ impl DurableObject for WorkflowWorkspace {
             .durable_object("WORKSPACES")?
             .unique_id()?
             .to_string();
+        if path == "/api/audit" && req.method() == Method::Get {
+            let url = req.url()?;
+            let pairs: std::collections::HashMap<_, _> = url.query_pairs().into_owned().collect();
+            let after = pairs.get("after").and_then(|s| s.parse().ok()).unwrap_or(0);
+            let limit = pairs
+                .get("limit")
+                .and_then(|s| s.parse().ok())
+                .unwrap_or(100);
+            return Response::from_json(&workspace.audit_page(after, limit));
+        }
         let result = workspace.handle(
             &req.method().to_string(),
             req.url()?.path(),
@@ -248,7 +294,10 @@ impl DurableObject for WorkflowWorkspace {
                 self.save(&mut workspace).await?;
                 Ok(Response::from_json(&value)?.with_status(status))
             }
-            Err(error) => api_error(error.status, &error.message),
+            Err(error) => {
+                self.save(&mut workspace).await?;
+                api_error(error.status, &error.message)
+            }
         }
     }
     async fn alarm(&self) -> Result<Response> {

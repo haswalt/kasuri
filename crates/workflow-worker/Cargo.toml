@@ -18,3 +18,6 @@ futures-util = "0.3"
 connectors-http = { path = "../connectors-http" }
 connector-sdk.workspace = true
 connectors-webhook = { path = "../connectors-webhook" }
+
+workflow-mcp = { path = "../workflow-mcp" }
+url = "2"

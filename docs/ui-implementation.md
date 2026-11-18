@@ -10,7 +10,7 @@ Light, dark and system appearance use the supplied token system. Fonts and brand
 
 There is no demo mode or seeded production data. Unsupported features have explicit unavailable states:
 
-- Connections, account management, API tokens, team membership, audit records and the MCP server need backend implementation.
+- Connections, account management, general API tokens and team membership need backend implementation. The MCP portal now manages scoped agent credentials and OAuth consent; the audit view reads actual retained management records.
 - Delete/restore and separate draft/live revision storage are not available.
 - Runs expose outputs, attempts, errors and durable wake times. Detailed timings, logs, historical step inputs and checkpoint replay are unavailable.
 - Simulation uses the Rust engine and plays back its final node snapshots. It is not a live execution event stream. HTTP simulation requires explicit response fixtures.

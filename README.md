@@ -51,9 +51,9 @@ Manual, authenticated webhook and cron triggers; mapping, conditions, merge, del
 
 An HttpOnly cookie with a workspace routing ID and a separate random session token selects a browser workspace. Data persists until removed from storage; clearing the cookie loses access to that workspace. This is capability-based isolation, not user accounts or team membership. Protect private deployments with Cloudflare Access or the optional Basic authentication binding. External credential storage, account permissions and production operations remain future work.
 
-## Planned agent interface
+## Agent management through MCP
 
-Kasuri must expose an authenticated MCP server so agents can build and manage workflows, execute and inspect runs, and audit changes and execution history. This is a planned Rust backend capability, with workspace-scoped permissions, revision checks, redacted results and attributable audit records. See [agent MCP requirements](docs/agent-mcp.md). It is separate from the planned MCP Client workflow connector. [Agentic connector requirements](docs/agentic-connectors.md) include Cloudflare AI Gateway and Cloudflare MCP Portals as model-routing and tool-access options.
+Kasuri exposes a Rust/Wasm MCP endpoint for agents to build and manage workflows, simulate or execute runs, and read retained audit records. The MCP portal creates revocable, scoped bearer credentials and approves OAuth connections using PKCE. Read, edit, simulation, publication, execution and run control are separate permissions. See [connection and authorization setup](docs/mcp.md) and the [remaining MCP requirements](docs/agent-mcp.md). This inbound endpoint is separate from the planned MCP Client workflow connector. [Agentic connector requirements](docs/agentic-connectors.md) include Cloudflare AI Gateway and Cloudflare MCP Portals as model-routing and tool-access options.
 
 Completed changes use Conventional Commits. See [engine details](docs/workflow-engine.md).
 

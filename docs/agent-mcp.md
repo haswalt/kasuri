@@ -1,6 +1,10 @@
 # Agent management through MCP
 
-Status: required roadmap capability; not implemented yet.
+Status: initial implementation available. See [MCP connection and authorization setup](mcp.md).
+
+The Rust endpoint now implements scoped bearer credentials, OAuth discovery/DCR/PKCE with owner consent and rotating refresh tokens, connector discovery, workflow list/get/create/update/clone/validate/publish/pause/resume, run list/get/simulate/start/control, and bounded audit reads. The portal issues/revokes credentials and displays audit records. Mutation receipts and edit-version checks protect retries and concurrent edits.
+
+The requirements below remain the longer-term acceptance target. Historical revision storage/diff, detailed execution events/timings, per-resource grants, generalized connection-vault configuration and MCP resources are not implemented or advertised. Audit retention is currently 1,000 records, with gap metadata. Protocol support is the 2025 Streamable HTTP family, not the 2026 per-request protocol.
 
 Kasuri must expose an MCP server so agents can discover, build, validate, manage and audit workflows and their runs. This is an inbound management interface for agents connecting to Kasuri. The planned MCP Client connector serves a separate purpose: allowing a workflow to call tools on another MCP server. Cloudflare AI Gateway and Cloudflare MCP Portals are also selected [agentic connector options](agentic-connectors.md).
 

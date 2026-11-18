@@ -24,7 +24,12 @@ impl WorkflowWorkspace {
             Ok(bool::from(row.hash.as_bytes().ct_eq(digest.as_bytes())))
         } else {
             // Fail closed if a partial restore kept public webhook routing but lost session auth.
-            if !self.load()?.webhooks.is_empty() {
+            if {
+                let workspace = self.load()?;
+                !workspace.webhooks.is_empty()
+                    || !workspace.workflows.is_empty()
+                    || !workspace.management.is_null()
+            } {
                 return Ok(false);
             }
             sql.exec(

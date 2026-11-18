@@ -1126,6 +1126,20 @@ dependencies = [
 ]
 
 [[package]]
+name = "workflow-mcp"
+version = "0.1.0"
+dependencies = [
+ "base64",
+ "serde",
+ "serde_json",
+ "sha2",
+ "subtle",
+ "url",
+ "workflow-schema",
+ "workflow-service",
+]
+
+[[package]]
 name = "workflow-schema"
 version = "0.1.0"
 dependencies = [
@@ -1163,7 +1177,9 @@ dependencies = [
  "serde_json",
  "sha2",
  "subtle",
+ "url",
  "worker",
+ "workflow-mcp",
  "workflow-service",
 ]
 

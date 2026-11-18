@@ -9,7 +9,7 @@
     "build:worker": "worker-build crates/workflow-worker --release --no-opt",
     "build:web": "pnpm --filter web build",
     "build:selfhost": "pnpm build && node scripts/build-selfhost.mjs",
-    "start": "cd dist && workerd serve workerd.capnp",
+    "start": "sh scripts/start-selfhost.sh",
     "dev:web": "pnpm --filter web dev",
     "test": "pnpm test:web && pnpm test:rust && pnpm test:runtime",
     "test:web": "pnpm --filter web test",

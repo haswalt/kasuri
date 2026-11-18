@@ -12,6 +12,7 @@ const config :Workerd.Config = (
         (name = "WORKSPACES", durableObjectNamespace = "WorkflowWorkspace"),
         (name = "ASSETS", service = "assets"),
         (name = "BASIC_AUTH", fromEnvironment = "BASIC_AUTH"),
+        (name = "PUBLIC_ORIGIN", fromEnvironment = "PUBLIC_ORIGIN"),
         (name = "HTTP_ALLOWED_HOSTS", fromEnvironment = "HTTP_ALLOWED_HOSTS"),
         (name = "HTTP_PRIVATE_HOSTS", fromEnvironment = "HTTP_PRIVATE_HOSTS"),
         (name = "HTTP_SECRETS", fromEnvironment = "HTTP_SECRETS")

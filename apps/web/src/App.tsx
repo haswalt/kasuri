@@ -1,3 +1,4 @@
+import { McpManagement, AuditLog } from './components/McpManagement'
 import { Button } from './design/ui'
 import { styles } from './design/styles'
 import { lazy, Suspense, useEffect, useRef, useState } from 'react'
@@ -259,8 +260,13 @@ export default function App() {
   }
   function act(w: Workflow, action: string) {
     void perform(async () => {
-      if (dirty.current.has(w.id)) await save(w)
-      replace(await api.workflowAction(w.id, action))
+      const current = dirty.current.has(w.id) ? await save(w) : w
+      const changed = await api.workflowAction(
+        current.id,
+        action,
+        current.version
+      )
+      replace(changed)
       setNotice(
         action === 'publish'
           ? 'Workflow published.'
@@ -274,7 +280,8 @@ export default function App() {
           replace(
             await api.workflowAction(
               w.id,
-              action === 'pause' ? 'resume' : 'pause'
+              action === 'pause' ? 'resume' : 'pause',
+              changed.version
             )
           )
           setNotice('Change undone.')
@@ -308,8 +315,8 @@ export default function App() {
   async function execute(mode: 'run' | 'simulation', target = workflow) {
     if (!target) return
     const parsed = JSON.parse(input)
-    if (dirty.current.has(target.id)) await save(target)
-    const run = await api.run(target.id, mode, parsed)
+    const current = dirty.current.has(target.id) ? await save(target) : target
+    const run = await api.run(current.id, mode, parsed, current.version)
     inspect(run)
   }
   function showRun(target: Workflow) {
@@ -777,8 +784,15 @@ export default function App() {
                 setInput={setInput}
                 busy={disabled}
                 runSimulation={async () => {
-                  if (dirtyIds.has(workflow.id)) await save(workflow)
-                  return api.run(workflow.id, 'simulation', JSON.parse(input))
+                  const current = dirtyIds.has(workflow.id)
+                    ? await save(workflow)
+                    : workflow
+                  return api.run(
+                    current.id,
+                    'simulation',
+                    JSON.parse(input),
+                    current.version
+                  )
                 }}
                 runLive={() => showRun(workflow)}
               />
@@ -1485,86 +1499,9 @@ export default function App() {
                 </div>
               </>
             ) : route.page === 'mcp' ? (
-              <>
-                <PageHeader
-                  eyebrow="MODEL CONTEXT PROTOCOL"
-                  title="MCP server"
-                  description="Let external agents connect to Kasuri to build, manage and audit workflows."
-                  actions={
-                    <Button disabled title="The MCP server is not implemented">
-                      <Icon name="plus" />
-                      Expose a workflow
-                    </Button>
-                  }
-                />
-                <section className={styles.statStrip}>
-                  <div className={styles.statGrid}>
-                    {[
-                      ['Endpoint', 'Not configured'],
-                      ['Transport', 'Planned'],
-                      ['Authentication', 'Scoped credentials'],
-                      ['Status', 'Not implemented']
-                    ].map(([label, value]) => (
-                      <div className={styles.stat} key={label}>
-                        <span>{label}</span>
-                        <strong className={'small-stat'}>{value}</strong>
-                      </div>
-                    ))}
-                  </div>
-                </section>
-                <div className={styles.connectionsLayout}>
-                  <section className={styles.panel}>
-                    <div className={styles.panelHeading}>
-                      <h2>Workflows exposed as tools</h2>
-                      <span className={styles.chip}>Planned</span>
-                    </div>
-                    <Empty
-                      icon="plug"
-                      title="Agent management is on the roadmap"
-                    >
-                      The MCP endpoint will share workflow validation and
-                      execution with this app. No management endpoint or client
-                      tokens have been issued.
-                    </Empty>
-                  </section>
-                  <aside
-                    className={styles.panel + ' ' + styles.connectionDetail}
-                  >
-                    <Icon name="plug" size={28} />
-                    <h2>Two directions, distinct access</h2>
-                    <p>
-                      This page is for agents connecting to Kasuri. Outbound MCP
-                      servers and Cloudflare MCP Portals will live under
-                      Connections.
-                    </p>
-                    <Button onClick={() => navigate('connections')}>
-                      View connections <Icon name="runs" />
-                    </Button>
-                  </aside>
-                </div>
-              </>
+              <McpManagement authorizeId={route.query.get('authorize')} />
             ) : route.page === 'audit' ? (
-              <>
-                <PageHeader
-                  eyebrow="GOVERNANCE"
-                  title="Audit log"
-                  description="Attributable workflow changes and agent activity."
-                />
-                <section className={styles.panel}>
-                  <Empty
-                    icon="file"
-                    title="Audit records are not available yet"
-                    action={
-                      <Button onClick={() => navigate('runs')}>
-                        View run history
-                      </Button>
-                    }
-                  >
-                    An append-only management audit API is planned. Current
-                    execution outcomes are available in Runs.
-                  </Empty>
-                </section>
-              </>
+              <AuditLog />
             ) : route.page === 'login' || route.page === 'setup' ? (
               <section className={styles.panel}>
                 <Empty
