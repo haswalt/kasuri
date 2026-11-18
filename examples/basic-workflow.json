@@ -1,0 +1,21 @@
+{
+  "schemaVersion": 1,
+  "id": "example-triage",
+  "name": "Event triage",
+  "description": "Map an event, branch on priority and defer urgent events before joining.",
+  "revision": 1,
+  "nodes": [
+    { "id": "start", "type": "Manual Trigger", "label": "Receive event", "config": {} },
+    { "id": "map", "type": "Map / Transform", "label": "Select fields", "config": { "mapping": "{\"priority\":{\"$input\":\"/priority\"},\"title\":{\"$input\":\"/title\"},\"source\":\"kasuri\"}" } },
+    { "id": "condition", "type": "IF / Condition", "label": "Is urgent?", "config": { "pointer": "/priority", "equals": "urgent" } },
+    { "id": "wait", "type": "Wait / Delay", "label": "Defer urgent event", "config": { "delayMs": "1000" } },
+    { "id": "done", "type": "Merge", "label": "Collect result", "config": {} }
+  ],
+  "edges": [
+    { "id": "e1", "source": "start", "target": "map" },
+    { "id": "e2", "source": "map", "target": "condition" },
+    { "id": "e3", "source": "condition", "target": "wait", "sourcePort": "true" },
+    { "id": "e4", "source": "condition", "target": "done", "sourcePort": "false" },
+    { "id": "e5", "source": "wait", "target": "done" }
+  ]
+}

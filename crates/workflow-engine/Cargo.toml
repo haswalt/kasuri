@@ -1,0 +1,13 @@
+[package]
+name = "workflow-engine"
+version.workspace = true
+edition.workspace = true
+
+[dependencies]
+serde.workspace = true
+serde_json.workspace = true
+workflow-schema.workspace = true
+connector-sdk.workspace = true
+
+[dev-dependencies]
+connectors-core.workspace = true

@@ -6,7 +6,9 @@
   "scripts": {
     "dev": "pnpm --filter web dev",
     "build": "pnpm --filter web build",
-    "test": "pnpm --filter web test"
+    "test": "pnpm test:web && pnpm test:rust",
+    "test:web": "pnpm --filter web test",
+    "test:rust": "cargo test --workspace"
   },
   "keywords": [],
   "author": "",

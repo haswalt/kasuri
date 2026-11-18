@@ -1,0 +1,9 @@
+[package]
+name = "connectors-core"
+version.workspace = true
+edition.workspace = true
+
+[dependencies]
+serde_json.workspace = true
+connector-sdk.workspace = true
+workflow-schema.workspace = true

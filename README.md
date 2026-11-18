@@ -11,7 +11,7 @@ pnpm install
 pnpm dev
 ```
 
-Vite prints the local preview URL. Run `pnpm build` for a production build and `pnpm test` for graph validation/import tests.
+Vite prints the local preview URL. Run `pnpm build` for a frontend production build and `pnpm test` for the frontend and Rust test suites (Rust is required for the latter).
 
 ## Current frontend
 
@@ -33,6 +33,16 @@ The first editor supports connected sequential graphs only. Branches, drag/drop,
 
 ## Next implementation slice
 
-Introduce a shared workflow-schema package and validated API, then build the execution foundation (manual/webhook/schedule, HTTP, mapping and conditions), followed by durable execution and the first D1/Slack demo in the spec's delivery order. Cloudflare runtime limits and connector operation contracts must be verified before implementing the backend.
+Expose the Rust workflow contract through a TypeScript/Wasm boundary and authenticated API, add a durable Cloudflare host and HTTP adapter, then build the first D1/Slack demo in the spec's delivery order. Cloudflare runtime limits and connector operation contracts must be verified during the deployment spike.
 
-Existing Rust workspace scaffolding is retained; it is not required to run the frontend.
+## Rust engine
+
+The engine foundation is implemented in `crates/workflow-schema`, `crates/connector-sdk`, `crates/connectors-core` and `crates/workflow-engine`. It supports validated DAGs, declarative core nodes, typed branches and joins, nonblocking waits, retries, timeouts, pause/cancel, bounded execution and serializable recovery checkpoints. The UI is not wired to the Rust engine yet.
+
+```sh
+cargo run -p workflow-engine --example run -- examples/basic-workflow.json examples/input.json
+cargo test --workspace
+cargo clippy --workspace --all-targets -- -D warnings
+```
+
+The example executes core logic with a virtual clock and no external services. See [the engine guide](docs/workflow-engine.md) for host persistence requirements, configuration, limits and remaining integrations. Rust is not required to run the frontend alone.
