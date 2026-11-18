@@ -19,3 +19,6 @@ secrets/
 
 # Official worker-build output
 crates/workflow-worker/build/
+
+# Panda CSS generated styling API
+apps/web/styled-system/

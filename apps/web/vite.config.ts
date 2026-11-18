@@ -1,9 +1,10 @@
 import react from '@vitejs/plugin-react'
+import pandacss from '@pandacss/vite'
 import { defineConfig } from 'vite'
 
 // https://vite.dev/config/
 export default defineConfig({
-  plugins: [react()],
+  plugins: [pandacss(), react()],
   server: {
     proxy: {
       '/api': {

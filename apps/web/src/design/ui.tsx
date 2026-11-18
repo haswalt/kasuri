@@ -1,6 +1,9 @@
+import { button, statusPill, categoryTile } from '../../styled-system/recipes'
+import { cx } from '../../styled-system/css'
+import type { ComponentPropsWithRef } from 'react'
+import { styles } from './styles'
 import { useEffect, useRef, useState } from 'react'
 import type { ReactNode, KeyboardEventHandler } from 'react'
-import { categoryTone } from './tokens'
 import { category, nodeIcon, tone } from './ui-model'
 const paths: Record<string, string[]> = {
   diamond: ['M12 3 21 12 12 21 3 12Z'],
@@ -79,23 +82,22 @@ export function Icon({
 }
 export function Brand({ compact = false }: { compact?: boolean }) {
   return (
-    <span className="brand">
+    <span className={styles.brand}>
       <img src="/brand/kasuri-mark.svg" width="28" height="28" alt="" />
       {!compact && (
         <>
           <b>kasuri</b>
-          <span className="alpha">alpha</span>
+          <span className={styles.alpha}>alpha</span>
         </>
       )}
     </span>
   )
 }
 export function Tile({ kind, size = 32 }: { kind: string; size?: number }) {
-  const t = categoryTone[category(kind)]
   return (
     <span
-      className="category-tile"
-      style={{ width: size, height: size, color: t.fg, background: t.bg }}
+      className={categoryTile({ category: category(kind) })}
+      style={{ width: size, height: size }}
     >
       <Icon name={nodeIcon(kind)} size={size / 2} />
     </span>
@@ -103,11 +105,17 @@ export function Tile({ kind, size = 32 }: { kind: string; size?: number }) {
 }
 export function Pill({ status, label }: { status: string; label?: string }) {
   const t = tone(status)
+  const aliases: Record<string, string> = {
+    success: 'succeeded',
+    retry: 'retrying',
+    pending: 'queued',
+    skipped: 'cancelled'
+  }
+  const value = aliases[status] || status
+  const variant =
+    statusPill.variantMap.status.find((item) => item === value) || 'neutral'
   return (
-    <span
-      className={'pill ' + status}
-      style={{ color: t.fg, background: t.bg }}
-    >
+    <span className={statusPill({ status: variant })}>
       <i />
       {label || t.label}
     </span>
@@ -125,13 +133,13 @@ export function PageHeader({
   actions?: ReactNode
 }) {
   return (
-    <div className="page-heading">
+    <div className={styles.pageHeading}>
       <div>
-        <div className="eyebrow">{eyebrow}</div>
+        <div className={styles.eyebrow}>{eyebrow}</div>
         <h1>{title}</h1>
         <p>{description}</p>
       </div>
-      <div className="actions">{actions}</div>
+      <div className={styles.actions}>{actions}</div>
     </div>
   )
 }
@@ -147,8 +155,8 @@ export function Empty({
   action?: ReactNode
 }) {
   return (
-    <div className="empty">
-      <span className="empty-icon">
+    <div className={styles.empty}>
+      <span className={styles.emptyIcon}>
         <Icon name={icon} size={24} />
       </span>
       <h2>{title}</h2>
@@ -167,7 +175,7 @@ export function Search({
   placeholder?: string
 }) {
   return (
-    <label className="search">
+    <label className={styles.search}>
       <Icon name="search" />
       <input
         data-search
@@ -209,7 +217,7 @@ export function Menu({
     document.addEventListener('pointerdown', close)
     document.addEventListener('keydown', key)
     root.current
-      ?.querySelectorAll('.menu-panel button,.menu-panel a')
+      ?.querySelectorAll('[role=menu] button,[role=menu] a')
       .forEach((el) => {
         if (!el.getAttribute('role')) el.setAttribute('role', 'menuitem')
       })
@@ -219,10 +227,10 @@ export function Menu({
     }
   }, [open])
   return (
-    <div className="menu-root" ref={root}>
-      <button
+    <div className={styles.menuRoot} ref={root}>
+      <Button
         ref={trigger}
-        className={iconOnly ? 'icon-button' : 'menu-trigger'}
+        className={iconOnly ? styles.iconButton : styles.menuTrigger}
         aria-label={iconOnly ? 'Workflow actions' : undefined}
         aria-haspopup="menu"
         aria-expanded={open}
@@ -239,17 +247,17 @@ export function Menu({
             setOpen(true)
             requestAnimationFrame(() =>
               root.current
-                ?.querySelector<HTMLButtonElement>('.menu-panel button')
+                ?.querySelector<HTMLButtonElement>('[role=menu] button')
                 ?.focus()
             )
           }
         }}
       >
         {label}
-      </button>
+      </Button>
       {open && (
         <div
-          className={'menu-panel ' + (up || autoUp ? 'up' : '')}
+          className={styles.menuPanel + ' ' + (up || autoUp ? 'up' : '')}
           role="menu"
           onClick={(e) => {
             if ((e.target as Element).closest('button:not(:disabled),a'))
@@ -305,7 +313,7 @@ export function Dialog({
   }, [])
   return (
     <dialog
-      className={'dialog ' + className}
+      className={styles.dialog + ' ' + className}
       ref={ref}
       aria-label={title}
       aria-modal="true"
@@ -318,17 +326,37 @@ export function Dialog({
         if (e.target === ref.current) onClose()
       }}
     >
-      <div className="dialog-title">
+      <div className={styles.dialogTitle}>
         <h2>{title}</h2>
-        <button
-          className="icon-button"
+        <Button
+          className={styles.iconButton}
           aria-label="Close dialog"
           onClick={onClose}
         >
           <Icon name="close" />
-        </button>
+        </Button>
       </div>
       {children}
     </dialog>
+  )
+}
+
+/** Native button semantics with shared visual and tone variants. */
+export function Button({
+  visual,
+  tone,
+  className,
+  ...props
+}: ComponentPropsWithRef<'button'> & {
+  visual?: 'default' | 'primary' | 'ghost'
+  tone?: 'default' | 'danger'
+}) {
+  return (
+    <button
+      data-visual={visual || 'default'}
+      data-tone={tone || 'default'}
+      className={cx(button({ visual, tone }), className)}
+      {...props}
+    />
   )
 }

@@ -1,3 +1,5 @@
+import { Button } from '../design/ui'
+import { styles } from '../design/styles'
 import { useEffect, useState } from 'react'
 import type { Workflow } from '../lib/workflows'
 import { removeNode, validateWorkflow } from '../lib/workflows'
@@ -189,16 +191,20 @@ export function WorkflowEditor({
   return (
     <>
       <div
-        className={'simulation-toolbar ' + (!simulate ? 'build-toolbar' : '')}
+        className={
+          styles.simulationToolbar +
+          ' ' +
+          (!simulate ? styles.buildToolbar : '')
+        }
       >
         {simulate ? (
           <>
             <div>
-              <span className="eyebrow">SIMULATION</span>
+              <span className={styles.eyebrow}>SIMULATION</span>
               <p>Draft results · external calls are mocked, never sent</p>
             </div>
-            <button
-              className="primary"
+            <Button
+              visual="primary"
               disabled={busy || pending}
               onClick={() => void play()}
             >
@@ -218,8 +224,8 @@ export function WorkflowEditor({
                   : result && cursor >= result.nodes.length
                     ? 'Replay results'
                     : 'Play'}
-            </button>
-            <button
+            </Button>
+            <Button
               disabled={!result || cursor >= result.nodes.length}
               onClick={() => {
                 setPlaying(false)
@@ -229,8 +235,8 @@ export function WorkflowEditor({
             >
               <Icon name="step" />
               Step
-            </button>
-            <button
+            </Button>
+            <Button
               disabled={!result}
               onClick={() => {
                 setResult(null)
@@ -240,19 +246,19 @@ export function WorkflowEditor({
             >
               <Icon name="reset" />
               Reset
-            </button>
-            <span className="segmented">
+            </Button>
+            <span className={styles.segmented}>
               {[0.5, 1, 2].map((s) => (
-                <button
+                <Button
                   key={s}
                   aria-pressed={speed === s}
                   onClick={() => setSpeed(s)}
                 >
                   {s}×
-                </button>
+                </Button>
               ))}
             </span>
-            <span className="simulation-progress">
+            <span className={styles.simulationProgress}>
               <small>
                 Step {cursor} of {result?.nodes.length || 0}
               </small>
@@ -284,35 +290,35 @@ export function WorkflowEditor({
               Build your draft
             </span>
             <p>Drag nodes onto the canvas. Drop on a connection to insert.</p>
-            <button disabled={busy} onClick={runLive}>
+            <Button disabled={busy} onClick={runLive}>
               <Icon name="play" />
               Run now
-            </button>
+            </Button>
           </>
         )}
       </div>
       {error && (
-        <div className="editor-error" role="alert">
+        <div className={styles.editorError} role="alert">
           <Icon name="warning" />
           {error}
-          <button
-            className="icon-button"
+          <Button
+            className={styles.iconButton}
             aria-label="Dismiss editor error"
             onClick={() => setError('')}
           >
             <Icon name="close" />
-          </button>
+          </Button>
         </div>
       )}
-      <div className="editor-layout">
-        <aside className="node-sidebar">
+      <div className={styles.editorLayout}>
+        <aside className={styles.nodeSidebar}>
           {simulate ? (
             <>
-              <div className="panel-heading">
-                <span className="eyebrow">TEST INPUT</span>
+              <div className={styles.panelHeading}>
+                <span className={styles.eyebrow}>TEST INPUT</span>
               </div>
-              <div className="panel-body">
-                <p className="muted">
+              <div className={'panel-body'}>
+                <p className={styles.muted}>
                   This input runs against the saved draft. HTTP nodes require
                   explicit simulation response fixtures.
                 </p>
@@ -320,18 +326,18 @@ export function WorkflowEditor({
                   Current input · JSON
                   <textarea
                     aria-label="Test input JSON"
-                    className="mono"
+                    className={styles.mono}
                     rows={15}
                     value={input}
                     onChange={(e) => setInput(e.target.value)}
                     spellCheck={false}
                   />
                 </label>
-                <button onClick={() => go(path('runs'))}>
+                <Button onClick={() => go(path('runs'))}>
                   <Icon name="plus" />
                   Pin input from a past run
-                </button>
-                <div className="info-box">
+                </Button>
+                <div className={styles.infoBox}>
                   Playback inspects final node snapshots returned by the Rust
                   simulation. Per-attempt event streaming is not available yet.
                 </div>
@@ -339,7 +345,7 @@ export function WorkflowEditor({
             </>
           ) : (
             <>
-              <div className="palette-search">
+              <div className={styles.paletteSearch}>
                 <Icon name="search" />
                 <input
                   data-search
@@ -350,7 +356,7 @@ export function WorkflowEditor({
                 />
                 <kbd>/</kbd>
               </div>
-              <div className="palette-content">
+              <div className={styles.paletteContent}>
                 {groups.map(([key, label]) => {
                   const items = connectors.filter(
                     (c) =>
@@ -359,7 +365,7 @@ export function WorkflowEditor({
                   )
                   return items.length ? (
                     <section key={key}>
-                      <div className="palette-group">
+                      <div className={styles.paletteGroup}>
                         <span>{label}</span>
                         <small>{items.length}</small>
                       </div>
@@ -368,8 +374,8 @@ export function WorkflowEditor({
                           triggers.includes(c.kind) &&
                           workflow.nodes.some((n) => triggers.includes(n.type))
                         return (
-                          <button
-                            className="palette-node"
+                          <Button
+                            className={styles.paletteNode}
                             key={c.kind}
                             disabled={disabled}
                             draggable={!disabled}
@@ -393,7 +399,7 @@ export function WorkflowEditor({
                             <Tile kind={c.kind} size={22} />
                             <span>{c.kind}</span>
                             <Icon name="plus" size={12} />
-                          </button>
+                          </Button>
                         )
                       })}
                     </section>
@@ -402,12 +408,12 @@ export function WorkflowEditor({
                 {!connectors.some((c) =>
                   c.kind.toLowerCase().includes(search.toLowerCase())
                 ) && (
-                  <p className="palette-empty">
+                  <p className={styles.paletteEmpty}>
                     No matching implemented nodes.
                   </p>
                 )}
               </div>
-              <div className="palette-note">
+              <div className={styles.paletteNote}>
                 <Icon name="lock" />
                 Only implemented nodes are shown.
               </div>
@@ -431,16 +437,18 @@ export function WorkflowEditor({
           states={simulate ? states : undefined}
           readOnly={simulate}
         />
-        <aside className="inspector">
+        <aside className={styles.inspector}>
           {simulate ? (
             <>
-              <div className="panel-heading">
+              <div className={styles.panelHeading}>
                 <h2>Execution results</h2>
                 {result && (
-                  <small className="mono">{result.id.slice(0, 10)}…</small>
+                  <small className={styles.mono}>
+                    {result.id.slice(0, 10)}…
+                  </small>
                 )}
               </div>
-              <div className="execution-log">
+              <div className={styles.executionLog}>
                 {!result ? (
                   <Empty icon="play" title="Ready to simulate">
                     Choose an input and press Play. External services will not
@@ -448,12 +456,12 @@ export function WorkflowEditor({
                   </Empty>
                 ) : (
                   result.nodes.slice(0, cursor).map((n, i) => (
-                    <button
+                    <Button
                       className={n.id === nodeId ? 'selected' : ''}
                       key={n.id}
                       onClick={() => setNodeId(n.id)}
                     >
-                      <span className={'step-dot ' + n.status} />
+                      <span className={styles.stepDot + ' ' + n.status} />
                       <div>
                         <strong>{n.label}</strong>
                         <small>
@@ -463,26 +471,26 @@ export function WorkflowEditor({
                         </small>
                       </div>
                       <small>{i + 1}</small>
-                    </button>
+                    </Button>
                   ))
                 )}
                 {result && cursor === result.nodes.length && (
-                  <div className="result-finished">
+                  <div className={styles.resultFinished}>
                     <Pill status={result.status} />
                     <small>Simulation complete</small>
                   </div>
                 )}
               </div>
-              <div className="panel-body selected-node-data">
-                <div className="eyebrow">SELECTED NODE DATA</div>
+              <div className={'panel-body' + ' ' + styles.selectedNodeData}>
+                <div className={styles.eyebrow}>SELECTED NODE DATA</div>
                 <h3>{node?.label || 'Select a node'}</h3>
-                <span className="eyebrow">INPUT</span>
+                <span className={styles.eyebrow}>INPUT</span>
                 <pre>
                   {selectedResult && result?.nodes[0]?.id === selectedResult.id
                     ? JSON.stringify(result.input, null, 2)
                     : '// Step input is not available in this run record'}
                 </pre>
-                <span className="eyebrow">OUTPUT</span>
+                <span className={styles.eyebrow}>OUTPUT</span>
                 <pre>
                   {selectedResult &&
                   cursor > result!.nodes.indexOf(selectedResult)
@@ -495,27 +503,35 @@ export function WorkflowEditor({
             </>
           ) : node ? (
             <>
-              <div className="inspector-heading">
-                <span className="eyebrow">NODE CONFIGURATION</span>
-                <span className="mono muted node-id">{node.id}</span>
+              <div className={styles.inspectorHeading}>
+                <span className={styles.eyebrow}>NODE CONFIGURATION</span>
+                <span
+                  className={
+                    styles.mono + ' ' + styles.muted + ' ' + styles.nodeId
+                  }
+                >
+                  {node.id}
+                </span>
                 <div>
                   <Tile kind={node.type} size={26} />
                   <strong>{node.type}</strong>
-                  <span className="mono muted">v{node.version || 1}</span>
+                  <span className={styles.mono + ' ' + styles.muted}>
+                    v{node.version || 1}
+                  </span>
                 </div>
               </div>
-              <div className="underline-tabs">
+              <div className={styles.underlineTabs}>
                 {['Parameters', 'Settings', 'Output'].map((t) => (
-                  <button
+                  <Button
                     key={t}
                     aria-pressed={tab === t}
                     onClick={() => setTab(t)}
                   >
                     {t}
-                  </button>
+                  </Button>
                 ))}
               </div>
-              <div className="inspector-scroll">
+              <div className={styles.inspectorScroll}>
                 {tab === 'Parameters' ? (
                   <>
                     <label>
@@ -590,7 +606,7 @@ export function WorkflowEditor({
                             </select>
                           ) : multiline ? (
                             <textarea
-                              className="mono"
+                              className={styles.mono}
                               rows={4}
                               value={value}
                               placeholder={meta?.placeholder}
@@ -610,7 +626,7 @@ export function WorkflowEditor({
                                 key === 'cron' ||
                                 key === 'url' ||
                                 key === 'pointer'
-                                  ? 'mono'
+                                  ? styles.mono
                                   : ''
                               }
                               value={value}
@@ -629,9 +645,11 @@ export function WorkflowEditor({
                       )
                     })}
                     {node.type === 'Webhook' && (
-                      <section className="webhook-settings">
-                        <h2 className="section-title">Webhook endpoint</h2>
-                        <p className="muted">
+                      <section className={styles.webhookSettings}>
+                        <h2 className={styles.sectionTitle}>
+                          Webhook endpoint
+                        </h2>
+                        <p className={styles.muted}>
                           Save the trigger before generating credentials.
                           Publish to accept events; pause or save a new draft to
                           stop deliveries.
@@ -660,7 +678,7 @@ export function WorkflowEditor({
                                 onFocus={(e) => e.target.select()}
                               />
                             </label>
-                            <button
+                            <Button
                               onClick={() =>
                                 void navigator.clipboard
                                   .writeText(webhook.token!)
@@ -672,10 +690,10 @@ export function WorkflowEditor({
                               }
                             >
                               Copy token
-                            </button>
+                            </Button>
                           </>
                         )}
-                        <p className="muted">
+                        <p className={styles.muted}>
                           {webhook?.configured
                             ? webhook.active
                               ? 'Published: accepting authenticated events.'
@@ -684,7 +702,7 @@ export function WorkflowEditor({
                           Send a unique X-Kasuri-Event-Id with every JSON event.
                           HMAC mode uses a named signing secret.
                         </p>
-                        <button
+                        <Button
                           disabled={webhookBusy}
                           onClick={() => void rotateWebhook()}
                         >
@@ -693,10 +711,10 @@ export function WorkflowEditor({
                             : webhook?.configured
                               ? 'Rotate endpoint and token'
                               : 'Generate endpoint and token'}
-                        </button>
+                        </Button>
                       </section>
                     )}
-                    <div className="info-box">
+                    <div className={styles.infoBox}>
                       {node.type === 'HTTP Request'
                         ? 'Public HTTPS is allowed by default. Credentials use named secrets. Simulations require a response fixture.'
                         : node.type === 'Map / Transform'
@@ -757,7 +775,7 @@ export function WorkflowEditor({
                     {workflow.edges
                       .filter((e) => e.source === node.id)
                       .map((edge) => (
-                        <div className="edge-editor" key={edge.id}>
+                        <div className={styles.edgeEditor} key={edge.id}>
                           <label>
                             Port
                             <select
@@ -796,8 +814,8 @@ export function WorkflowEditor({
                                 ))}
                             </select>
                           </label>
-                          <button
-                            className="icon-button"
+                          <Button
+                            className={styles.iconButton}
                             aria-label="Remove connection"
                             onClick={() =>
                               update({
@@ -809,13 +827,13 @@ export function WorkflowEditor({
                             }
                           >
                             <Icon name="close" />
-                          </button>
+                          </Button>
                         </div>
                       ))}
-                    <button onClick={addConnection}>
+                    <Button onClick={addConnection}>
                       <Icon name="plus" />
                       Add connection
-                    </button>
+                    </Button>
                   </>
                 ) : (
                   <>
@@ -827,15 +845,17 @@ export function WorkflowEditor({
                     </pre>
                   </>
                 )}
-                <button
-                  className="danger ghost remove-node"
+                <Button
+                  visual="ghost"
+                  tone="danger"
+                  className={styles.removeNode}
                   onClick={() => {
                     update(removeNode(workflow, node.id))
                     setNodeId(undefined)
                   }}
                 >
                   Remove node
-                </button>
+                </Button>
               </div>
             </>
           ) : (
@@ -845,7 +865,7 @@ export function WorkflowEditor({
           )}
         </aside>
       </div>
-      <footer className="editor-status">
+      <footer className={styles.editorStatus}>
         <span style={{ color: errors.length ? 'var(--fail)' : 'var(--ok)' }}>
           <i />
           {errors.length ? errors.length + ' graph issues' : 'Graph valid'}
@@ -853,7 +873,7 @@ export function WorkflowEditor({
         <span>
           {workflow.nodes.length} nodes · {workflow.edges.length} connections
         </span>
-        <span className="status-spacer" />
+        <span className={styles.statusSpacer} />
         <span>
           {simulate
             ? 'External requests use explicit response fixtures'

@@ -5,10 +5,12 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
-    "build": "tsc -b && vite build",
+    "build": "panda codegen && tsc -b && vite build",
     "lint": "oxlint",
     "preview": "vite preview",
-    "test": "node --experimental-strip-types --test tests/*.test.ts"
+    "test": "node --experimental-strip-types --test tests/*.test.ts",
+    "prepare": "panda codegen",
+    "styles:check": "panda build"
   },
   "dependencies": {
     "@fontsource/inter": "^5.3.0",
@@ -18,6 +20,9 @@
     "react-dom": "^19.3.1"
   },
   "devDependencies": {
+    "@pandacss/dev": "^2.5.0",
+    "@pandacss/preset-base": "^2.5.0",
+    "@pandacss/vite": "^2.5.0",
     "@types/node": "^24.19.2",
     "@types/react": "^19.3.0",
     "@types/react-dom": "^19.3.0",

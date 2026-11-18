@@ -1,3 +1,5 @@
+import { Button } from './design/ui'
+import { styles } from './design/styles'
 import { lazy, Suspense, useEffect, useRef, useState } from 'react'
 import { catalogue } from './lib/catalogue'
 import {
@@ -37,7 +39,6 @@ const WorkflowEditor = lazy(() =>
     default: m.WorkflowEditor
   }))
 )
-import './App.css'
 const nav = [
   ['workflows', 'Workflows', 'diamond'],
   ['runs', 'Runs', 'runs'],
@@ -400,17 +401,17 @@ export default function App() {
   )
   const editorToolbar = workflow && (
     <>
-      <div className="editor-topbar">
-        <button
-          className="brand-back"
+      <div className={styles.editorTopbar}>
+        <Button
+          className={styles.brandBack}
           aria-label="All workflows"
           onClick={() => navigate('workflows')}
         >
           <Brand compact />
           <Icon name="arrow" />
           <span>All workflows</span>
-        </button>
-        <div className="editor-title">
+        </Button>
+        <div className={styles.editorTitle}>
           <input
             aria-label="Workflow name"
             value={workflow.name}
@@ -430,10 +431,10 @@ export default function App() {
             {dirtyIds.has(workflow.id) ? 'Unsaved changes' : 'Saved'}
           </small>
         </div>
-        <div className="editor-actions">
-          <span className="segmented">
+        <div className={styles.editorActions}>
+          <span className={styles.segmented}>
             {(['build', 'simulate'] as const).map((mode) => (
-              <button
+              <Button
                 key={mode}
                 aria-pressed={route.mode === mode}
                 onClick={() =>
@@ -445,11 +446,12 @@ export default function App() {
               >
                 <Icon name={mode === 'build' ? 'pencil' : 'play'} />
                 {mode === 'build' ? 'Build' : 'Simulate'}
-              </button>
+              </Button>
             ))}
           </span>
-          <button
-            className="ghost live-control"
+          <Button
+            visual="ghost"
+            className={'live-control'}
             role="switch"
             aria-checked={workflow.status === 'active'}
             disabled={disabled || workflow.status === 'draft'}
@@ -464,12 +466,14 @@ export default function App() {
           >
             <span
               className={
-                'switch-track ' + (workflow.status === 'active' ? 'on' : '')
+                styles.switchTrack +
+                ' ' +
+                (workflow.status === 'active' ? 'on' : '')
               }
             />
             {workflow.status === 'active' ? 'Live active' : 'Not active'}
-          </button>
-          <button
+          </Button>
+          <Button
             disabled={disabled || !dirtyIds.has(workflow.id)}
             onClick={() =>
               void perform(async () => {
@@ -479,28 +483,30 @@ export default function App() {
             }
           >
             Save
-          </button>
-          <button onClick={() => download(workflow.id + '.json', workflow)}>
+          </Button>
+          <Button onClick={() => download(workflow.id + '.json', workflow)}>
             <Icon name="download" />
             Export
-          </button>
-          <button className="primary" disabled={disabled} onClick={publish}>
+          </Button>
+          <Button visual="primary" disabled={disabled} onClick={publish}>
             Publish v{workflow.revision + 1}
-          </button>
+          </Button>
         </div>
       </div>
     </>
   )
   if (route.page === 'login' || route.page === 'setup')
     return (
-      <div className="login-screen">
-        <section className="login-art">
+      <div className={styles.loginScreen}>
+        <section className={styles.loginArt}>
           <Brand />
-          <div className="decorative-workflow" aria-hidden="true">
+          <div className={styles.decorativeWorkflow} aria-hidden="true">
             {['Webhook', 'Map / Transform', 'HTTP Request', 'Merge'].map(
               (kind, i) => (
-                <div className="decorative-step" key={kind}>
-                  <span className={'decorative-node decorative-' + i}>
+                <div className={styles.decorativeStep} key={kind}>
+                  <span
+                    className={styles.decorativeNode + ' ' + 'decorative-' + i}
+                  >
                     <Tile kind={kind} />
                     <div>
                       <small>
@@ -512,7 +518,7 @@ export default function App() {
                       name={i < 2 ? 'check' : i === 2 ? 'refresh' : 'more'}
                     />
                   </span>
-                  {i < 3 && <span className="decorative-line" />}
+                  {i < 3 && <span className={styles.decorativeLine} />}
                 </div>
               )
             )}
@@ -523,7 +529,7 @@ export default function App() {
             On your own infrastructure.
           </h1>
           <p>Build visually. Inspect every step. Keep control of your data.</p>
-          <div className="login-benefits">
+          <div className={styles.loginBenefits}>
             {[
               'Persistent runs and checkpoint recovery',
               'Declarative connectors and safe simulations',
@@ -536,14 +542,14 @@ export default function App() {
             ))}
           </div>
         </section>
-        <section className="login-form">
+        <section className={styles.loginForm}>
           <div>
-            <span className="eyebrow">YOUR WORKFLOW WORKSPACE</span>
+            <span className={styles.eyebrow}>YOUR WORKFLOW WORKSPACE</span>
             <h1>
               {route.page === 'setup' ? 'Set up Kasuri' : 'Sign in to Kasuri'}
             </h1>
-            <p className="mono">{location.host}</p>
-            <div className="info-box">
+            <p className={styles.mono}>{location.host}</p>
+            <div className={styles.infoBox}>
               <Icon name="lock" />
               <h3>Host-managed access</h3>
               <p>
@@ -552,9 +558,9 @@ export default function App() {
                 sign-in and owner bootstrap are planned.
               </p>
             </div>
-            <button className="primary" onClick={() => navigate('workflows')}>
+            <Button visual="primary" onClick={() => navigate('workflows')}>
               Continue to workspace <Icon name="runs" />
-            </button>
+            </Button>
             <a
               href="https://github.com/haswalt/kasuri/tree/develop/docs"
               target="_blank"
@@ -562,8 +568,8 @@ export default function App() {
             >
               Deployment documentation <Icon name="external" size={12} />
             </a>
-            <div className="login-footer">
-              <span className="connection-status">
+            <div className={styles.loginFooter}>
+              <span className={styles.connectionStatus}>
                 <i className={connected ? 'online' : ''} />
                 {connected
                   ? 'API connected'
@@ -576,12 +582,12 @@ export default function App() {
       </div>
     )
   return (
-    <div className={editor ? 'editor-shell' : 'app-shell'}>
+    <div className={editor ? styles.editorShell : styles.appShell}>
       {!editor && (
-        <aside className="sidebar">
+        <aside className={styles.sidebar}>
           <a
             href={path('workflows')}
-            className="brand-link"
+            className={styles.brandLink}
             onClick={(e) => {
               e.preventDefault()
               navigate('workflows')
@@ -592,8 +598,8 @@ export default function App() {
           <Menu
             label={
               <>
-                <span className="workspace-avatar">P</span>
-                <span className="account-text">
+                <span className={styles.workspaceAvatar}>P</span>
+                <span className={styles.accountText}>
                   <strong>Personal workspace</strong>
                   <small>Session access · {workflows.length} workflows</small>
                 </span>
@@ -601,21 +607,22 @@ export default function App() {
               </>
             }
           >
-            <div className="menu-caption">WORKSPACES</div>
-            <button onClick={() => navigate('workflows')}>
-              <span className="workspace-avatar">P</span>Personal workspace
+            <div className={styles.menuCaption}>WORKSPACES</div>
+            <Button onClick={() => navigate('workflows')}>
+              <span className={styles.workspaceAvatar}>P</span>Personal
+              workspace
               <Icon name="check" />
-            </button>
+            </Button>
             <hr />
-            <button
+            <Button
               disabled
               title="Named workspace creation is not implemented"
             >
               Create workspace <small>Planned</small>
-            </button>
-            <button onClick={() => navigate('settings/workspaces')}>
+            </Button>
+            <Button onClick={() => navigate('settings/workspaces')}>
               Manage workspaces
-            </button>
+            </Button>
           </Menu>
           <nav aria-label="Main">
             {nav.map(([key, label, icon]) => (
@@ -624,7 +631,9 @@ export default function App() {
                 href={path(key)}
                 aria-current={route.page === key ? 'page' : undefined}
                 className={
-                  route.page === key ? 'nav-item selected' : 'nav-item'
+                  route.page === key
+                    ? styles.navItem + ' ' + 'selected'
+                    : styles.navItem
                 }
                 onClick={(e) => {
                   e.preventDefault()
@@ -634,13 +643,13 @@ export default function App() {
                 <Icon name={icon} />
                 {label}
                 {key === 'workflows' && (
-                  <span className="nav-count">{workflows.length}</span>
+                  <span className={styles.navCount}>{workflows.length}</span>
                 )}
               </a>
             ))}
           </nav>
-          <div className="sidebar-bottom">
-            <div className="connection-status">
+          <div className={styles.sidebarBottom}>
+            <div className={styles.connectionStatus}>
               <i className={connected ? 'online' : ''} />
               {connected ? 'Backend connected' : 'Connecting to backend'}
             </div>
@@ -648,8 +657,8 @@ export default function App() {
               up
               label={
                 <>
-                  <span className="avatar">P</span>
-                  <span className="account-text">
+                  <span className={styles.avatar}>P</span>
+                  <span className={styles.accountText}>
                     <strong>Your workspace</strong>
                     <small>Private browser session</small>
                   </span>
@@ -657,26 +666,26 @@ export default function App() {
                 </>
               }
             >
-              <div className="menu-caption">
+              <div className={styles.menuCaption}>
                 <strong>Browser session</strong>
                 <small>Personal workspace</small>
               </div>
-              <button onClick={() => navigate('settings/profile')}>
+              <Button onClick={() => navigate('settings/profile')}>
                 <Icon name="sliders" />
                 Settings
-              </button>
-              <button onClick={() => navigate('settings/members')}>
+              </Button>
+              <Button onClick={() => navigate('settings/members')}>
                 <Icon name="key" />
                 Members & roles
-              </button>
-              <button onClick={() => setTheme(resolvedDark ? 'light' : 'dark')}>
+              </Button>
+              <Button onClick={() => setTheme(resolvedDark ? 'light' : 'dark')}>
                 <Icon name="moon" />
                 {resolvedDark ? 'Light' : 'Dark'} theme
-              </button>
-              <button onClick={() => setHelp(true)}>
+              </Button>
+              <Button onClick={() => setHelp(true)}>
                 <Icon name="command" />
                 Keyboard shortcuts<kbd>?</kbd>
-              </button>
+              </Button>
               <a
                 href="https://github.com/haswalt/kasuri/tree/develop/docs"
                 target="_blank"
@@ -686,30 +695,30 @@ export default function App() {
                 Documentation
               </a>
               <hr />
-              <button
+              <Button
                 disabled
                 title="Account sessions are managed by your host"
               >
                 Sign out <small>Host managed</small>
-              </button>
+              </Button>
             </Menu>
           </div>
         </aside>
       )}
-      <main className={editor ? 'editor-main' : 'app-main'}>
+      <main className={editor ? styles.editorMain : styles.appMain}>
         {editor ? (
           editorToolbar
         ) : (
-          <header className="topbar">
-            <span className="muted">Personal workspace</span>
-            <span className="slash">/</span>
+          <header className={styles.topbar}>
+            <span className={styles.muted}>Personal workspace</span>
+            <span className={styles.slash}>/</span>
             <span>
               {route.page === 'settings'
                 ? 'Settings'
                 : titles[route.page] || 'Workflows'}
             </span>
-            <span className="topbar-right">
-              <span className="connection-status">
+            <span className={styles.topbarRight}>
+              <span className={styles.connectionStatus}>
                 <i className={connected ? 'online' : ''} />
                 {route.page === 'runs'
                   ? 'Live · updates every 5 s'
@@ -720,7 +729,7 @@ export default function App() {
         )}
         {notice && (
           <div
-            className="notice"
+            className={styles.notice}
             role="status"
             onMouseEnter={() => clearTimeout(toastTimer.current)}
             onMouseLeave={() => {
@@ -734,12 +743,12 @@ export default function App() {
             <Icon name="warning" />
             <span>{notice}</span>
             {undoAvailable && (
-              <button className="ghost" onClick={() => void undo.current?.()}>
+              <Button visual="ghost" onClick={() => void undo.current?.()}>
                 Undo
-              </button>
+              </Button>
             )}
-            <button
-              className="icon-button"
+            <Button
+              className={styles.iconButton}
               aria-label="Dismiss notification"
               onClick={() => {
                 setNotice('')
@@ -748,13 +757,15 @@ export default function App() {
               }}
             >
               <Icon name="close" />
-            </button>
+            </Button>
           </div>
         )}
         {editor ? (
           workflow ? (
             <Suspense
-              fallback={<div className="empty">Loading workflow editor…</div>}
+              fallback={
+                <div className={styles.empty}>Loading workflow editor…</div>
+              }
             >
               <WorkflowEditor
                 key={workflow.id}
@@ -776,34 +787,34 @@ export default function App() {
             <Empty
               title={loaded ? 'Workflow not found' : 'Loading workflow…'}
               action={
-                <button onClick={() => navigate('workflows')}>
+                <Button onClick={() => navigate('workflows')}>
                   All workflows
-                </button>
+                </Button>
               }
             >
               Your workflow data is loaded from this browser's workspace.
             </Empty>
           )
         ) : (
-          <div className="page-content">
+          <div className={styles.pageContent}>
             {!loaded ? (
               <>
-                <div className="skeleton skeleton-title" />
-                <div className="panel skeleton-list">
+                <div className={styles.skeleton + ' ' + styles.skeletonTitle} />
+                <div className={styles.panel + ' ' + styles.skeletonList}>
                   {Array.from({ length: 6 }, (_, i) => (
-                    <div className="skeleton" key={i} />
+                    <div className={styles.skeleton} key={i} />
                   ))}
                 </div>
               </>
             ) : !connected ? (
-              <section className="error-panel" role="alert">
+              <section className={styles.errorPanel} role="alert">
                 <Icon name="warning" />
                 <h2>Could not connect to your workspace</h2>
                 <p>{notice || 'The backend is unavailable.'}</p>
-                <button onClick={() => void refresh()}>
+                <Button onClick={() => void refresh()}>
                   <Icon name="refresh" />
                   Try again
-                </button>
+                </Button>
               </section>
             ) : route.page === 'workflows' ? (
               <>
@@ -818,26 +829,26 @@ export default function App() {
                   }
                   actions={
                     <>
-                      <button
+                      <Button
                         disabled={disabled}
                         onClick={() => fileInput.current?.click()}
                       >
                         <Icon name="upload" />
                         Import JSON
-                      </button>
-                      <button
-                        className="primary"
+                      </Button>
+                      <Button
+                        visual="primary"
                         disabled={disabled}
                         onClick={create}
                       >
                         <Icon name="plus" />
                         New workflow
-                      </button>
+                      </Button>
                     </>
                   }
                 />
-                <section className="stat-strip">
-                  <div className="stat-grid">
+                <section className={styles.statStrip}>
+                  <div className={styles.statGrid}>
                     {[
                       [
                         'Runs (24h)',
@@ -863,14 +874,14 @@ export default function App() {
                         'Durable waits in progress'
                       ]
                     ].map(([label, value, sub]) => (
-                      <div className="stat" key={label}>
+                      <div className={styles.stat} key={label}>
                         <span>{label}</span>
                         <strong>{value}</strong>
                         <small>{sub}</small>
                       </div>
                     ))}
                   </div>
-                  <div className="state-bar">
+                  <div className={styles.stateBar}>
                     {statuses
                       .filter((s) => runCounts[s])
                       .map((s) => (
@@ -881,7 +892,7 @@ export default function App() {
                         />
                       ))}
                   </div>
-                  <div className="state-legend">
+                  <div className={styles.stateLegend}>
                     {statuses.map((s) => (
                       <span key={s}>
                         <i style={{ background: tone(s).fg }} />
@@ -891,11 +902,11 @@ export default function App() {
                     ))}
                   </div>
                 </section>
-                <section className="panel">
-                  <div className="list-toolbar">
-                    <div className="tabs">
+                <section className={styles.panel}>
+                  <div className={styles.listToolbar}>
+                    <div className={styles.tabs}>
                       {['All', 'Active', 'Draft', 'Paused'].map((tab) => (
-                        <button
+                        <Button
                           key={tab}
                           aria-pressed={filter === tab}
                           onClick={() => setFilter(tab)}
@@ -908,7 +919,7 @@ export default function App() {
                                   (w) => w.status === tab.toLowerCase()
                                 ).length}
                           </small>
-                        </button>
+                        </Button>
                       ))}
                     </div>
                     <Search
@@ -917,14 +928,14 @@ export default function App() {
                       placeholder="Search workflows…"
                     />
                   </div>
-                  <div className="table-scroll">
+                  <div className={styles.tableScroll}>
                     <table>
                       <thead>
                         <tr>
                           <th>Workflow</th>
                           <th>Status</th>
                           <th>Last run</th>
-                          <th className="numeric">Runs 24h</th>
+                          <th className={styles.numeric}>Runs 24h</th>
                           <th>Trigger</th>
                           <th>Updated</th>
                           <th />
@@ -941,11 +952,13 @@ export default function App() {
                           return (
                             <tr key={w.id}>
                               <td>
-                                <button
-                                  className="name-cell workflow-link"
+                                <Button
+                                  className={
+                                    styles.nameCell + ' ' + styles.workflowLink
+                                  }
                                   onClick={() => open(w)}
                                 >
-                                  <span className="workflow-tile">
+                                  <span className={styles.workflowTile}>
                                     <Icon name="diamond" />
                                   </span>
                                   <span>
@@ -960,15 +973,16 @@ export default function App() {
                                           w.revision}
                                     </small>
                                   </span>
-                                </button>
+                                </Button>
                               </td>
                               <td>
                                 <Pill status={w.status} />
                               </td>
                               <td>
                                 {latest ? (
-                                  <button
-                                    className="last-run ghost"
+                                  <Button
+                                    visual="ghost"
+                                    className={styles.lastRun}
                                     onClick={() => inspect(latest)}
                                   >
                                     <span>
@@ -980,19 +994,21 @@ export default function App() {
                                       {tone(runState(latest)).label}
                                     </span>
                                     <small>{date(latest.createdAt)}</small>
-                                  </button>
+                                  </Button>
                                 ) : (
-                                  <span className="muted">No runs yet</span>
+                                  <span className={styles.muted}>
+                                    No runs yet
+                                  </span>
                                 )}
                               </td>
-                              <td className="numeric">
+                              <td className={styles.numeric}>
                                 {
                                   recent.filter((r) => r.workflowId === w.id)
                                     .length
                                 }
                               </td>
                               <td>
-                                <code className="trigger-label">
+                                <code className={styles.triggerLabel}>
                                   {trigger?.type === 'Schedule'
                                     ? 'cron ' +
                                       String(trigger.config.cron || '')
@@ -1001,17 +1017,19 @@ export default function App() {
                                       : 'Manual'}
                                 </code>
                               </td>
-                              <td className="muted nowrap">
+                              <td
+                                className={styles.muted + ' ' + styles.nowrap}
+                              >
                                 {date(w.updatedAt)}
                               </td>
                               <td>
                                 <Menu iconOnly label={<Icon name="more" />}>
                                   {w.status === 'draft' ? (
-                                    <button onClick={() => act(w, 'publish')}>
+                                    <Button onClick={() => act(w, 'publish')}>
                                       Publish & activate
-                                    </button>
+                                    </Button>
                                   ) : (
-                                    <button
+                                    <Button
                                       onClick={() =>
                                         act(
                                           w,
@@ -1024,27 +1042,27 @@ export default function App() {
                                       {w.status === 'active'
                                         ? 'Pause'
                                         : 'Resume'}
-                                    </button>
+                                    </Button>
                                   )}
-                                  <button onClick={() => showRun(w)}>
+                                  <Button onClick={() => showRun(w)}>
                                     Run now…
-                                  </button>
-                                  <button onClick={() => clone(w)}>
+                                  </Button>
+                                  <Button onClick={() => clone(w)}>
                                     Duplicate
-                                  </button>
-                                  <button
+                                  </Button>
+                                  <Button
                                     onClick={() => download(w.id + '.json', w)}
                                   >
                                     Export JSON
-                                  </button>
+                                  </Button>
                                   <hr />
-                                  <button
-                                    className="danger"
+                                  <Button
+                                    tone="danger"
                                     disabled
                                     title="Deletion and restore are not implemented"
                                   >
                                     Delete <small>Planned</small>
-                                  </button>
+                                  </Button>
                                 </Menu>
                               </td>
                             </tr>
@@ -1062,24 +1080,24 @@ export default function App() {
                       }
                       action={
                         !search ? (
-                          <button className="primary" onClick={create}>
+                          <Button visual="primary" onClick={create}>
                             <Icon name="plus" />
                             Create a workflow
-                          </button>
+                          </Button>
                         ) : undefined
                       }
                     >
                       Connect a trigger, add your logic, and put it to work.
                     </Empty>
                   )}
-                  <div className="table-footer">
+                  <div className={styles.tableFooter}>
                     <span>
                       Showing {visibleWorkflows.length} of {workflows.length}{' '}
                       workflows
                     </span>
-                    <button className="ghost" onClick={() => navigate('runs')}>
+                    <Button visual="ghost" onClick={() => navigate('runs')}>
                       View run history <Icon name="runs" />
-                    </button>
+                    </Button>
                   </div>
                 </section>
               </>
@@ -1092,7 +1110,7 @@ export default function App() {
                   title="Runs"
                   description="Every retained execution across your workflows. Select a run to inspect it step by step."
                   actions={
-                    <button
+                    <Button
                       onClick={() =>
                         download(
                           'kasuri-runs.csv',
@@ -1110,12 +1128,12 @@ export default function App() {
                     >
                       <Icon name="download" />
                       Export CSV
-                    </button>
+                    </Button>
                   }
                 />
-                <section className="panel">
-                  <div className="list-toolbar">
-                    <div className="tabs">
+                <section className={styles.panel}>
+                  <div className={styles.listToolbar}>
+                    <div className={styles.tabs}>
                       {[
                         'All',
                         'Running',
@@ -1126,7 +1144,7 @@ export default function App() {
                         'Succeeded',
                         'Cancelled'
                       ].map((tab) => (
-                        <button
+                        <Button
                           key={tab}
                           aria-pressed={filter === tab}
                           onClick={() => setFilter(tab)}
@@ -1139,11 +1157,11 @@ export default function App() {
                                   (r) => runState(r) === tab.toLowerCase()
                                 ).length}
                           </small>
-                        </button>
+                        </Button>
                       ))}
                     </div>
                   </div>
-                  <div className="filter-row">
+                  <div className={styles.filterRow}>
                     <select
                       aria-label="Filter by workflow"
                       value={runWorkflow}
@@ -1189,38 +1207,42 @@ export default function App() {
                         <th>Status</th>
                         <th>Trigger</th>
                         <th>Started</th>
-                        <th className="numeric">Steps</th>
-                        <th className="numeric">Retries</th>
+                        <th className={styles.numeric}>Steps</th>
+                        <th className={styles.numeric}>Retries</th>
                       </tr>
                     </thead>
                     <tbody>
                       {visibleRuns.map((r) => (
                         <tr key={r.id}>
                           <td>
-                            <button
-                              className="ghost mono"
+                            <Button
+                              visual="ghost"
+                              className={styles.mono}
                               onClick={() => inspect(r)}
                             >
                               {r.id.slice(0, 12)}…
-                            </button>
+                            </Button>
                           </td>
                           <td>
-                            <button
-                              className="ghost text-link"
+                            <Button
+                              visual="ghost"
+                              className={styles.textLink}
                               onClick={() => inspect(r)}
                             >
                               {r.name}
-                            </button>
-                            <small className="block">
+                            </Button>
+                            <small className={styles.block}>
                               Revision v{r.revision}
                             </small>
                           </td>
                           <td>
                             <Pill status={runState(r)} />
                           </td>
-                          <td className="muted">{r.mode}</td>
-                          <td className="muted nowrap">{date(r.createdAt)}</td>
-                          <td className="numeric mono">
+                          <td className={styles.muted}>{r.mode}</td>
+                          <td className={styles.muted + ' ' + styles.nowrap}>
+                            {date(r.createdAt)}
+                          </td>
+                          <td className={styles.numeric + ' ' + styles.mono}>
                             {
                               r.nodes.filter((n) =>
                                 ['succeeded', 'failed', 'skipped'].includes(
@@ -1230,7 +1252,7 @@ export default function App() {
                             }{' '}
                             / {r.nodes.length}
                           </td>
-                          <td className="numeric mono">
+                          <td className={styles.numeric + ' ' + styles.mono}>
                             {r.nodes.reduce(
                               (sum, n) => sum + Math.max(0, n.attempts - 1),
                               0
@@ -1245,16 +1267,16 @@ export default function App() {
                       icon="runs"
                       title={runs.length ? 'No matching runs' : 'No runs yet'}
                       action={
-                        <button onClick={() => navigate('workflows')}>
+                        <Button onClick={() => navigate('workflows')}>
                           View workflows
-                        </button>
+                        </Button>
                       }
                     >
                       Open a workflow and run it, or simulate it with test
                       input.
                     </Empty>
                   )}
-                  <div className="table-footer">
+                  <div className={styles.tableFooter}>
                     Showing {visibleRuns.length} of {runs.length} retained runs
                     · newest first
                   </div>
@@ -1267,16 +1289,16 @@ export default function App() {
                   title="Connectors"
                   description="Versioned nodes and integrations for your workflows."
                   actions={
-                    <button onClick={() => create()}>
+                    <Button onClick={() => create()}>
                       <Icon name="plus" />
                       New workflow
-                    </button>
+                    </Button>
                   }
                 />
-                <div className="catalogue-toolbar">
-                  <div className="tabs">
+                <div className={styles.catalogueToolbar}>
+                  <div className={styles.tabs}>
                     {categories.map((c) => (
-                      <button
+                      <Button
                         key={c}
                         aria-pressed={categoryFilter === c}
                         onClick={() => setCategoryFilter(c)}
@@ -1289,7 +1311,7 @@ export default function App() {
                             ).length
                           }
                         </small>
-                      </button>
+                      </Button>
                     ))}
                   </div>
                   <Search
@@ -1298,12 +1320,12 @@ export default function App() {
                     placeholder="Search connectors…"
                   />
                 </div>
-                <div className="catalogue-grid">
+                <div className={styles.catalogueGrid}>
                   {visibleConnectors.map((c) => {
                     const manifest = connectors.find((m) => m.kind === c.name)
                     return (
-                      <button
-                        className="catalogue-card"
+                      <Button
+                        className={styles.catalogueCard}
                         key={c.name}
                         onClick={() => {
                           go(
@@ -1313,15 +1335,15 @@ export default function App() {
                           )
                         }}
                       >
-                        <div className="catalogue-card-top">
+                        <div className={styles.catalogueCardTop}>
                           <Tile kind={c.name} />
                           {manifest ? (
-                            <span className="built-in">Built in</span>
+                            <span className={styles.builtIn}>Built in</span>
                           ) : (
-                            <span className="chip">Planned</span>
+                            <span className={styles.chip}>Planned</span>
                           )}
                         </div>
-                        <div className="eyebrow">{group(c.name)}</div>
+                        <div className={styles.eyebrow}>{group(c.name)}</div>
                         <h2>{c.name}</h2>
                         <p>
                           {manifest
@@ -1332,7 +1354,7 @@ export default function App() {
                                 : 'Ready to use in your workflow.'
                             : 'On the connector roadmap.'}
                         </p>
-                        <div className="capability-chips">
+                        <div className={styles.capabilityChips}>
                           {manifest ? (
                             <>
                               <span>
@@ -1349,11 +1371,11 @@ export default function App() {
                             <span>Not implemented</span>
                           )}
                         </div>
-                      </button>
+                      </Button>
                     )
                   })}
                 </div>
-                <div className="catalogue-footer">
+                <div className={styles.catalogueFooter}>
                   <Icon name="code" />
                   <span>
                     Need a service that isn't listed? The HTTP Request node
@@ -1379,28 +1401,28 @@ export default function App() {
                   title="Connections"
                   description="Accounts and credentials your workflows use."
                   actions={
-                    <button
+                    <Button
                       disabled
                       title="The credential vault API is planned"
                     >
                       <Icon name="plus" />
                       New connection
-                    </button>
+                    </Button>
                   }
                 />
-                <div className="connections-layout">
-                  <section className="panel">
-                    <div className="list-toolbar">
-                      <div className="tabs">
+                <div className={styles.connectionsLayout}>
+                  <section className={styles.panel}>
+                    <div className={styles.listToolbar}>
+                      <div className={styles.tabs}>
                         {['All', 'Needs attention', 'OAuth', 'MCP servers'].map(
                           (t) => (
-                            <button
+                            <Button
                               key={t}
                               aria-pressed={filter === t}
                               onClick={() => setFilter(t)}
                             >
                               {t}
-                            </button>
+                            </Button>
                           )
                         )}
                       </div>
@@ -1419,7 +1441,9 @@ export default function App() {
                       yet.
                     </Empty>
                   </section>
-                  <aside className="panel connection-detail">
+                  <aside
+                    className={styles.panel + ' ' + styles.connectionDetail}
+                  >
                     <Tile
                       kind={route.query.get('connector') || 'HTTP Request'}
                       size={36}
@@ -1450,13 +1474,13 @@ export default function App() {
                       reference a password secret by name. Custom credential
                       headers use a <code>$secret</code> reference.
                     </p>
-                    <div className="info-box">
+                    <div className={styles.infoBox}>
                       Secret values stay on the host and are redacted from
                       echoed responses.
                     </div>
-                    <button onClick={() => navigate('workflows')}>
+                    <Button onClick={() => navigate('workflows')}>
                       Open workflows <Icon name="runs" />
-                    </button>
+                    </Button>
                   </aside>
                 </div>
               </>
@@ -1467,32 +1491,32 @@ export default function App() {
                   title="MCP server"
                   description="Let external agents connect to Kasuri to build, manage and audit workflows."
                   actions={
-                    <button disabled title="The MCP server is not implemented">
+                    <Button disabled title="The MCP server is not implemented">
                       <Icon name="plus" />
                       Expose a workflow
-                    </button>
+                    </Button>
                   }
                 />
-                <section className="stat-strip">
-                  <div className="stat-grid">
+                <section className={styles.statStrip}>
+                  <div className={styles.statGrid}>
                     {[
                       ['Endpoint', 'Not configured'],
                       ['Transport', 'Planned'],
                       ['Authentication', 'Scoped credentials'],
                       ['Status', 'Not implemented']
                     ].map(([label, value]) => (
-                      <div className="stat" key={label}>
+                      <div className={styles.stat} key={label}>
                         <span>{label}</span>
-                        <strong className="small-stat">{value}</strong>
+                        <strong className={'small-stat'}>{value}</strong>
                       </div>
                     ))}
                   </div>
                 </section>
-                <div className="connections-layout">
-                  <section className="panel">
-                    <div className="panel-heading">
+                <div className={styles.connectionsLayout}>
+                  <section className={styles.panel}>
+                    <div className={styles.panelHeading}>
                       <h2>Workflows exposed as tools</h2>
-                      <span className="chip">Planned</span>
+                      <span className={styles.chip}>Planned</span>
                     </div>
                     <Empty
                       icon="plug"
@@ -1503,7 +1527,9 @@ export default function App() {
                       tokens have been issued.
                     </Empty>
                   </section>
-                  <aside className="panel connection-detail">
+                  <aside
+                    className={styles.panel + ' ' + styles.connectionDetail}
+                  >
                     <Icon name="plug" size={28} />
                     <h2>Two directions, distinct access</h2>
                     <p>
@@ -1511,9 +1537,9 @@ export default function App() {
                       servers and Cloudflare MCP Portals will live under
                       Connections.
                     </p>
-                    <button onClick={() => navigate('connections')}>
+                    <Button onClick={() => navigate('connections')}>
                       View connections <Icon name="runs" />
-                    </button>
+                    </Button>
                   </aside>
                 </div>
               </>
@@ -1524,14 +1550,14 @@ export default function App() {
                   title="Audit log"
                   description="Attributable workflow changes and agent activity."
                 />
-                <section className="panel">
+                <section className={styles.panel}>
                   <Empty
                     icon="file"
                     title="Audit records are not available yet"
                     action={
-                      <button onClick={() => navigate('runs')}>
+                      <Button onClick={() => navigate('runs')}>
                         View run history
-                      </button>
+                      </Button>
                     }
                   >
                     An append-only management audit API is planned. Current
@@ -1540,7 +1566,7 @@ export default function App() {
                 </section>
               </>
             ) : route.page === 'login' || route.page === 'setup' ? (
-              <section className="panel">
+              <section className={styles.panel}>
                 <Empty
                   icon="lock"
                   title="Authentication is managed by this host"
@@ -1555,9 +1581,9 @@ export default function App() {
               <Empty
                 title="Page not found"
                 action={
-                  <button onClick={() => navigate('workflows')}>
+                  <Button onClick={() => navigate('workflows')}>
                     All workflows
-                  </button>
+                  </Button>
                 }
               >
                 Choose a page from the sidebar.
@@ -1585,9 +1611,9 @@ export default function App() {
       />
       {selectedId && runError && (
         <Dialog title="Could not load run" onClose={closeRun}>
-          <div className="settings-fields">
+          <div className={styles.settingsFields}>
             <p role="alert">{runError}</p>
-            <button
+            <Button
               onClick={() => {
                 setRunError('')
                 void api
@@ -1597,7 +1623,7 @@ export default function App() {
               }}
             >
               Try again
-            </button>
+            </Button>
           </div>
         </Dialog>
       )}
@@ -1630,7 +1656,7 @@ export default function App() {
             if (!busy) setRunTarget(null)
           }}
         >
-          <div className="settings-fields">
+          <div className={styles.settingsFields}>
             <p>
               This starts a real run. Configured HTTP nodes can call external
               services; waits use durable timers.
@@ -1639,7 +1665,7 @@ export default function App() {
               Run input · JSON
               <textarea
                 aria-label="Run input JSON"
-                className="mono"
+                className={styles.mono}
                 rows={10}
                 value={input}
                 onChange={(e) => setInput(e.target.value)}
@@ -1647,29 +1673,29 @@ export default function App() {
               />
             </label>
             {runFormError && (
-              <p className="danger" role="alert">
+              <p className={styles.danger} role="alert">
                 {runFormError}
               </p>
             )}
-            <div className="actions">
-              <button disabled={busy} onClick={() => setRunTarget(null)}>
+            <div className={styles.actions}>
+              <Button disabled={busy} onClick={() => setRunTarget(null)}>
                 Cancel
-              </button>
-              <button
-                className="primary"
+              </Button>
+              <Button
+                visual="primary"
                 disabled={busy}
                 onClick={() => void startLive()}
               >
                 <Icon name="play" />
                 {busy ? 'Starting…' : 'Start run'}
-              </button>
+              </Button>
             </div>
           </div>
         </Dialog>
       )}
       {help && (
         <Dialog title="Keyboard shortcuts" onClose={() => setHelp(false)}>
-          <div className="shortcut-list">
+          <div className={styles.shortcutList}>
             {[
               ['/', 'Search this page or the node palette'],
               ['?', 'Open keyboard shortcuts'],

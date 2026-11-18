@@ -1,4 +1,8 @@
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { cx } from '../../styled-system/css'
+import { workflowNode, connectorPort } from '../../styled-system/recipes'
+import { Button } from '../design/ui'
+import { styles } from '../design/styles'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import {
   ReactFlow,
   ReactFlowProvider,
@@ -25,14 +29,19 @@ import {
   NODE_GAP,
   ports
 } from '../lib/canvas'
-import '@xyflow/react/dist/style.css'
 import { Tile, Icon } from '../design/ui'
 
 type CanvasNode = Node<{ node: WorkflowNode; status?: string }, 'workflow'>
 function WorkflowCard({ data, selected }: NodeProps<CanvasNode>) {
   return (
     <div
-      className={`flow-card state-${data.status || 'idle'} ${selected ? 'node-selected' : ''}`}
+      className={workflowNode({
+        state:
+          workflowNode.variantMap.state.find(
+            (state) => state === data.status
+          ) || 'idle',
+        selected: Boolean(selected)
+      })}
     >
       {!isTrigger(data.node.type) && (
         <Handle
@@ -43,7 +52,7 @@ function WorkflowCard({ data, selected }: NodeProps<CanvasNode>) {
         />
       )}
       <Tile kind={data.node.type} size={30} />
-      <div className="node-card-copy">
+      <div className={styles.nodeCardCopy}>
         <small>
           {data.status ? data.status.toUpperCase() : data.node.type}
         </small>
@@ -52,19 +61,28 @@ function WorkflowCard({ data, selected }: NodeProps<CanvasNode>) {
       {ports(data.node.type).map((port, i, all) => (
         <div
           key={port}
-          className="flow-port"
+          className={styles.flowPort}
           style={
             port === 'error'
               ? { left: '100%', top: '50%' }
               : { left: `${((i + 1) * 100) / all.length}%` }
           }
         >
-          <span className={`port-label port-${port}`}>{port}</span>
+          <span
+            data-port={port}
+            className={cx(
+              styles.portLabel,
+              connectorPort({ error: port === 'error' })
+            )}
+          >
+            {port}
+          </span>
           <Handle
             type="source"
             id={port}
             position={port === 'error' ? Position.Right : Position.Bottom}
-            className={`port-${port}`}
+            data-port={port}
+            className={connectorPort({ error: port === 'error' })}
             aria-label={`${data.node.label}: ${port} output`}
           />
         </div>
@@ -177,6 +195,14 @@ function Canvas({
       })
     )
   }, [graphKey, selectedId, JSON.stringify(states)])
+  // React Flow subscribes to this callback. Keep it stable while playback changes
+  // selectedId, so registration cannot feed the previous selection back upstream.
+  const onSelectionChange = useCallback(
+    ({ nodes: selected }: { nodes: CanvasNode[] }) => {
+      if (selected.length === 1) select(selected[0].id)
+    },
+    [select]
+  )
   const root = useRef<HTMLElement>(null)
   function add(
     type: string,
@@ -230,7 +256,7 @@ function Canvas({
   return (
     <section
       ref={root}
-      className="graph-canvas"
+      className={styles.graphCanvas}
       aria-label="Workflow canvas"
       onDragOverCapture={(event) => {
         event.preventDefault()
@@ -281,21 +307,21 @@ function Canvas({
         )
       }}
     >
-      <div className="canvas-toolbar">
-        <span className="eyebrow">CANVAS</span>
-        <small className="mono">
+      <div className={styles.canvasToolbar}>
+        <span className={styles.eyebrow}>CANVAS</span>
+        <small className={styles.mono}>
           {workflow.nodes.length} NODES · {workflow.edges.length} EDGES
         </small>
         <div>
-          <button
-            className="icon-button"
+          <Button
+            className={styles.iconButton}
             aria-label="Search nodes"
             disabled={readOnly}
             onClick={showPalette}
           >
             <Icon name="search" />
-          </button>
-          <button
+          </Button>
+          <Button
             disabled={readOnly}
             onClick={() => {
               const arranged = layout({
@@ -318,7 +344,7 @@ function Canvas({
             }}
           >
             Arrange
-          </button>
+          </Button>
         </div>
       </div>
       <ReactFlow<CanvasNode>
@@ -328,10 +354,7 @@ function Canvas({
         onNodesChange={onNodesChange}
         onEdgesChange={onEdgesChange}
         onMove={(_, viewport) => setZoom(Math.round(viewport.zoom * 100))}
-        onSelectionChange={({ nodes: selected }) => {
-          if (selected.length === 1 && selected[0].id !== selectedId)
-            select(selected[0].id)
-        }}
+        onSelectionChange={onSelectionChange}
         onNodeClick={(_, node) => select(node.id)}
         onPaneClick={() => select(undefined)}
         onNodeDragStop={(_, moved, group) => {
@@ -383,7 +406,7 @@ function Canvas({
         nodesDraggable={!readOnly}
         nodesConnectable={!readOnly}
         edgesReconnectable={!readOnly}
-        className="kasuri-flow"
+        className={'kasuri-flow'}
         fitView
         fitViewOptions={{ padding: 0.2, maxZoom: 1 }}
         minZoom={0.25}
@@ -397,17 +420,19 @@ function Canvas({
         panOnScroll
         zoomOnScroll={false}
       >
-        {dragging && <div className="canvas-drop-overlay" aria-hidden="true" />}
+        {dragging && (
+          <div className={styles.canvasDropOverlay} aria-hidden="true" />
+        )}
         <Background gap={20} size={1} color="var(--dot)" />
         <Controls
           orientation="horizontal"
           fitViewOptions={{ padding: 0.25, maxZoom: 1 }}
           showInteractive={false}
         >
-          <span className="zoom-value">{zoom}%</span>
+          <span className={styles.zoomValue}>{zoom}%</span>
         </Controls>
       </ReactFlow>
-      <div className="canvas-help" role="status">
+      <div className={styles.canvasHelp} role="status">
         {message} <span>Scroll to pan · Pinch to zoom</span>
       </div>
     </section>

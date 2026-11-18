@@ -1,3 +1,5 @@
+import { Button } from '../design/ui'
+import { styles } from '../design/styles'
 import { useEffect, useState } from 'react'
 import type { Run } from '../lib/workflows'
 import type { Json } from '../../../../packages/contracts/src/index'
@@ -97,11 +99,13 @@ export function RunDetails({
     }
   }
   const content = (
-    <div className="debugger" onKeyDown={handleKey}>
-      <header className="debugger-header">
+    <div className={styles.debugger} onKeyDown={handleKey}>
+      <header className={styles.debuggerHeader}>
         <div>
-          <div className="eyebrow mono">RUN · {detail.id}</div>
-          <div className="debugger-meta">
+          <div className={styles.eyebrow + ' ' + styles.mono}>
+            RUN · {detail.id}
+          </div>
+          <div className={styles.debuggerMeta}>
             <Pill status={detail.status} />
             <span>
               Started {date(detail.createdAt)} · {detail.mode} trigger ·
@@ -109,22 +113,22 @@ export function RunDetails({
             </span>
           </div>
         </div>
-        <div className="actions">
-          <button onClick={() => download(detail.id + '.json', detail)}>
+        <div className={styles.actions}>
+          <Button onClick={() => download(detail.id + '.json', detail)}>
             <Icon name="download" />
             Export
-          </button>
+          </Button>
           {!fullPage && (
-            <button onClick={onOpenPage}>
+            <Button onClick={onOpenPage}>
               Open run page <Icon name="external" />
-            </button>
+            </Button>
           )}
         </div>
       </header>
       {error && (
-        <div className="error-panel" role="alert">
+        <div className={styles.errorPanel} role="alert">
           <p>{error}</p>
-          <button
+          <Button
             onClick={() =>
               void api
                 .getRun(run.id)
@@ -136,22 +140,24 @@ export function RunDetails({
             }
           >
             Try again
-          </button>
+          </Button>
         </div>
       )}
-      <div className="debugger-body">
-        <aside className="debugger-steps">
-          <div className="eyebrow">STEPS · {detail.nodes.length}</div>
+      <div className={styles.debuggerBody}>
+        <aside className={styles.debuggerSteps}>
+          <div className={styles.eyebrow}>STEPS · {detail.nodes.length}</div>
           {detail.nodes.map((n, i) => (
-            <button
+            <Button
               key={n.id}
               className={cursor === i ? 'selected' : ''}
               aria-current={cursor === i ? 'step' : undefined}
               onClick={() => select(i)}
             >
-              <span className="mono">{String(i + 1).padStart(2, '0')}</span>
+              <span className={styles.mono}>
+                {String(i + 1).padStart(2, '0')}
+              </span>
               <span
-                className="step-dot"
+                className={styles.stepDot}
                 style={{ background: tone(n.status).fg }}
               />
               <div>
@@ -159,13 +165,13 @@ export function RunDetails({
                 <small>{n.type}</small>
               </div>
               <small>{n.attempts}×</small>
-            </button>
+            </Button>
           ))}
         </aside>
-        <section className="step-inspector">
-          <div className="step-timeline" aria-label="Run step states">
+        <section className={styles.stepInspector}>
+          <div className={styles.stepTimeline} aria-label="Run step states">
             {detail.nodes.map((n, i) => (
-              <button
+              <Button
                 key={n.id}
                 aria-label={
                   'Step ' + (i + 1) + ': ' + n.label + ', ' + n.status
@@ -182,12 +188,12 @@ export function RunDetails({
           </div>
           {node ? (
             <>
-              <div className="step-heading">
+              <div className={styles.stepHeading}>
                 <div>
-                  <div className="eyebrow">
+                  <div className={styles.eyebrow}>
                     STEP {cursor + 1} OF {detail.nodes.length} · {node.type}
                   </div>
-                  <div className="step-title">
+                  <div className={styles.stepTitle}>
                     <Tile kind={node.type} size={28} />
                     <h2>{node.label}</h2>
                     <Pill status={node.status} />
@@ -202,15 +208,15 @@ export function RunDetails({
                           : 'Recorded result from the workflow engine.'}
                   </p>
                 </div>
-                <div className="attempts">
-                  <span className="eyebrow">ATTEMPTS</span>
-                  <strong className="mono">{node.attempts}</strong>
+                <div className={styles.attempts}>
+                  <span className={styles.eyebrow}>ATTEMPTS</span>
+                  <strong className={styles.mono}>{node.attempts}</strong>
                 </div>
               </div>
-              <div className="io-grid">
+              <div className={styles.ioGrid}>
                 <div>
-                  <div className="well-label">
-                    <span className="eyebrow">INPUT</span>
+                  <div className={styles.wellLabel}>
+                    <span className={styles.eyebrow}>INPUT</span>
                     <small>{cursor === 0 ? 'Run input' : 'Unavailable'}</small>
                   </div>
                   <pre>
@@ -220,8 +226,8 @@ export function RunDetails({
                   </pre>
                 </div>
                 <div>
-                  <div className="well-label">
-                    <span className="eyebrow">OUTPUT</span>
+                  <div className={styles.wellLabel}>
+                    <span className={styles.eyebrow}>OUTPUT</span>
                     <small>
                       {node.output === undefined
                         ? 'No data'
@@ -229,7 +235,9 @@ export function RunDetails({
                     </small>
                   </div>
                   <pre
-                    className={node.status === 'failed' ? 'failed-well' : ''}
+                    className={
+                      node.status === 'failed' ? styles.failedWell : ''
+                    }
                   >
                     {node.output !== undefined
                       ? JSON.stringify(node.output, null, 2)
@@ -239,11 +247,11 @@ export function RunDetails({
                   </pre>
                 </div>
               </div>
-              <div className="well-label">
-                <span className="eyebrow">EXECUTION INFORMATION</span>
+              <div className={styles.wellLabel}>
+                <span className={styles.eyebrow}>EXECUTION INFORMATION</span>
                 <small>Secret values are redacted by the host</small>
               </div>
-              <pre className="execution-information">
+              <pre className={styles.executionInformation}>
                 {[
                   node.type + ' · ' + node.status,
                   'Attempts: ' + node.attempts,
@@ -265,58 +273,58 @@ export function RunDetails({
           )}
         </section>
       </div>
-      <footer className="debugger-footer">
-        <div className="actions">
-          <button disabled={!cursor} onClick={() => select(cursor - 1)}>
+      <footer className={styles.debuggerFooter}>
+        <div className={styles.actions}>
+          <Button disabled={!cursor} onClick={() => select(cursor - 1)}>
             <Icon name="arrow" />
             Previous step
-          </button>
-          <button
+          </Button>
+          <Button
             disabled={cursor >= detail.nodes.length - 1}
             onClick={() => select(cursor + 1)}
           >
             Next step <Icon name="runs" />
-          </button>
+          </Button>
           <small>
             Step {cursor + 1} of {detail.nodes.length}
           </small>
         </div>
-        <div className="actions">
+        <div className={styles.actions}>
           {['running', 'paused'].includes(detail.status) && (
             <>
-              <button
+              <Button
                 disabled={pending}
                 onClick={() =>
                   void action(detail.status === 'paused' ? 'resume' : 'pause')
                 }
               >
                 {detail.status === 'paused' ? 'Resume' : 'Pause'} run
-              </button>
-              <button
-                className="danger"
+              </Button>
+              <Button
+                tone="danger"
                 disabled={pending}
                 onClick={() => void action('cancel')}
               >
                 Cancel run
-              </button>
+              </Button>
             </>
           )}
-          <button onClick={() => onPin(detail.input)}>
+          <Button onClick={() => onPin(detail.input)}>
             Pin run input as fixture
-          </button>
-          <button disabled title="Checkpoint replay is not available yet">
+          </Button>
+          <Button disabled title="Checkpoint replay is not available yet">
             Replay from this step
-          </button>
+          </Button>
         </div>
       </footer>
     </div>
   )
   return fullPage ? (
-    <article className="run-detail-page">
-      <button className="ghost" onClick={onViewAll}>
+    <article className={styles.runDetailPage}>
+      <Button visual="ghost" onClick={onViewAll}>
         <Icon name="arrow" />
         All runs
-      </button>
+      </Button>
       <h1>{detail.name}</h1>
       {content}
     </article>
@@ -324,7 +332,7 @@ export function RunDetails({
     <Dialog
       onKeyDown={handleKey}
       title={detail.name}
-      className="run-modal"
+      className={styles.runModal}
       onClose={onClose}
     >
       {content}

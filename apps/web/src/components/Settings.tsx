@@ -1,4 +1,6 @@
-import { Icon, PageHeader, Empty } from '../design/ui'
+import { Button } from '../design/ui'
+import { styles } from '../design/styles'
+import { Icon, PageHeader, Empty, Pill } from '../design/ui'
 import { go, path } from '../lib/navigation'
 import type { Theme } from '../lib/navigation'
 export function Settings({
@@ -22,24 +24,24 @@ export function Settings({
     ['deploy', 'Cloudflare & keys']
   ]
   return (
-    <div className="settings-layout">
-      <aside className="settings-nav">
-        <div className="eyebrow">ACCOUNT</div>
+    <div className={styles.settingsLayout}>
+      <aside className={styles.settingsNav}>
+        <div className={styles.eyebrow}>ACCOUNT</div>
         {sections.map(([key, label], i) => (
           <span key={key}>
-            {i === 2 && <div className="eyebrow">WORKSPACE</div>}
-            {i === 4 && <div className="eyebrow">DEPLOYMENT</div>}
-            <button
+            {i === 2 && <div className={styles.eyebrow}>WORKSPACE</div>}
+            {i === 4 && <div className={styles.eyebrow}>DEPLOYMENT</div>}
+            <Button
               aria-current={section === key ? 'page' : undefined}
               className={section === key ? 'active' : ''}
               onClick={() => go(path('settings/' + key))}
             >
               {label}
-            </button>
+            </Button>
           </span>
         ))}
       </aside>
-      <div className="settings-content">
+      <div className={styles.settingsContent}>
         <PageHeader
           eyebrow="SETTINGS"
           title={sections.find((s) => s[0] === section)?.[1] || 'Settings'}
@@ -47,14 +49,14 @@ export function Settings({
         />
         {section === 'profile' ? (
           <>
-            <section className="panel">
-              <div className="panel-heading">
+            <section className={styles.panel}>
+              <div className={styles.panelHeading}>
                 <h2>Profile</h2>
-                <span className="chip">Browser session</span>
+                <span className={styles.chip}>Browser session</span>
               </div>
-              <div className="settings-fields">
-                <div className="profile-summary">
-                  <span className="avatar">P</span>
+              <div className={styles.settingsFields}>
+                <div className={styles.profileSummary}>
+                  <span className={styles.avatar}>P</span>
                   <div>
                     <strong>Personal workspace</strong>
                     <p>Private to this browser session</p>
@@ -62,9 +64,9 @@ export function Settings({
                 </div>
                 <label>
                   Appearance
-                  <span className="segmented">
+                  <span className={styles.segmented}>
                     {(['light', 'dark', 'system'] as Theme[]).map((t) => (
-                      <button
+                      <Button
                         key={t}
                         aria-pressed={theme === t}
                         onClick={() => setTheme(t)}
@@ -79,7 +81,7 @@ export function Settings({
                           }
                         />
                         {t[0].toUpperCase() + t.slice(1)}
-                      </button>
+                      </Button>
                     ))}
                   </span>
                   <small>Applies instantly and is saved on this device.</small>
@@ -97,12 +99,12 @@ export function Settings({
                 </label>
               </div>
             </section>
-            <section className="panel">
-              <div className="panel-heading">
+            <section className={styles.panel}>
+              <div className={styles.panelHeading}>
                 <h2>Security</h2>
                 <Icon name="lock" />
               </div>
-              <div className="setting-row">
+              <div className={styles.settingRow}>
                 <div>
                   <strong>Installation authentication</strong>
                   <p>
@@ -110,9 +112,9 @@ export function Settings({
                     Cloudflare Access.
                   </p>
                 </div>
-                <span className="chip">Host managed</span>
+                <span className={styles.chip}>Host managed</span>
               </div>
-              <div className="setting-row">
+              <div className={styles.settingRow}>
                 <div>
                   <strong>Workspace session</strong>
                   <p>
@@ -120,27 +122,27 @@ export function Settings({
                     access. Clearing cookies loses access.
                   </p>
                 </div>
-                <span className="chip">Current device</span>
+                <span className={styles.chip}>Current device</span>
               </div>
             </section>
           </>
         ) : section === 'workspaces' ? (
-          <section className="panel">
-            <div className="panel-heading">
+          <section className={styles.panel}>
+            <div className={styles.panelHeading}>
               <h2>Your workspace</h2>
             </div>
-            <div className="setting-row">
-              <div className="name-cell">
-                <span className="workspace-avatar">P</span>
+            <div className={styles.settingRow}>
+              <div className={styles.nameCell}>
+                <span className={styles.workspaceAvatar}>P</span>
                 <div>
                   <strong>Personal workspace</strong>
                   <small>Current browser workspace</small>
                 </div>
               </div>
               <span>{workflowCount} workflows</span>
-              <span className="pill active">Current</span>
+              <Pill status="active" label="Current" />
             </div>
-            <div className="settings-fields">
+            <div className={styles.settingsFields}>
               <p>
                 Workflow and run data persists on this host. Named workspace
                 membership, switching and workspace administration are planned.
@@ -149,10 +151,10 @@ export function Settings({
           </section>
         ) : section === 'deploy' ? (
           <>
-            <section className="panel">
-              <div className="panel-heading">
+            <section className={styles.panel}>
+              <div className={styles.panelHeading}>
                 <h2>Deployment</h2>
-                <span className="connection-status">
+                <span className={styles.connectionStatus}>
                   <i className={connected ? 'online' : ''} />
                   {connected ? 'API connected' : 'Offline'}
                 </span>
@@ -163,13 +165,13 @@ export function Settings({
                 ['State', 'SQLite Durable Objects'],
                 ['Hosting', 'Cloudflare or self-hosted workerd']
               ].map(([label, value]) => (
-                <div className="setting-row" key={label}>
+                <div className={styles.settingRow} key={label}>
                   <span>{label}</span>
                   <code>{value}</code>
                 </div>
               ))}
             </section>
-            <section className="panel">
+            <section className={styles.panel}>
               <Empty icon="key" title="Keys are managed by your host">
                 Secret values and installation keys are not exposed through the
                 browser. Credential-vault key rotation controls are planned.
@@ -177,7 +179,7 @@ export function Settings({
             </section>
           </>
         ) : (
-          <section className="panel">
+          <section className={styles.panel}>
             <Empty
               icon={section === 'members' ? 'key' : 'lock'}
               title={

@@ -55,4 +55,4 @@ Kasuri must expose an authenticated MCP server so agents can build and manage wo
 
 Completed changes use Conventional Commits. See [engine details](docs/workflow-engine.md).
 
-The [UI implementation notes](docs/ui-implementation.md) describe the design handoff, implemented screens and remaining backend dependencies.
+The [UI implementation notes](docs/ui-implementation.md) describe the design handoff, implemented screens and remaining backend dependencies. See [styling the UI](docs/styling.md) for Panda CSS tokens and recipes.

@@ -1,6 +1,6 @@
 # UI handoff implementation
 
-The supplied [handoff](design/kasuri-ui/README.md) is preserved as design reference. The React application uses its branding, design tokens, typography, desktop shell and editor layout. It continues to call the Rust API for all workflow execution and persistence.
+The supplied [handoff](design/kasuri-ui/README.md) is preserved as design reference. The React application uses its branding, design tokens, typography, desktop shell and editor layout. Panda CSS v2 generates the styles from typed tokens, component recipes and slot recipes; see [styling the UI](styling.md). It continues to call the Rust API for all workflow execution and persistence.
 
 Implemented surfaces include workflow search and status filters, run history and CSV export, the connector catalogue, routed settings, the node palette and inspector, curved canvas connections, Build/Simulate modes, and a keyboard-accessible run debugger. Existing webhook endpoint management remains available from the trigger inspector. Run now accepts JSON input before starting real execution.
 
