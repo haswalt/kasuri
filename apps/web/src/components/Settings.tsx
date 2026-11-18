@@ -5,12 +5,14 @@ import { go, path } from '../lib/navigation'
 import type { Theme } from '../lib/navigation'
 export function Settings({
   section,
+  workspaceName,
   theme,
   setTheme,
   workflowCount,
   connected
 }: {
   section: string
+  workspaceName: string
   theme: Theme
   setTheme: (t: Theme) => void
   workflowCount: number
@@ -58,7 +60,7 @@ export function Settings({
                 <div className={styles.profileSummary}>
                   <span className={styles.avatar}>P</span>
                   <div>
-                    <strong>Personal workspace</strong>
+                    <strong>{workspaceName}</strong>
                     <p>Private to this browser session</p>
                   </div>
                 </div>
@@ -135,7 +137,7 @@ export function Settings({
               <div className={styles.nameCell}>
                 <span className={styles.workspaceAvatar}>P</span>
                 <div>
-                  <strong>Personal workspace</strong>
+                  <strong>{workspaceName}</strong>
                   <small>Current browser workspace</small>
                 </div>
               </div>
@@ -144,8 +146,9 @@ export function Settings({
             </div>
             <div className={styles.settingsFields}>
               <p>
-                Workflow and run data persists on this host. Named workspace
-                membership, switching and workspace administration are planned.
+                Workflow and run data persists on this host. Use the workspace menu
+                to create, rename and switch between isolated workspaces. Each
+                browser tab keeps its own selected workspace.
               </p>
             </div>
           </section>

@@ -12,6 +12,7 @@ import {
 import type { Workflow, Run } from './lib/workflows'
 import type { Json, NodeManifest } from '../../../packages/contracts/src/index'
 import { api } from './lib/api'
+import type { WorkspaceMembership } from './lib/api'
 import { useRoute, go, path, savedTheme, applyTheme } from './lib/navigation'
 import type { Theme } from './lib/navigation'
 import {
@@ -49,8 +50,16 @@ const nav = [
   ['audit', 'Audit log', 'file']
 ]
 const titles = Object.fromEntries(nav.map(([key, title]) => [key, title]))
-export default function App() {
+export default function WorkspaceApp() {
   const route = useRoute()
+  return <App key={route.workspaceKey} />
+}
+function App() {
+  const route = useRoute()
+  const [memberships, setMemberships] = useState<WorkspaceMembership[]>([])
+  const [workspaceDialog, setWorkspaceDialog] = useState<'create' | 'rename' | null>(null)
+  const [workspaceName, setWorkspaceName] = useState('')
+  const workspaceLabel = memberships.find((w) => w.id === route.workspaceKey)?.name || (route.workspaceKey === 'personal' ? 'Personal workspace' : 'Workspace')
   const [workflows, setWorkflows] = useState<Workflow[]>([]),
     [runs, setRuns] = useState<Run[]>([]),
     [connectors, setConnectors] = useState<NodeManifest[]>([])
@@ -89,6 +98,7 @@ export default function App() {
     const at = generation.current
     try {
       const data = await api.workspace()
+      const directory = await api.workspaces()
       if (!mounted.current || at !== generation.current) return
       setWorkflows((previous) =>
         data.workflows.map((w) =>
@@ -97,13 +107,14 @@ export default function App() {
             : w
         )
       )
+      setMemberships(directory.workspaces)
       setRuns(data.runs)
       setClock(Date.now())
       setConnectors(data.connectors)
       setConnected(true)
       setLoaded(true)
     } catch (e) {
-      if (mounted.current) {
+      if (mounted.current && at === generation.current) {
         setConnected(false)
         setLoaded(true)
         setNotice(
@@ -202,6 +213,7 @@ export default function App() {
     }
   }
   function replace(w: Workflow) {
+    if (!mounted.current) return
     dirty.current.delete(w.id)
     setDirtyIds(new Set(dirty.current))
     setWorkflows((ws) =>
@@ -226,6 +238,7 @@ export default function App() {
     return saved
   }
   function open(w: Workflow) {
+    if (!mounted.current) return
     go(path('workflows/' + w.id + '/edit'))
     setNotice('')
     setInput(JSON.stringify(fixtures[w.id] ?? {}, null, 2))
@@ -617,7 +630,7 @@ export default function App() {
               <>
                 <span className={styles.workspaceAvatar}>P</span>
                 <span className={styles.accountText}>
-                  <strong>Personal workspace</strong>
+                  <strong>{workspaceLabel}</strong>
                   <small>Session access · {workflows.length} workflows</small>
                 </span>
                 <Icon name="chevrons" />
@@ -625,18 +638,15 @@ export default function App() {
             }
           >
             <div className={styles.menuCaption}>WORKSPACES</div>
-            <Button onClick={() => navigate('workflows')}>
-              <span className={styles.workspaceAvatar}>P</span>Personal
-              workspace
-              <Icon name="check" />
-            </Button>
+            {memberships.map((entry) => (
+              <Button key={entry.id} disabled={busy || dirtyIds.size > 0} title={dirtyIds.size ? 'Save your draft before switching workspaces' : undefined} onClick={() => go('/w/' + entry.id + '/workflows')}>
+                <span className={styles.workspaceAvatar}>{entry.name[0]}</span>{entry.name}
+                {entry.id === route.workspaceKey && <Icon name="check" />}
+              </Button>
+            ))}
             <hr />
-            <Button
-              disabled
-              title="Named workspace creation is not implemented"
-            >
-              Create workspace <small>Planned</small>
-            </Button>
+            <Button disabled={busy} onClick={() => { setWorkspaceName(''); setWorkspaceDialog('create') }}>Create workspace</Button>
+            <Button disabled={busy} onClick={() => { setWorkspaceName(workspaceLabel); setWorkspaceDialog('rename') }}>Rename workspace</Button>
             <Button onClick={() => navigate('settings/workspaces')}>
               Manage workspaces
             </Button>
@@ -685,7 +695,7 @@ export default function App() {
             >
               <div className={styles.menuCaption}>
                 <strong>Browser session</strong>
-                <small>Personal workspace</small>
+                <small>{workspaceLabel}</small>
               </div>
               <Button onClick={() => navigate('settings/profile')}>
                 <Icon name="sliders" />
@@ -727,7 +737,7 @@ export default function App() {
           editorToolbar
         ) : (
           <header className={styles.topbar}>
-            <span className={styles.muted}>Personal workspace</span>
+            <span className={styles.muted}>{workspaceLabel}</span>
             <span className={styles.slash}>/</span>
             <span>
               {route.page === 'settings'
@@ -1420,6 +1430,7 @@ export default function App() {
               </>
             ) : route.page === 'settings' ? (
               <Settings
+                workspaceName={workspaceLabel}
                 section={route.section}
                 theme={theme}
                 setTheme={setTheme}
@@ -1603,6 +1614,24 @@ export default function App() {
             )
           }}
         />
+      )}
+      {workspaceDialog && (
+        <Dialog title={workspaceDialog === 'create' ? 'Create workspace' : 'Rename workspace'} onClose={() => { if (!busy) setWorkspaceDialog(null) }}>
+          <form className={styles.settingsFields} onSubmit={(e) => {
+            e.preventDefault()
+            void perform(async () => {
+              const entry = workspaceDialog === 'create' ? await api.createWorkspace(workspaceName) : await api.renameWorkspace(route.workspaceKey, workspaceName)
+              if (!mounted.current) return
+              setMemberships((entries) => [...entries.filter((w) => w.id !== entry.id), entry])
+              setWorkspaceDialog(null)
+              setNotice(workspaceDialog === 'create' ? 'Workspace created. Select it in the workspace menu.' : 'Workspace renamed.')
+            })
+          }}>
+            <label>Workspace name<input required maxLength={80} value={workspaceName} onChange={(e) => setWorkspaceName(e.target.value)} /></label>
+            <p>Workflows, runs, credentials and public trigger endpoints are isolated per workspace. Access belongs to this browser session.</p>
+            <Button visual="primary" disabled={busy || !workspaceName.trim()} type="submit">{workspaceDialog === 'create' ? 'Create workspace' : 'Save name'}</Button>
+          </form>
+        </Dialog>
       )}
       {runTarget && (
         <Dialog

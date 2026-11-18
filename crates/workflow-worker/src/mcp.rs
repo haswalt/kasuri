@@ -275,8 +275,9 @@ impl WorkflowWorkspace {
                 match auth.authorize(&input, &resource, time, &mut entropy) {
                     Ok(id) => {
                         let origin = self.mcp_origin(&url)?;
+                        let workspace = self.browser_workspace_key()?;
                         Response::redirect(Url::parse(&format!(
-                            "{origin}/w/personal/mcp?authorize={id}"
+                            "{origin}/w/{workspace}/mcp?authorize={id}"
                         ))?)?
                     }
                     Err(e) => oauth_error(e)?,

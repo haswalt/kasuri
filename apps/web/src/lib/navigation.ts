@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react'
 export type Route = {
+  workspaceKey: string
   page: string
   workflowId?: string
   runId?: string
@@ -11,11 +12,12 @@ export function readRoute(): Route {
   const parts = location.pathname.split('/').filter(Boolean)
   const offset = parts[0] === 'w' ? 2 : 0
   const page =
-    parts[0] === 'w' && parts[1] !== 'personal'
+    parts[0] === 'w' && parts[1] !== 'personal' && !/^[a-f0-9]{64}$/.test(parts[1] || '')
       ? 'not-found'
       : parts[offset] || 'workflows'
   const query = new URLSearchParams(location.search)
   return {
+    workspaceKey: parts[0] === 'w' ? parts[1] : 'personal',
     page,
     workflowId:
       page === 'workflows' && parts[offset + 2] === 'edit'
@@ -31,7 +33,7 @@ export function go(url: string, replace = false) {
   history[replace ? 'replaceState' : 'pushState']({}, '', url)
   dispatchEvent(new PopStateEvent('popstate'))
 }
-export const path = (page: string) => '/w/personal/' + page
+export const path = (page: string) => '/w/' + readRoute().workspaceKey + '/' + page
 export function useRoute() {
   const [route, setRoute] = useState(readRoute)
   useEffect(() => {

@@ -1,3 +1,4 @@
+import { readRoute } from './navigation'
 import type {
   Json,
   Run,
@@ -14,7 +15,7 @@ async function request<T>(
   const response = await fetch(`/api/${path}`, {
     method,
     credentials: 'same-origin',
-    headers: body === undefined ? {} : { 'Content-Type': 'application/json' },
+    headers: { 'X-Kasuri-Workspace': readRoute().workspaceKey, ...(body === undefined ? {} : { 'Content-Type': 'application/json' }) },
     ...(body === undefined ? {} : { body: JSON.stringify(body) })
   })
   if (response.status === 401)
@@ -28,7 +29,11 @@ async function request<T>(
     throw new Error(result.error || `Request failed (${response.status}).`)
   return result as T
 }
+export type WorkspaceMembership = { id: string; name: string }
 export const api = {
+  workspaces: () => request<{ workspaces: WorkspaceMembership[] }>('workspaces'),
+  createWorkspace: (name: string) => request<WorkspaceMembership>('workspaces', 'POST', { name }),
+  renameWorkspace: (id: string, name: string) => request<WorkspaceMembership>(`workspaces/${id}`, 'PATCH', { name }),
   mcp: () => request<McpStatus>('mcp'),
   createMcpCredential: (name: string, role: string, expiresDays: number) =>
     request<McpCredential & { token: string }>('mcp/credentials', 'POST', {

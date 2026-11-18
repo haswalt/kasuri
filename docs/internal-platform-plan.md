@@ -1,9 +1,17 @@
 # Internal platform implementation plan
 
-Status: proposed implementation sequence; the changes in this plan are not implemented yet.  
+Status: implementation in progress; completed increments are recorded below.
 Date: 18 November 2026.
 
 This plan combines the reported product issues with the supplied n8n migration gap analysis, checked against the current source. The attachment is requirements/reference material; its suggested connector priorities do not override the request to exclude external connectors. No source workflow exports or production datasets were supplied, so this is not a claim of verified n8n migration parity. The original attachment is not copied into the public repository.
+
+## Implementation progress
+
+- Completed: body-portaled, viewport-positioned action menus (`4be2bbe`).
+- Completed: combined Built in/Planned, category and search filters persisted in catalogue URLs (`571fce6`).
+- Completed: selected connection inspector, endpoint/port edits, explicit deletion and highlighted reconnect handles (`b1d327c`). Browser verified; disconnected drafts remain editable and fail executable validation.
+- Completed: browser ownership directory with workspace creation, rename and per-tab selection; isolated workspace storage/credentials/endpoints; existing Personal workspace preserved. Runtime checks cover forged delegation headers, cross-session access and restart persistence. Shared-user memberships remain future account work.
+- Next: separate record storage and publication/history/lifecycle foundations. Workflow deletion and remaining management audit changes are still pending.
 
 ## Outcomes and boundaries
 

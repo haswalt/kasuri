@@ -10,6 +10,7 @@ import { tmpdir } from 'node:os'
 import { join, resolve } from 'node:path'
 import { once } from 'node:events'
 import { createServer } from 'node:net'
+import { checkWorkspaces } from './workspace-checks.mjs'
 import { checkMcp } from './mcp-checks.mjs'
 import { checkWebhooks } from './webhook-checks.mjs'
 import {
@@ -18,6 +19,11 @@ import {
   checkAnonymousSecrets
 } from './http-checks.mjs'
 import { checkRuntime, healthy } from './runtime-checks.mjs'
+const originalFetch = globalThis.fetch
+globalThis.fetch = (url, options = {}) => {
+  if (process.env.KASURI_TEST_TRACE) console.error('Request:', options.method || 'GET', String(url))
+  return originalFetch(url, { ...options, signal: options.signal || AbortSignal.timeout(15000) })
+}
 const data = mkdtempSync(join(tmpdir(), 'kasuri-runtime-'))
 const probe = createServer()
 probe.listen(0, '127.0.0.1')
@@ -91,6 +97,11 @@ try {
   await checkRuntime(origin, 'test:runtime-check', async () => {
     await stop()
     start()
+  })
+  await checkWorkspaces(origin, 'test:runtime-check', async () => {
+    await stop()
+    start()
+    await healthy(origin)
   })
   await checkHttp(origin)
   await checkMcp(origin, 'test:runtime-check', async () => {

@@ -2,6 +2,7 @@
 mod http;
 mod mcp;
 mod webhook;
+mod workspaces;
 use base64::{Engine, engine::general_purpose::STANDARD};
 use futures_util::StreamExt;
 use serde::Deserialize;
@@ -165,7 +166,7 @@ pub async fn main(req: Request, env: Env, _ctx: Context) -> Result<Response> {
     let provided = session_parts
         .next()
         .filter(|s| s.len() == 64 && s.bytes().all(|b| b.is_ascii_hexdigit()));
-    let fresh = provided.is_none();
+    let fresh = provided.is_none() || existing.is_none();
     let session_token = match provided {
         Some(token) => token.to_string(),
         None => namespace.unique_id()?.to_string(),
@@ -175,6 +176,7 @@ pub async fn main(req: Request, env: Env, _ctx: Context) -> Result<Response> {
         None => namespace.unique_id()?,
     };
     let mut forwarded = req.clone_mut()?;
+    forwarded.headers_mut()?.delete("X-Kasuri-Delegated")?;
     forwarded
         .headers_mut()?
         .set("X-Kasuri-Session", &session_token)?;
@@ -247,6 +249,9 @@ impl DurableObject for WorkflowWorkspace {
         let token = req.headers().get("X-Kasuri-Session")?.unwrap_or_default();
         if !self.authorize_session(&token)? {
             return api_error(403, "Invalid workspace session");
+        }
+        if let Some(response) = self.workspace_route(&mut req, &token).await? {
+            return Ok(response);
         }
         if path == "/api/mcp" || path.starts_with("/api/mcp/") {
             return self.mcp_management(req).await;
