@@ -6,4 +6,4 @@ export type RunMode = 'run' | 'simulation' | 'schedule'
 export type RunNode = { id: string; label: string; type: string; status: string; attempts: number; output?: Json; error?: string; untilMs?: number }
 export type Run = { id: string; workflowId: string; name: string; createdAt: string; revision: number; mode: RunMode; status: RunStatus; nodes: RunNode[]; input: Json; error?: string; wakeAt?: number | null }
 export type NodeManifest = { kind: string; version: number; configSchema: Record<string, unknown>; outputPorts: string[]; hasExternalSideEffects: boolean }
-export type Workspace = { workflows: Workflow[]; runs: Run[]; connectors: NodeManifest[]; expiresAt: number | null }
+export type Workspace = { workflows: Workflow[]; runs: Run[]; connectors: NodeManifest[] }

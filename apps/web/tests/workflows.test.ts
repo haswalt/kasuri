@@ -1,8 +1,9 @@
+import { testWorkflow } from './fixture.ts'
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { appendNode, createWorkflow, demoWorkflow, parseWorkflow, removeNode, validateWorkflow } from '../src/lib/workflows.ts'
+import { appendNode, createWorkflow, parseWorkflow, removeNode, validateWorkflow } from '../src/lib/workflows.ts'
 test('append and remove maintain a connected graph with stable remaining node IDs', () => {
-  const original = demoWorkflow()
+  const original = testWorkflow()
   const updated = removeNode(original, original.nodes[1].id)
   assert.deepEqual(updated.nodes.map(n => n.id), [original.nodes[0].id, original.nodes[2].id, original.nodes[3].id])
   assert.equal(updated.edges.find(e => e.source === original.nodes[0].id)!.target, original.nodes[2].id)
@@ -16,7 +17,7 @@ test('invalid graph and missing HTTP configuration block publishing', () => {
   assert.match(validateWorkflow(w).join(), /missing node/)
 })
 test('import resets identity and publication state', () => {
-  const w = { ...demoWorkflow(), status: 'active', revision: 4 }
+  const w = { ...testWorkflow(), status: 'active', revision: 4 }
   const imported = parseWorkflow(JSON.stringify(w))
   assert.notEqual(imported.id, w.id)
   assert.equal(imported.status, 'draft')
@@ -24,8 +25,8 @@ test('import resets identity and publication state', () => {
 })
 test('import rejects malformed nodes and edges', () => {
   assert.throws(() => parseWorkflow('{"schemaVersion":2}'))
-  assert.throws(() => parseWorkflow(JSON.stringify({ ...demoWorkflow(), nodes: [null] })))
-  assert.throws(() => parseWorkflow(JSON.stringify({ ...demoWorkflow(), edges: [null] })))
+  assert.throws(() => parseWorkflow(JSON.stringify({ ...testWorkflow(), nodes: [null] })))
+  assert.throws(() => parseWorkflow(JSON.stringify({ ...testWorkflow(), edges: [null] })))
 })
 test('in-progress invalid drafts can be restored without losing their configuration', () => {
   const w = appendNode(createWorkflow(), 'HTTP Request')
