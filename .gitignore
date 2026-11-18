@@ -12,3 +12,7 @@ apps/api/generated/
 .dev.vars*
 .env*
 !.env.example
+
+# Standalone server data
+data/
+secrets/

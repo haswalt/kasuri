@@ -5,8 +5,8 @@
   "main": "index.js",
   "scripts": {
     "dev": "pnpm build && wrangler dev --ip 127.0.0.1",
-    "build": "pnpm build:engine && pnpm build:web",
-    "test": "pnpm test:web && pnpm test:rust && pnpm test:api && node scripts/test-engine.mjs",
+    "build": "node scripts/cloudflare-build.mjs",
+    "test": "pnpm test:web && pnpm test:rust && pnpm test:api && node scripts/test-engine.mjs && pnpm test:server",
     "test:web": "pnpm --filter web test",
     "test:rust": "cargo test --workspace",
     "build:engine": "node scripts/build-engine.mjs",
@@ -17,7 +17,15 @@
     "dev:web": "pnpm --filter web dev",
     "deploy": "pnpm build && pnpm check:api && wrangler deploy",
     "deploy:check": "pnpm build && pnpm check:api && wrangler deploy --dry-run",
-    "types": "wrangler types --include-runtime=false"
+    "types": "wrangler types --include-runtime=false",
+    "build:server": "node scripts/build-server.mjs",
+    "build:selfhost": "pnpm build && pnpm build:server",
+    "check:server": "tsc -p apps/server/tsconfig.json",
+    "start": "node dist/server/main.mjs",
+    "test:server": "pnpm build:server && node --test apps/server/tests/*.test.mjs",
+    "setup:selfhost": "node scripts/setup-selfhost.mjs",
+    "setup:repository": "node scripts/configure-repository.mjs",
+    "test:container": "node scripts/test-container.mjs"
   },
   "keywords": [],
   "author": "",
@@ -35,9 +43,21 @@
   "devDependencies": {
     "@cloudflare/vitest-plugin": "^1.8.3",
     "@cloudflare/workers-types": "^5.20261117.1",
+    "@types/node": "^24.19.2",
     "cron-parser": "^5.10.6",
+    "esbuild": "^0.28.2",
     "typescript": "^7.0.2",
     "vitest": "^5.1.0",
     "wrangler": "^4.164.0"
+  },
+  "cloudflare": {
+    "bindings": {
+      "WORKSPACES": {
+        "description": "Private demo workflows, run checkpoints and persistent cron/wait timers in SQLite-backed Durable Objects."
+      },
+      "SESSION_TTL_HOURS": {
+        "description": "Workspace lifetime in hours: 24 for an expiring public demo, or 0 to retain data in your own deployment. Applies to new workspaces."
+      }
+    }
   }
 }

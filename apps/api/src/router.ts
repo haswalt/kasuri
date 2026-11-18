@@ -45,7 +45,7 @@ export async function handleRequest(request: Request, env: AppHost): Promise<Res
         else if (parts[1] === 'runs' && parts.length === 4 && request.method === 'POST') response = json(await invoke(stub, 'runAction', { id, action: parts[3] }))
         else throw new HttpError(404, 'API route not found.')
       }
-      if (fresh) response.headers.set('Set-Cookie', `${cookieName}=${session}; HttpOnly; SameSite=Strict; Path=/; Max-Age=${Math.floor((env.sessionTtlMs ?? 86_400_000) / 1000)}${url.protocol === 'https:' ? '; Secure' : ''}`)
+      if (fresh) response.headers.set('Set-Cookie', `${cookieName}=${session}; HttpOnly; SameSite=Strict; Path=/; Max-Age=${Math.floor((env.sessionTtlMs === 0 ? 31_536_000_000 : env.sessionTtlMs ?? 86_400_000) / 1000)}${url.protocol === 'https:' ? '; Secure' : ''}`)
       return response
     } catch (error) {
       if (error instanceof HttpError) return json({ error: error.message }, error.status)

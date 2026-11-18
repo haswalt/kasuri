@@ -36,7 +36,7 @@ export class WorkspaceService {
     }
   }
   private expiresAt(): number | undefined { return this.storage.sql.exec<{ value: number }>("SELECT value FROM meta WHERE key='expires_at'").toArray()[0]?.value }
-  private ensureActive() { const expiry = this.expiresAt(); assert(expiry && Date.now() < expiry, 'This demo session has expired.', 410) }
+  private ensureActive() { const expiry = this.expiresAt(); assert(expiry !== undefined && (expiry === 0 || Date.now() < expiry), 'This demo session has expired.', 410) }
   private workflow(id: string): WorkflowRow {
     const row = this.storage.sql.exec<WorkflowRow>('SELECT * FROM workflows WHERE id=?', id).toArray()[0]
     assert(row, 'Workflow not found.', 404); return row
@@ -52,16 +52,18 @@ export class WorkspaceService {
     this.storage.sql.exec('INSERT OR REPLACE INTO runs(id,checkpoint,mode,created_at,wake_at,host_error,summary) VALUES(?,?,?,?,?,?,?)', row.id, row.checkpoint, row.mode, row.created_at, row.wake_at, row.host_error, summary)
   }
   private async setNextAlarm() {
-    const expiry = this.expiresAt(); if (!expiry) { await this.storage.deleteAlarm(); return }
+    const expiry = this.expiresAt(); if (expiry === undefined) { await this.storage.deleteAlarm(); return }
     const run = this.storage.sql.exec<{ at: number | null }>('SELECT MIN(wake_at) AS at FROM runs WHERE host_error IS NULL').one().at
     const schedule = this.storage.sql.exec<{ at: number | null }>('SELECT MIN(next_at) AS at FROM workflows').one().at
-    await this.storage.setAlarm(Math.max(Date.now() + 1, Math.min(expiry, run ?? expiry, schedule ?? expiry)))
+    const next = Math.min(expiry === 0 ? Infinity : expiry, run ?? Infinity, schedule ?? Infinity)
+    if (Number.isFinite(next)) await this.storage.setAlarm(Math.max(Date.now() + 1, next))
+    else await this.storage.deleteAlarm()
   }
   private async bootstrap(): Promise<string> {
-    if (!this.expiresAt()) {
+    if (this.expiresAt() === undefined) {
       const now = Date.now()
       this.storage.transactionSync(() => {
-        this.storage.sql.exec("INSERT INTO meta(key,value) VALUES('expires_at',?)", now + this.sessionTtlMs)
+        this.storage.sql.exec("INSERT INTO meta(key,value) VALUES('expires_at',?)", (this.sessionTtlMs === 0 ? 0 : now + this.sessionTtlMs))
         for (const workflow of demoWorkflows(now)) this.storage.sql.exec('INSERT INTO workflows(id,document) VALUES(?,?)', workflow.id, JSON.stringify(workflow))
       })
       await this.setNextAlarm()
@@ -70,7 +72,7 @@ export class WorkspaceService {
     return JSON.stringify(this.snapshot())
   }
   private snapshot(): Workspace {
-    return { workflows: this.storage.sql.exec<WorkflowRow>('SELECT * FROM workflows ORDER BY rowid').toArray().map(row => ({ ...JSON.parse(row.document), nextScheduledAt: row.next_at })), runs: this.storage.sql.exec<{ summary: string }>('SELECT summary FROM runs ORDER BY created_at DESC, rowid DESC LIMIT 100').toArray().map(row => JSON.parse(row.summary)), connectors: this.engine.connectors, expiresAt: this.expiresAt()! }
+    return { workflows: this.storage.sql.exec<WorkflowRow>('SELECT * FROM workflows ORDER BY rowid').toArray().map(row => ({ ...JSON.parse(row.document), nextScheduledAt: row.next_at })), runs: this.storage.sql.exec<{ summary: string }>('SELECT summary FROM runs ORDER BY created_at DESC, rowid DESC LIMIT 100').toArray().map(row => JSON.parse(row.summary)), connectors: this.engine.connectors, expiresAt: this.expiresAt() || null }
   }
   private async saveWorkflow(id: string, value: unknown): Promise<string> {
     this.ensureActive()
@@ -106,7 +108,7 @@ export class WorkspaceService {
     const scheduled = workflow.status === 'active' ? scheduleFor(workflow, Date.now()) : null
     const activeSchedules = this.storage.sql.exec<{ count: number }>('SELECT COUNT(*) AS count FROM workflows WHERE next_at IS NOT NULL AND id<>?', id).one().count
     assert(!scheduled || activeSchedules < 3, 'This demo supports three active schedules per workspace.', 409)
-    const nextAt = scheduled && scheduled.at < this.expiresAt()! ? scheduled.at : null
+    const nextAt = scheduled && (this.expiresAt() === 0 || scheduled.at < this.expiresAt()!) ? scheduled.at : null
     this.storage.sql.exec('UPDATE workflows SET document=?,published=?,next_at=? WHERE id=?', JSON.stringify(workflow), workflow.status === 'active' ? JSON.stringify(workflow) : row.published, nextAt, id)
     await this.setNextAlarm(); return JSON.stringify({ ...workflow, nextScheduledAt: nextAt })
   }
@@ -124,7 +126,7 @@ export class WorkspaceService {
     this.prune()
     return JSON.stringify(this.view(row))
   }
-  private newRun(workflow: Workflow, mode: RunMode, input: Json, now: number, id = crypto.randomUUID()): RunRow {
+  private newRun(workflow: Workflow, mode: RunMode, input: Json, now: number, id: string = crypto.randomUUID()): RunRow {
     const row: RunRow = { id, checkpoint: this.engine.startRun(id, workflow, input, now), mode, created_at: now, wake_at: null, host_error: null }
     this.advance(row, now)
     return row
@@ -158,7 +160,7 @@ export class WorkspaceService {
     this.saveRun(row); await this.setNextAlarm(); return JSON.stringify(this.view(row))
   }
   async alarm(): Promise<void> {
-    if ((this.expiresAt() ?? 0) <= Date.now()) {
+    if (this.expiresAt() !== 0 && (this.expiresAt() ?? 0) <= Date.now()) {
       this.storage.sql.exec('DELETE FROM runs'); this.storage.sql.exec('DELETE FROM workflows')
       // Retain the expiry marker so an old session cannot recreate an expired workspace.
       await this.storage.deleteAlarm(); return
@@ -181,7 +183,7 @@ export class WorkspaceService {
         }
         // Coalesce missed occurrences into one run, then compute the next future event.
         const next = scheduleFor(workflow, now)?.at
-        this.storage.sql.exec('UPDATE workflows SET next_at=? WHERE id=?', next && next < this.expiresAt()! ? next : null, row.id)
+        this.storage.sql.exec('UPDATE workflows SET next_at=? WHERE id=?', next && (this.expiresAt() === 0 || next < this.expiresAt()!) ? next : null, row.id)
       }
     })
     this.prune()

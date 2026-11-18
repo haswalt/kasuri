@@ -1,0 +1,29 @@
+services:
+  kasuri:
+    build: .
+    image: kasuri:local
+    restart: unless-stopped
+    init: true
+    ports:
+      - "127.0.0.1:${PORT:-8080}:8080"
+    environment:
+      PUBLIC_ORIGIN: ${PUBLIC_ORIGIN:-http://localhost:8080}
+      SESSION_TTL_HOURS: ${SESSION_TTL_HOURS:-0}
+      BASIC_AUTH_FILE: /run/secrets/basic_auth
+    volumes:
+      - kasuri-data:/data
+    secrets:
+      - basic_auth
+    read_only: true
+    tmpfs:
+      - /tmp:size=32m,mode=1777
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    stop_grace_period: 30s
+volumes:
+  kasuri-data:
+secrets:
+  basic_auth:
+    file: ./secrets/basic_auth

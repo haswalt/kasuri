@@ -14,5 +14,5 @@
   "durable_objects": { "bindings": [{ "name": "WORKSPACES", "class_name": "DemoWorkspace" }] },
   "migrations": [{ "tag": "v1", "new_sqlite_classes": ["DemoWorkspace"] }],
   "observability": { "enabled": true, "head_sampling_rate": 1 },
-  "vars": { "APP_ENV": "demo" }
+  "vars": { "APP_ENV": "demo", "SESSION_TTL_HOURS": "24" }
 }

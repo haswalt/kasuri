@@ -1,0 +1,14 @@
+.git
+node_modules
+**/node_modules
+target
+dist
+apps/web/dist
+apps/api/generated
+.wrangler
+.dev.vars*
+.env*
+secrets
+data
+*.log
+.DS_Store
