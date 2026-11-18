@@ -191,6 +191,12 @@ export const globalCss = defineGlobalStyles({
     background: '{colors.accent-soft} !important',
     borderColor: '{colors.accent} !important'
   },
+  '.react-flow__edge.selected .react-flow__edgeupdater': {
+    fill: '{colors.surface}',
+    stroke: '{colors.accent}',
+    strokeWidth: '2px',
+    opacity: '1'
+  },
   '.react-flow__edge-text': {
     font: '10px {fonts.font-mono}',
     fill: '{colors.text-2}'

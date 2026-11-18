@@ -1,6 +1,6 @@
 import { Button } from '../design/ui'
 import { styles } from '../design/styles'
-import { useEffect, useState } from 'react'
+import { useCallback, useEffect, useState } from 'react'
 import type { Workflow } from '../lib/workflows'
 import { removeNode, validateWorkflow } from '../lib/workflows'
 import { connect, connectionError, ports } from '../lib/canvas'
@@ -37,7 +37,7 @@ export function WorkflowEditor({
   runSimulation,
   runLive
 }: Props) {
-  const [nodeId, setNodeId] = useState<string | undefined>(
+  const [nodeId, setSelectedNode] = useState<string | undefined>(
       workflow.nodes[0]?.id
     ),
     [search, setSearch] = useState(''),
@@ -45,6 +45,25 @@ export function WorkflowEditor({
     [addType, setAddType] = useState<string>(),
     [error, setError] = useState(''),
     [tab, setTab] = useState('Parameters')
+  const [edgeId, setSelectedEdge] = useState<string>()
+  const setNodeId = useCallback((id?: string) => {
+    setSelectedNode(id)
+    setSelectedEdge(undefined)
+  }, [])
+  const selectEdge = useCallback((id: string) => {
+    setSelectedNode(undefined)
+    setSelectedEdge(id)
+  }, [])
+  const edge = workflow.edges.find((e) => e.id === edgeId)
+  function editConnection(source: string, target: string, port: string) {
+    if (!edge) return
+    try {
+      update(connect(workflow, source, target, port, edge.id))
+      setError('')
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Invalid connection.')
+    }
+  }
   const [webhook, setWebhook] = useState<WebhookEndpoint>(),
     [webhookBusy, setWebhookBusy] = useState(false)
   const [result, setResult] = useState<Run | null>(null),
@@ -78,7 +97,7 @@ export function WorkflowEditor({
       setCursor((v) => v + 1)
     }, 1000 / speed)
     return () => clearTimeout(timer)
-  }, [playing, cursor, result, speed])
+  }, [playing, cursor, result, speed, setNodeId])
   useEffect(() => {
     if (node?.type !== 'Webhook') return
     let cancelled = false
@@ -423,6 +442,8 @@ export function WorkflowEditor({
         <WorkflowCanvas
           workflow={workflow}
           selectedId={nodeId}
+          selectedEdgeId={edgeId}
+          selectEdge={selectEdge}
           select={setNodeId}
           update={update}
           showPalette={() =>
@@ -499,6 +520,38 @@ export function WorkflowEditor({
                       : '// ' + selectedResult.status
                     : '// Not reached in playback yet'}
                 </pre>
+              </div>
+            </>
+          ) : edge ? (
+            <>
+              <div className={styles.inspectorHeading}>
+                <span className={styles.eyebrow}>CONNECTION</span>
+                <strong>Edit connection</strong>
+                <small className={styles.mono}>{edge.id}</small>
+              </div>
+              <div className={styles.inspectorScroll}>
+                <label>From node
+                  <select value={edge.source} onChange={(e) => editConnection(e.target.value, edge.target, ports(workflow.nodes.find((n) => n.id === e.target.value)!.type)[0])}>
+                    {workflow.nodes.map((n) => <option key={n.id} value={n.id}>{n.label}</option>)}
+                  </select>
+                </label>
+                <label>Output
+                  <select value={edge.sourcePort || 'success'} onChange={(e) => editConnection(edge.source, edge.target, e.target.value)}>
+                    {ports(workflow.nodes.find((n) => n.id === edge.source)!.type).map((p) => <option key={p}>{p}</option>)}
+                  </select>
+                </label>
+                <label>To node
+                  <select value={edge.target} onChange={(e) => editConnection(edge.source, e.target.value, edge.sourcePort || 'success')}>
+                    {workflow.nodes.map((n) => <option key={n.id} value={n.id}>{n.label}</option>)}
+                  </select>
+                </label>
+                <label>Input<input value="input" readOnly /></label>
+                <p>Drag either end of the selected connection to reconnect it.</p>
+                <Button tone="danger" onClick={() => {
+                  update({ ...workflow, edges: workflow.edges.filter((e) => e.id !== edge.id) })
+                  setSelectedEdge(undefined)
+                }}>Delete connection</Button>
+                {error && <p role="alert">{error}</p>}
               </div>
             </>
           ) : node ? (

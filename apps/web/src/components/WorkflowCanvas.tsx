@@ -101,6 +101,8 @@ const edgeColor = (port: string) =>
 export function WorkflowCanvas(props: {
   workflow: Workflow
   selectedId?: string
+  selectedEdgeId?: string
+  selectEdge: (id: string) => void
   select: (id?: string) => void
   update: (workflow: Workflow) => void
   showPalette: () => void
@@ -120,6 +122,8 @@ export function WorkflowCanvas(props: {
 function Canvas({
   workflow,
   selectedId,
+  selectedEdgeId,
+  selectEdge,
   select,
   update,
   showPalette,
@@ -165,7 +169,8 @@ function Canvas({
         const done =
           states?.[edge.source] === 'succeeded' ||
           (states?.[edge.source] === 'failed' && port === 'error')
-        const color = active
+        const selected = edge.id === selectedEdgeId
+        const color = selected ? 'var(--accent)' : active
           ? 'var(--run)'
           : skipped
             ? 'var(--line)'
@@ -176,6 +181,9 @@ function Canvas({
               : edgeColor(port)
         return {
           ...edge,
+          selected,
+          ariaRole: 'button',
+          ariaLabel: `Connection from ${workflow.nodes.find((n) => n.id === edge.source)?.label} ${port} to ${workflow.nodes.find((n) => n.id === edge.target)?.label} input`,
           animated: active,
           sourceHandle: port,
           targetHandle: 'input',
@@ -185,7 +193,7 @@ function Canvas({
           markerEnd: { type: MarkerType.Arrow, width: 12, height: 12, color },
           style: {
             stroke: color,
-            strokeWidth: active ? 1.75 : 1.25,
+            strokeWidth: selected ? 2.5 : active ? 1.75 : 1.25,
             ...(active || skipped || port === 'error'
               ? { strokeDasharray: active ? '5 5' : '4 4' }
               : {})
@@ -194,14 +202,16 @@ function Canvas({
         }
       })
     )
-  }, [graphKey, selectedId, JSON.stringify(states)])
+  }, [graphKey, selectedId, selectedEdgeId, JSON.stringify(states)])
   // React Flow subscribes to this callback. Keep it stable while playback changes
   // selectedId, so registration cannot feed the previous selection back upstream.
   const onSelectionChange = useCallback(
-    ({ nodes: selected }: { nodes: CanvasNode[] }) => {
+    ({ nodes: selected, edges: selectedEdges }: { nodes: CanvasNode[]; edges: Edge[] }) => {
+      if (selected.length + selectedEdges.length !== 1) return
       if (selected.length === 1) select(selected[0].id)
+      else selectEdge(selectedEdges[0].id)
     },
-    [select]
+    [select, selectEdge]
   )
   const root = useRef<HTMLElement>(null)
   function add(
@@ -356,6 +366,8 @@ function Canvas({
         onMove={(_, viewport) => setZoom(Math.round(viewport.zoom * 100))}
         onSelectionChange={onSelectionChange}
         onNodeClick={(_, node) => select(node.id)}
+        onEdgeClick={(_, edge) => selectEdge(edge.id)}
+        reconnectRadius={16}
         onPaneClick={() => select(undefined)}
         onNodeDragStop={(_, moved, group) => {
           const movedPositions = new Map(
@@ -401,7 +413,7 @@ function Canvas({
                 !nodeIds.has(e.target)
             )
           })
-          if (selectedId && nodeIds.has(selectedId)) select(undefined)
+          if ((selectedId && nodeIds.has(selectedId)) || (selectedEdgeId && edgeIds.has(selectedEdgeId))) select(undefined)
         }}
         nodesDraggable={!readOnly}
         nodesConnectable={!readOnly}
