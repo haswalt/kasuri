@@ -1,0 +1,105 @@
+{
+  "schemaVersion": 1,
+  "id": "05-error-recovery",
+  "name": "Recover a deliberate parsing error",
+  "description": "Pass an object to Parse, which expects JSON text, then route its deliberate error through Error Handler. Handled errors are recorded as successful error-port completions; the run succeeds.",
+  "status": "draft",
+  "revision": 0,
+  "updatedAt": "2026-11-18T00:00:00Z",
+  "nodes": [
+    {
+      "id": "start",
+      "type": "Manual Trigger",
+      "label": "Manual Trigger",
+      "version": 1,
+      "config": {},
+      "position": {
+        "x": 0,
+        "y": 0
+      }
+    },
+    {
+      "id": "sample",
+      "type": "Map / Transform",
+      "label": "Map / Transform",
+      "version": 1,
+      "config": {
+        "mapping": {
+          "invalid": "not JSON"
+        }
+      },
+      "position": {
+        "x": 320,
+        "y": 180
+      }
+    },
+    {
+      "id": "parse",
+      "type": "JSON Utilities",
+      "label": "JSON Utilities",
+      "version": 1,
+      "config": {
+        "operation": "parse"
+      },
+      "position": {
+        "x": 0,
+        "y": 360
+      }
+    },
+    {
+      "id": "recover",
+      "type": "Error Handler",
+      "label": "Error Handler",
+      "version": 1,
+      "config": {},
+      "position": {
+        "x": 320,
+        "y": 540
+      }
+    },
+    {
+      "id": "result",
+      "type": "Map / Transform",
+      "label": "Map / Transform",
+      "version": 1,
+      "config": {
+        "mapping": {
+          "recovered": true,
+          "reason": {
+            "$input": "/error/code"
+          }
+        }
+      },
+      "position": {
+        "x": 0,
+        "y": 720
+      }
+    }
+  ],
+  "edges": [
+    {
+      "id": "e0",
+      "source": "start",
+      "target": "sample",
+      "sourcePort": "success"
+    },
+    {
+      "id": "e1",
+      "source": "sample",
+      "target": "parse",
+      "sourcePort": "success"
+    },
+    {
+      "id": "e2",
+      "source": "parse",
+      "target": "recover",
+      "sourcePort": "error"
+    },
+    {
+      "id": "e3",
+      "source": "recover",
+      "target": "result",
+      "sourcePort": "success"
+    }
+  ]
+}

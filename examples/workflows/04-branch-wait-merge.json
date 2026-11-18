@@ -1,0 +1,125 @@
+{
+  "schemaVersion": 1,
+  "id": "04-branch-wait-merge",
+  "name": "Branch, wait and merge",
+  "description": "Default sample takes the urgent branch, waits one second and merges. Simulate advances time instantly.",
+  "status": "draft",
+  "revision": 0,
+  "updatedAt": "2026-11-18T00:00:00Z",
+  "nodes": [
+    {
+      "id": "start",
+      "type": "Manual Trigger",
+      "label": "Manual Trigger",
+      "version": 1,
+      "config": {},
+      "position": {
+        "x": 0,
+        "y": 0
+      }
+    },
+    {
+      "id": "sample",
+      "type": "Map / Transform",
+      "label": "Map / Transform",
+      "version": 1,
+      "config": {
+        "mapping": {
+          "priority": "urgent",
+          "title": "Synthetic example"
+        }
+      },
+      "position": {
+        "x": 320,
+        "y": 180
+      }
+    },
+    {
+      "id": "condition",
+      "type": "IF / Condition",
+      "label": "IF / Condition",
+      "version": 1,
+      "config": {
+        "pointer": "/priority",
+        "equals": "urgent"
+      },
+      "position": {
+        "x": 0,
+        "y": 360
+      }
+    },
+    {
+      "id": "wait",
+      "type": "Wait / Delay",
+      "label": "Wait / Delay",
+      "version": 1,
+      "config": {
+        "delayMs": 1000
+      },
+      "position": {
+        "x": 320,
+        "y": 540
+      }
+    },
+    {
+      "id": "ordinary",
+      "type": "Map / Transform",
+      "label": "Map / Transform",
+      "version": 1,
+      "config": {
+        "mapping": {
+          "priority": "normal"
+        }
+      },
+      "position": {
+        "x": 0,
+        "y": 720
+      }
+    },
+    {
+      "id": "done",
+      "type": "Merge",
+      "label": "Merge",
+      "version": 1,
+      "config": {},
+      "position": {
+        "x": 320,
+        "y": 900
+      }
+    }
+  ],
+  "edges": [
+    {
+      "id": "e1",
+      "source": "start",
+      "target": "sample"
+    },
+    {
+      "id": "e2",
+      "source": "sample",
+      "target": "condition"
+    },
+    {
+      "id": "e3",
+      "source": "condition",
+      "target": "wait",
+      "sourcePort": "true"
+    },
+    {
+      "id": "e4",
+      "source": "condition",
+      "target": "ordinary",
+      "sourcePort": "false"
+    },
+    {
+      "id": "e5",
+      "source": "wait",
+      "target": "done"
+    },
+    {
+      "id": "e6",
+      "source": "ordinary",
+      "target": "done"
+    }
+  ]
+}

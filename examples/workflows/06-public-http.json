@@ -1,0 +1,83 @@
+{
+  "schemaVersion": 1,
+  "id": "06-public-http",
+  "name": "Read a public API",
+  "description": "GET JSONPlaceholder /posts/1, then select its ID and user ID. Run uses the real public API; Simulate uses the embedded response. No keys required.",
+  "status": "draft",
+  "revision": 0,
+  "updatedAt": "2026-11-18T00:00:00Z",
+  "nodes": [
+    {
+      "id": "start",
+      "type": "Manual Trigger",
+      "label": "Manual Trigger",
+      "version": 1,
+      "config": {},
+      "position": {
+        "x": 0,
+        "y": 0
+      }
+    },
+    {
+      "id": "fetch",
+      "type": "HTTP Request",
+      "label": "HTTP Request",
+      "version": 1,
+      "config": {
+        "url": "https://jsonplaceholder.typicode.com/posts/1",
+        "method": "GET",
+        "responseType": "json",
+        "headers": {
+          "Accept": "application/json"
+        },
+        "simulationResponse": {
+          "status": 200,
+          "body": {
+            "userId": 1,
+            "id": 1,
+            "title": "Example post",
+            "body": "Public fixture content"
+          }
+        }
+      },
+      "position": {
+        "x": 320,
+        "y": 180
+      }
+    },
+    {
+      "id": "result",
+      "type": "Map / Transform",
+      "label": "Map / Transform",
+      "version": 1,
+      "config": {
+        "mapping": {
+          "postId": {
+            "$input": "/body/id"
+          },
+          "userId": {
+            "$input": "/body/userId"
+          }
+        }
+      },
+      "position": {
+        "x": 0,
+        "y": 360
+      }
+    }
+  ],
+  "edges": [
+    {
+      "id": "e0",
+      "source": "start",
+      "target": "fetch",
+      "sourcePort": "success"
+    },
+    {
+      "id": "e1",
+      "source": "fetch",
+      "target": "result",
+      "sourcePort": "success"
+    }
+  ]
+}

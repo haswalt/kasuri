@@ -1,0 +1,126 @@
+[
+  {
+    "file": "workflows/01-hello.json",
+    "outputs": {
+      "hello": {
+        "message": "Hello from Kasuri",
+        "example": true
+      }
+    },
+    "statuses": {}
+  },
+  {
+    "file": "workflows/02-json-roundtrip.json",
+    "outputs": {
+      "decode": {
+        "project": "Kasuri",
+        "numbers": [
+          1,
+          2,
+          3
+        ]
+      }
+    },
+    "statuses": {}
+  },
+  {
+    "file": "workflows/03-filter-sort.json",
+    "outputs": {
+      "ordered": [
+        {
+          "name": "Alder",
+          "active": true,
+          "rank": 1
+        },
+        {
+          "name": "Cedar",
+          "active": true,
+          "rank": 3
+        }
+      ]
+    },
+    "statuses": {}
+  },
+  {
+    "file": "workflows/04-branch-wait-merge.json",
+    "outputs": {
+      "done": {
+        "wait": {
+          "priority": "urgent",
+          "title": "Synthetic example"
+        }
+      }
+    },
+    "statuses": {
+      "ordinary": "skipped"
+    }
+  },
+  {
+    "file": "workflows/05-error-recovery.json",
+    "outputs": {
+      "result": {
+        "recovered": true,
+        "reason": "invalid_config"
+      },
+      "parse": {
+        "error": {
+          "code": "invalid_config"
+        }
+      }
+    },
+    "statuses": {
+      "parse": "succeeded",
+      "recover": "succeeded"
+    }
+  },
+  {
+    "file": "workflows/06-public-http.json",
+    "outputs": {
+      "result": {
+        "postId": 1,
+        "userId": 1
+      }
+    },
+    "statuses": {}
+  },
+  {
+    "file": "workflows/07-public-api-pipeline.json",
+    "outputs": {
+      "decode": [
+        {
+          "userId": 1,
+          "id": 2,
+          "title": "Another completed task",
+          "completed": true
+        },
+        {
+          "userId": 1,
+          "id": 4,
+          "title": "Synthetic completed task",
+          "completed": true
+        }
+      ]
+    },
+    "statuses": {}
+  },
+  {
+    "file": "workflows/08-schedule.json",
+    "outputs": {
+      "result": {
+        "message": "Scheduled heartbeat",
+        "example": true
+      }
+    },
+    "statuses": {}
+  },
+  {
+    "file": "workflows/09-webhook.json",
+    "outputs": {
+      "result": {
+        "accepted": true,
+        "message": "Webhook received"
+      }
+    },
+    "statuses": {}
+  }
+]

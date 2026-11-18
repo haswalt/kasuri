@@ -1,0 +1,48 @@
+{
+  "schemaVersion": 1,
+  "id": "09-webhook",
+  "name": "Webhook acknowledgement",
+  "description": "Run now or Simulate with {} immediately. To receive events, generate the installation-local endpoint/token and publish. No credentials are bundled.",
+  "status": "draft",
+  "revision": 0,
+  "updatedAt": "2026-11-18T00:00:00Z",
+  "nodes": [
+    {
+      "id": "start",
+      "type": "Webhook",
+      "label": "Webhook",
+      "version": 1,
+      "config": {
+        "authentication": "bearer"
+      },
+      "position": {
+        "x": 0,
+        "y": 0
+      }
+    },
+    {
+      "id": "result",
+      "type": "Map / Transform",
+      "label": "Map / Transform",
+      "version": 1,
+      "config": {
+        "mapping": {
+          "accepted": true,
+          "message": "Webhook received"
+        }
+      },
+      "position": {
+        "x": 320,
+        "y": 180
+      }
+    }
+  ],
+  "edges": [
+    {
+      "id": "e0",
+      "source": "start",
+      "target": "result",
+      "sourcePort": "success"
+    }
+  ]
+}

@@ -29,6 +29,8 @@ pnpm deploy:check
 
 ## Architecture
 
+Try the [importable example workflows](examples/README.md) after installing Kasuri. They cover every supported connector, range from simple to combined scenarios, and include live public API examples with offline simulation fixtures.
+
 - `apps/web`: React editor, draggable nodes, curved connections, run inspector and simulation controls.
 - `packages/contracts`: frontend TypeScript types for JSON API responses.
 - `crates/workflow-schema`: graph contracts and validation, including canvas positions.

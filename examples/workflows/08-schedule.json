@@ -1,0 +1,49 @@
+{
+  "schemaVersion": 1,
+  "id": "08-schedule",
+  "name": "Scheduled heartbeat",
+  "description": "Run now or Simulate with {} immediately. Publish to activate an hourly UTC schedule; pause it when finished. No network or secrets.",
+  "status": "draft",
+  "revision": 0,
+  "updatedAt": "2026-11-18T00:00:00Z",
+  "nodes": [
+    {
+      "id": "start",
+      "type": "Schedule",
+      "label": "Schedule",
+      "version": 1,
+      "config": {
+        "cron": "0 * * * *",
+        "timezone": "UTC"
+      },
+      "position": {
+        "x": 0,
+        "y": 0
+      }
+    },
+    {
+      "id": "result",
+      "type": "Map / Transform",
+      "label": "Map / Transform",
+      "version": 1,
+      "config": {
+        "mapping": {
+          "message": "Scheduled heartbeat",
+          "example": true
+        }
+      },
+      "position": {
+        "x": 320,
+        "y": 180
+      }
+    }
+  ],
+  "edges": [
+    {
+      "id": "e0",
+      "source": "start",
+      "target": "result",
+      "sourcePort": "success"
+    }
+  ]
+}

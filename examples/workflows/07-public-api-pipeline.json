@@ -1,0 +1,150 @@
+{
+  "schemaVersion": 1,
+  "id": "07-public-api-pipeline",
+  "name": "Public API filtering pipeline",
+  "description": "GET JSONPlaceholder todos for user 1, filter completed tasks, sort by ID, then JSON round trip. Real results differ from the small embedded simulation fixture.",
+  "status": "draft",
+  "revision": 0,
+  "updatedAt": "2026-11-18T00:00:00Z",
+  "nodes": [
+    {
+      "id": "start",
+      "type": "Manual Trigger",
+      "label": "Manual Trigger",
+      "version": 1,
+      "config": {},
+      "position": {
+        "x": 0,
+        "y": 0
+      }
+    },
+    {
+      "id": "fetch",
+      "type": "HTTP Request",
+      "label": "HTTP Request",
+      "version": 1,
+      "config": {
+        "url": "https://jsonplaceholder.typicode.com/todos",
+        "method": "GET",
+        "query": {
+          "userId": "1"
+        },
+        "responseType": "json",
+        "simulationResponse": {
+          "status": 200,
+          "body": [
+            {
+              "userId": 1,
+              "id": 1,
+              "title": "Synthetic pending task",
+              "completed": false
+            },
+            {
+              "userId": 1,
+              "id": 4,
+              "title": "Synthetic completed task",
+              "completed": true
+            },
+            {
+              "userId": 1,
+              "id": 2,
+              "title": "Another completed task",
+              "completed": true
+            }
+          ]
+        }
+      },
+      "position": {
+        "x": 320,
+        "y": 180
+      }
+    },
+    {
+      "id": "completed",
+      "type": "Filter",
+      "label": "Filter",
+      "version": 1,
+      "config": {
+        "arrayPointer": "/body",
+        "pointer": "/completed",
+        "equals": true
+      },
+      "position": {
+        "x": 0,
+        "y": 360
+      }
+    },
+    {
+      "id": "ordered",
+      "type": "Sort",
+      "label": "Sort",
+      "version": 1,
+      "config": {
+        "pointer": "/id",
+        "order": "asc"
+      },
+      "position": {
+        "x": 320,
+        "y": 540
+      }
+    },
+    {
+      "id": "encode",
+      "type": "JSON Utilities",
+      "label": "JSON Utilities",
+      "version": 1,
+      "config": {
+        "operation": "stringify"
+      },
+      "position": {
+        "x": 0,
+        "y": 720
+      }
+    },
+    {
+      "id": "decode",
+      "type": "JSON Utilities",
+      "label": "JSON Utilities",
+      "version": 1,
+      "config": {
+        "operation": "parse"
+      },
+      "position": {
+        "x": 320,
+        "y": 900
+      }
+    }
+  ],
+  "edges": [
+    {
+      "id": "e0",
+      "source": "start",
+      "target": "fetch",
+      "sourcePort": "success"
+    },
+    {
+      "id": "e1",
+      "source": "fetch",
+      "target": "completed",
+      "sourcePort": "success"
+    },
+    {
+      "id": "e2",
+      "source": "completed",
+      "target": "ordered",
+      "sourcePort": "success"
+    },
+    {
+      "id": "e3",
+      "source": "ordered",
+      "target": "encode",
+      "sourcePort": "success"
+    },
+    {
+      "id": "e4",
+      "source": "encode",
+      "target": "decode",
+      "sourcePort": "success"
+    }
+  ]
+}

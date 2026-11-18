@@ -1,0 +1,46 @@
+{
+  "schemaVersion": 1,
+  "id": "01-hello",
+  "name": "Hello workflow",
+  "description": "Run with the default {} input. No network or credentials.",
+  "status": "draft",
+  "revision": 0,
+  "updatedAt": "2026-11-18T00:00:00Z",
+  "nodes": [
+    {
+      "id": "start",
+      "type": "Manual Trigger",
+      "label": "Manual Trigger",
+      "version": 1,
+      "config": {},
+      "position": {
+        "x": 0,
+        "y": 0
+      }
+    },
+    {
+      "id": "hello",
+      "type": "Map / Transform",
+      "label": "Map / Transform",
+      "version": 1,
+      "config": {
+        "mapping": {
+          "message": "Hello from Kasuri",
+          "example": true
+        }
+      },
+      "position": {
+        "x": 320,
+        "y": 180
+      }
+    }
+  ],
+  "edges": [
+    {
+      "id": "e0",
+      "source": "start",
+      "target": "hello",
+      "sourcePort": "success"
+    }
+  ]
+}

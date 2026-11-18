@@ -19,7 +19,8 @@
     "deploy:check": "pnpm build && wrangler deploy --dry-run",
     "setup:selfhost": "node scripts/setup-selfhost.mjs",
     "setup:repository": "node scripts/configure-repository.mjs",
-    "test:container": "node scripts/test-container.mjs"
+    "test:container": "node scripts/test-container.mjs",
+    "test:examples:live": "node scripts/test-examples-live.mjs"
   },
   "keywords": [],
   "author": "",
