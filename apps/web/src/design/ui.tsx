@@ -2,7 +2,8 @@ import { button, statusPill, categoryTile } from '../../styled-system/recipes'
 import { cx } from '../../styled-system/css'
 import type { ComponentPropsWithRef } from 'react'
 import { styles } from './styles'
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useLayoutEffect, useRef, useState } from 'react'
+import { createPortal } from 'react-dom'
 import type { ReactNode, KeyboardEventHandler } from 'react'
 import { category, nodeIcon, tone } from './ui-model'
 const paths: Record<string, string[]> = {
@@ -200,13 +201,34 @@ export function Menu({
   iconOnly?: boolean
 }) {
   const [open, setOpen] = useState(false)
-  const [autoUp, setAutoUp] = useState(false)
+  const [position, setPosition] = useState({ left: 0, top: 0 })
+  const panel = useRef<HTMLDivElement>(null)
   const root = useRef<HTMLDivElement>(null)
   const trigger = useRef<HTMLButtonElement>(null)
+  useLayoutEffect(() => {
+    if (!open) return
+    const place = () => {
+      const anchor = trigger.current?.getBoundingClientRect()
+      const menu = panel.current?.getBoundingClientRect()
+      if (!anchor || !menu) return
+      const above = up || (anchor.bottom + 7 + menu.height > innerHeight - 8 && anchor.top > innerHeight - anchor.bottom)
+      setPosition({
+        left: Math.max(8, Math.min(anchor.right - menu.width, innerWidth - menu.width - 8)),
+        top: Math.max(8, Math.min(above ? anchor.top - menu.height - 7 : anchor.bottom + 7, innerHeight - menu.height - 8))
+      })
+    }
+    place()
+    window.addEventListener('resize', place)
+    window.addEventListener('scroll', place, true)
+    return () => {
+      window.removeEventListener('resize', place)
+      window.removeEventListener('scroll', place, true)
+    }
+  }, [open, up])
   useEffect(() => {
     if (!open) return
     const close = (e: PointerEvent) => {
-      if (!root.current?.contains(e.target as Node)) setOpen(false)
+      if (!root.current?.contains(e.target as Node) && !panel.current?.contains(e.target as Node)) setOpen(false)
     }
     const key = (e: KeyboardEvent) => {
       if (e.key === 'Escape') {
@@ -216,8 +238,8 @@ export function Menu({
     }
     document.addEventListener('pointerdown', close)
     document.addEventListener('keydown', key)
-    root.current
-      ?.querySelectorAll('[role=menu] button,[role=menu] a')
+    panel.current
+      ?.querySelectorAll('button,a')
       .forEach((el) => {
         if (!el.getAttribute('role')) el.setAttribute('role', 'menuitem')
       })
@@ -234,20 +256,14 @@ export function Menu({
         aria-label={iconOnly ? 'Workflow actions' : undefined}
         aria-haspopup="menu"
         aria-expanded={open}
-        onClick={() => {
-          setAutoUp(
-            (trigger.current?.getBoundingClientRect().bottom || 0) >
-              innerHeight / 2
-          )
-          setOpen(!open)
-        }}
+        onClick={() => setOpen(!open)}
         onKeyDown={(e) => {
           if (e.key === 'ArrowDown') {
             e.preventDefault()
             setOpen(true)
             requestAnimationFrame(() =>
-              root.current
-                ?.querySelector<HTMLButtonElement>('[role=menu] button')
+              panel.current
+                ?.querySelector<HTMLElement>('button:not(:disabled),a[href]')
                 ?.focus()
             )
           }
@@ -255,13 +271,17 @@ export function Menu({
       >
         {label}
       </Button>
-      {open && (
+      {open && createPortal(
         <div
-          className={styles.menuPanel + ' ' + (up || autoUp ? 'up' : '')}
+          ref={panel}
+          className={styles.menuPanel}
+          style={{ position: 'fixed', left: position.left, top: position.top, right: 'auto', bottom: 'auto', maxWidth: 'calc(100vw - 16px)', minWidth: 'min(240px, calc(100vw - 16px))', maxHeight: 'calc(100vh - 16px)', overflowY: 'auto' }}
           role="menu"
           onClick={(e) => {
-            if ((e.target as Element).closest('button:not(:disabled),a'))
+            if ((e.target as Element).closest('button:not(:disabled),a')) {
               setOpen(false)
+              trigger.current?.focus()
+            }
           }}
           onKeyDown={(e) => {
             if (!['ArrowDown', 'ArrowUp', 'Home', 'End'].includes(e.key)) return
@@ -283,7 +303,7 @@ export function Menu({
           }}
         >
           {children}
-        </div>
+        </div>, document.body
       )}
     </div>
   )
