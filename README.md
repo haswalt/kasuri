@@ -2,6 +2,8 @@
 
 A Cloudflare-native workflow automation platform with a React UI, Rust workflow engine and a live-demo Worker host.
 
+Live demo: [your-worker.your-subdomain.workers.dev](https://your-worker.your-subdomain.workers.dev)
+
 ## Run locally
 
 Use Node.js 24+, pnpm (version pinned in `package.json`), Rust, and the matching Wasm binding tool:

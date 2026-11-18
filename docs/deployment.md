@@ -1,5 +1,17 @@
 # Cloudflare demo host
 
+## Live demo
+
+The demo is deployed at [your-worker.your-subdomain.workers.dev](https://your-worker.your-subdomain.workers.dev). Each browser receives its own isolated session and the three starter workflows. Run or simulate the core data demo, try both condition branches, or publish the scheduled heartbeat and inspect its next occurrence.
+
+The hosted smoke check verifies core-node output, both condition branches, error reporting, a real persisted wait and an actual cron-triggered run. It pauses its test schedule afterward:
+
+```sh
+node scripts/smoke-demo.mjs https://your-worker.your-subdomain.workers.dev
+```
+
+This uses sample data in a new isolated session and can take about one minute while waiting for cron.
+
 ## Components
 
 One Worker serves static Vite assets and same-origin `/api/*` requests. The actual Rust engine is compiled to Wasm; TypeScript does not reimplement its graph scheduler. A SQLite-backed Durable Object per browser workspace owns workflow documents, run checkpoints and cron registration. There is no shared global workspace.
