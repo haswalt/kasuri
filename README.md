@@ -48,4 +48,8 @@ Manual, webhook-payload and cron triggers; mapping, conditions, merge, delay, JS
 
 A random HttpOnly cookie selects a browser workspace. Data persists until removed from storage; clearing the cookie loses access to that workspace. This is capability-based isolation, not user accounts or team membership. Protect private deployments with Cloudflare Access or the optional Basic authentication binding. External credential storage, account permissions and production operations remain future work.
 
+## Planned agent interface
+
+Kasuri must expose an authenticated MCP server so agents can build and manage workflows, execute and inspect runs, and audit changes and execution history. This is a planned Rust backend capability, with workspace-scoped permissions, revision checks, redacted results and attributable audit records. See [agent MCP requirements](docs/agent-mcp.md). It is separate from the planned MCP Client workflow connector.
+
 Completed changes use Conventional Commits. See [engine details](docs/workflow-engine.md).
