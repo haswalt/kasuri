@@ -6,7 +6,7 @@
   "scripts": {
     "dev": "pnpm build && wrangler dev --ip 127.0.0.1",
     "build": "node scripts/cloudflare-build.mjs",
-    "test": "pnpm test:web && pnpm test:rust && pnpm test:api && node scripts/test-engine.mjs && pnpm test:server",
+    "test": "pnpm build:selfhost && pnpm test:web && pnpm test:rust && pnpm test:api && node scripts/test-engine.mjs && pnpm test:server",
     "test:web": "pnpm --filter web test",
     "test:rust": "cargo test --workspace",
     "build:engine": "node scripts/build-engine.mjs",
@@ -19,7 +19,7 @@
     "deploy:check": "pnpm build && pnpm check:api && wrangler deploy --dry-run",
     "types": "wrangler types --include-runtime=false",
     "build:server": "node scripts/build-server.mjs",
-    "build:selfhost": "pnpm build && pnpm build:server",
+    "build:selfhost": "pnpm build && pnpm check:server && pnpm build:server",
     "check:server": "tsc -p apps/server/tsconfig.json",
     "start": "node dist/server/main.mjs",
     "test:server": "pnpm build:server && node --test apps/server/tests/*.test.mjs",
