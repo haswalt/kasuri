@@ -85,6 +85,8 @@ Unsupported types (including HTTP, SaaS and Code) fail explicitly through `unsup
 
 ## Connected demo host
 
+The standalone Node/SQLite host shares the same API/workspace service and Rust engine, with persistent wait/cron recovery and no required Cloudflare account; see [self-hosting](self-hosting.md).
+
 The `workflow-wasm` crate now exposes the Rust engine to the TypeScript Worker using a JSON/Wasm bridge. The React UI calls that Worker, which persists core run checkpoints in per-browser SQLite Durable Objects and uses alarms for waits and timezone-aware cron scheduling. See [the deployment guide](deployment.md) for setup and API details.
 
 The host batches only pure core adapters. External adapters will require persisted dispatch/outcome journaling; do not add network calls inside the current batch loop. The native example above remains a virtual-clock illustration of the low-level host protocol.

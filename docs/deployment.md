@@ -12,6 +12,8 @@ node scripts/smoke-demo.mjs https://your-worker.your-subdomain.workers.dev
 
 This uses sample data in a new isolated session and can take about one minute while waiting for cron.
 
+For deploying another Cloudflare account, see [one-click deployment](cloudflare-one-click.md). For Docker, Kubernetes or a server without Cloudflare, see [self-hosting](self-hosting.md).
+
 ## Components
 
 One Worker serves static Vite assets and same-origin `/api/*` requests. The actual Rust engine is compiled to Wasm; TypeScript does not reimplement its graph scheduler. A SQLite-backed Durable Object per browser workspace owns workflow documents, run checkpoints and cron registration. There is no shared global workspace.
