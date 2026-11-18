@@ -53,6 +53,9 @@ pub struct Document {
     pub graph: Workflow,
     pub status: Publication,
     pub updated_at: String,
+    /// Optimistic concurrency version, incremented by every saved mutation.
+    #[serde(default)]
+    pub version: u64,
     #[serde(default)]
     pub next_scheduled_at: Option<u64>,
 }
@@ -201,6 +204,13 @@ pub struct WebhookEvent {
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Workspace {
+    /// Internal management credentials and receipts. Never included in API snapshots.
+    #[serde(default)]
+    pub management: Value,
+    #[serde(default)]
+    pub audit: Vec<Value>,
+    #[serde(default)]
+    pub audit_sequence: u64,
     #[serde(default)]
     pub webhooks: Vec<WebhookRegistration>,
     #[serde(default)]
@@ -258,7 +268,7 @@ impl Workspace {
             .position(|w| w.graph.id == id)
             .ok_or_else(|| error(404, "Workflow not found"))
     }
-    fn executable(document: &Document) -> Result<(), ApiError> {
+    pub fn executable(document: &Document) -> Result<(), ApiError> {
         document
             .graph
             .validate()
@@ -341,7 +351,97 @@ impl Workspace {
         self.runs.insert(0, record);
         Ok(view)
     }
+    pub fn record_audit(
+        &mut self,
+        actor: &str,
+        action: &str,
+        target: &str,
+        outcome: &str,
+        now: u64,
+        correlation: &str,
+    ) {
+        self.audit_sequence += 1;
+        self.audit.push(json!({"id":self.audit_sequence,"actor":actor,"action":action,"target":target,"outcome":outcome,"at":iso(now),"correlationId":correlation}));
+        if self.audit.len() > 1000 {
+            self.audit.remove(0);
+        }
+    }
+    pub fn audit_page(&self, after: u64, limit: usize) -> Value {
+        let items: Vec<_> = self
+            .audit
+            .iter()
+            .filter(|v| v["id"].as_u64().unwrap_or(0) > after)
+            .take(limit.clamp(1, 100))
+            .cloned()
+            .collect();
+        json!({"items":items,"nextCursor":items.last().map(|v|&v["id"]),"oldestRetainedId":self.audit.first().map(|v|&v["id"]),"totalRecorded":self.audit_sequence,"retentionLimit":1000})
+    }
     pub fn handle(
+        &mut self,
+        method: &str,
+        path: &str,
+        body: &[u8],
+        now: u64,
+        run_id: &str,
+    ) -> Result<(u16, Value), ApiError> {
+        self.handle_as(method, path, body, now, run_id, "browser")
+    }
+    pub fn handle_as(
+        &mut self,
+        method: &str,
+        path: &str,
+        body: &[u8],
+        now: u64,
+        run_id: &str,
+        actor: &str,
+    ) -> Result<(u16, Value), ApiError> {
+        let workflow_id = path
+            .strip_prefix("/api/workflows/")
+            .and_then(|p| p.split('/').next());
+        let before = workflow_id.and_then(|id| {
+            self.workflows
+                .iter()
+                .find(|w| w.graph.id == id)
+                .map(|w| (w.version, w.graph.revision))
+        });
+        let result = self.handle_inner(method, path, body, now, run_id);
+        if matches!(method, "POST" | "PUT" | "DELETE") {
+            let target = result
+                .as_ref()
+                .ok()
+                .and_then(|(_, v)| v["id"].as_str())
+                .unwrap_or(path);
+            self.record_audit(
+                actor,
+                method,
+                target,
+                if result.is_ok() {
+                    "succeeded"
+                } else {
+                    "rejected"
+                },
+                now,
+                run_id,
+            );
+            let after = workflow_id.and_then(|id| {
+                self.workflows
+                    .iter()
+                    .find(|w| w.graph.id == id)
+                    .map(|w| (w.version, w.graph.revision))
+            });
+            if let Some(event) = self.audit.last_mut() {
+                event["before"] = json!(
+                    before
+                        .map(|(version, revision)| json!({"version":version,"revision":revision}))
+                );
+                event["after"] = json!(
+                    after.map(|(version, revision)| json!({"version":version,"revision":revision}))
+                );
+            }
+        }
+        result
+    }
+    fn handle_inner(
         &mut self,
         method: &str,
         path: &str,
@@ -351,6 +451,9 @@ impl Workspace {
     ) -> Result<(u16, Value), ApiError> {
         if body.len() > MAX_BODY_BYTES {
             return Err(error(413, "Request exceeds 128 KiB"));
+        }
+        if method == "GET" && path == "/api/audit" {
+            return Ok((200, self.audit_page(0, 100)));
         }
         if method == "GET" && path == "/api/workspace" {
             return Ok((200, self.snapshot()?));
@@ -373,6 +476,14 @@ impl Workspace {
                 ));
             }
             let doc = self.workflows[self.index(&input.workflow_id)?].clone();
+            if let Some(expected) = serde_json::from_slice::<Value>(body)
+                .ok()
+                .and_then(|v| v["expectedVersion"].as_u64())
+            {
+                if doc.version != expected {
+                    return Err(error(409, "Workflow changed; reload before executing"));
+                }
+            }
             return Ok((
                 201,
                 self.start_run(run_id, &doc, input.input, input.mode, now)?,
@@ -406,10 +517,22 @@ impl Workspace {
             doc.updated_at = iso(now);
             doc.next_scheduled_at = None;
             if let Ok(index) = self.index(id) {
+                if serde_json::from_slice::<Value>(body)
+                    .ok()
+                    .is_some_and(|v| v.get("version").is_some())
+                    && doc.version != self.workflows[index].version
+                {
+                    return Err(error(409, "Workflow changed; reload before saving"));
+                }
+                doc.version = self.workflows[index]
+                    .version
+                    .checked_add(1)
+                    .ok_or_else(|| error(409, "Version exhausted"))?;
                 doc.graph.revision = self.workflows[index].graph.revision;
                 self.workflows[index] = doc.clone();
             } else {
                 doc.graph.revision = 0;
+                doc.version = 1;
                 self.workflows.push(doc.clone());
             }
             return Ok((200, serde_json::to_value(doc).unwrap()));
@@ -417,6 +540,14 @@ impl Workspace {
         if parts[1] == "workflows" && method == "POST" && parts.len() == 4 {
             let index = self.index(id)?;
             let mut doc = self.workflows[index].clone();
+            if let Some(expected) = serde_json::from_slice::<Value>(body)
+                .ok()
+                .and_then(|v| v["expectedVersion"].as_u64())
+            {
+                if doc.version != expected {
+                    return Err(error(409, "Workflow changed; reload before publishing"));
+                }
+            }
             match parts[3] {
                 "pause" => {
                     doc.status = Publication::Paused;
@@ -436,6 +567,10 @@ impl Workspace {
                 }
                 _ => return Err(error(404, "Unknown workflow action")),
             }
+            doc.version = doc
+                .version
+                .checked_add(1)
+                .ok_or_else(|| error(409, "Version exhausted"))?;
             doc.updated_at = iso(now);
             self.workflows[index] = doc.clone();
             return Ok((200, serde_json::to_value(doc).unwrap()));
@@ -554,6 +689,14 @@ impl Workspace {
             ));
         }
         self.start_run(run_id, &doc, payload, Mode::Webhook, now)?;
+        self.record_audit(
+            "webhook",
+            "runs.started",
+            run_id,
+            "succeeded",
+            now,
+            event_id,
+        );
         self.webhook_events.push(WebhookEvent {
             endpoint_id: endpoint.into(),
             event_id: event_id.into(),
@@ -611,9 +754,22 @@ impl Workspace {
         record.external = None;
         record.checkpoint = run.checkpoint().map_err(|e| error(500, e.to_string()))?;
         record.advance(now)?;
+        self.record_audit(
+            "engine",
+            "runs.external_completed",
+            id,
+            "recorded",
+            now,
+            task_id,
+        );
         Ok(true)
     }
     pub fn alarm(&mut self, now: u64) -> Result<(), ApiError> {
+        let before: Vec<_> = self
+            .runs
+            .iter()
+            .map(|r| Ok((r.restore()?.id().to_string(), r.status()?)))
+            .collect::<Result<_, ApiError>>()?;
         for record in &mut self.runs {
             if record.wake_at.is_some_and(|at| at <= now)
                 && let Err(_) = record.advance(now)
@@ -621,6 +777,17 @@ impl Workspace {
                 record.host_error = Some("engine_transition_failed".into());
                 record.wake_at = None;
                 record.external = None;
+            }
+        }
+        for (id, status) in before {
+            if let Some(record) = self
+                .runs
+                .iter()
+                .find(|r| r.restore().is_ok_and(|r| r.id() == id))
+            {
+                if record.status()? != status {
+                    self.record_audit("engine", "runs.state_changed", &id, "recorded", now, "");
+                }
             }
         }
         let due: Vec<_> = self
@@ -656,6 +823,7 @@ impl Workspace {
                     continue;
                 }
             }
+            self.record_audit("scheduler", "runs.started", &id, "succeeded", now, "");
             self.workflows[index].next_scheduled_at = schedule(&doc.graph, now)?.map(|s| s.at);
         }
         Ok(())
