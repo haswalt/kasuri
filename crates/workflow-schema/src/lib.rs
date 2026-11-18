@@ -38,12 +38,17 @@ pub struct Workflow {
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct Position { pub x: f64, pub y: f64 }
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Node {
     pub id: String,
     #[serde(rename = "type")]
     pub kind: String,
     pub label: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub position: Option<Position>,
     #[serde(default = "one")]
     pub version: u32,
     #[serde(default)]
@@ -145,6 +150,7 @@ impl Workflow {
         }
         let mut nodes = BTreeMap::new();
         for node in &self.nodes {
+            if node.position.as_ref().is_some_and(|p| !p.x.is_finite() || !p.y.is_finite()) { return fail("Invalid node position"); }
             if node.id.trim().is_empty()
                 || node.kind.trim().is_empty()
                 || node.label.trim().is_empty()
