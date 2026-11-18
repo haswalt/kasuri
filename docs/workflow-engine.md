@@ -83,12 +83,6 @@ Unsupported types (including HTTP, SaaS and Code) fail explicitly through `unsup
 - Times come from the host and cannot move backwards. Identical state, outcomes and clock inputs produce deterministic scheduling. Task identity changes per retry; the side-effect key remains stable for the run/node. Different intentional side effects within a future multi-operation node need operation-specific key extensions.
 - Stale and duplicate completions return errors without changing state. The host may acknowledge an already recorded duplicate after consulting its durable task journal.
 
-## Connected demo host
+## Rust Wasm host
 
-The standalone Node/SQLite host shares the same API/workspace service and Rust engine, with persistent wait/cron recovery and no required Cloudflare account; see [self-hosting](self-hosting.md).
-
-The `workflow-wasm` crate now exposes the Rust engine to the TypeScript Worker using a JSON/Wasm bridge. The React UI calls that Worker, which persists core run checkpoints in per-browser SQLite Durable Objects and uses alarms for waits and timezone-aware cron scheduling. See [the deployment guide](deployment.md) for setup and API details.
-
-The host batches only pure core adapters. External adapters will require persisted dispatch/outcome journaling; do not add network calls inside the current batch loop. The native example above remains a virtual-clock illustration of the low-level host protocol.
-
-Not implemented: account authentication, credential vault, HTTP/SaaS transports, OAuth, public webhook ingress, subworkflows, parallel task execution, item loops, approval events, replay/rollback or arbitrary code isolation. The frontend now supports typed edges and branched JSON imports, and a drag/drop canvas with saved positions, automatic connections and editable handles. Validate managed Cloudflare Workflows integration before selecting the production durable hosting architecture.
+`workflow-service` owns persistent workspace documents, simulations and cron registration. `workflow-worker` implements HTTP, SQLite Durable Objects and alarms directly with workers-rs. The official worker-build tool generates the Wasm module entrypoint. Cloudflare and self-hosted workerd execute the same Rust backend. See [deployment](deployment.md) and [self-hosting](self-hosting.md).
