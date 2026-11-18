@@ -14,7 +14,7 @@ The build uses the official `worker-build` CLI and `workers-rs` to compile `work
 
 `wrangler.jsonc` creates a Worker named `kasuri`, with an `ASSETS` binding, a `WORKSPACES` Durable Object namespace, and a `WorkflowWorkspace` SQLite class migration. Change the Worker name before deploying if necessary. Preserve the namespace/class/migration history when upgrading an installation that contains data. This is a fresh deployment configuration and does not migrate storage from the former TypeScript backend.
 
-Workspaces start empty and persist. A random HttpOnly, SameSite=Strict cookie identifies each browser workspace. Secure is enabled on HTTPS. Foreign-Origin and cross-site mutation requests are rejected. There is no workspace expiration mode. Run and cron state is saved together in SQLite; alarms resume waits and dispatch scheduled core workflows.
+Workspaces start empty and persist. An HttpOnly, SameSite=Strict cookie carries a workspace routing ID and an independent session token; only its hash is stored for management authorization. Secure is enabled on HTTPS. Foreign-Origin and cross-site mutation requests are rejected. There is no workspace expiration mode. Run and cron state is saved together in SQLite; alarms resume waits and dispatch scheduled core workflows.
 
 For private deployments, configure Cloudflare Access or set optional Basic credentials:
 
@@ -52,3 +52,7 @@ Local runtime checks exercise the actual Rust Wasm Worker in workerd, including 
 ## HTTP egress
 
 HTTP Request allows public HTTPS by default. Optionally restrict it with `HTTP_ALLOWED_HOSTS`; empty means unrestricted public destinations. Basic passwords and sensitive custom headers use named aliases in the `HTTP_SECRETS` Worker secret. See [connector configuration, simulation and recovery semantics](connectors.md).
+
+## Webhook triggers
+
+Generated webhook endpoints are served by the same Worker under `/api/hooks/...`, authenticated independently of browser management access. No new bindings or Durable Object class migrations are required. See [webhook setup, lifecycle and session migration](webhooks.md).

@@ -1,6 +1,10 @@
 # Implemented connectors
 
-The runtime advertises 12 node types: Manual Trigger, Webhook (supplied payload only), Schedule, Map / Transform, IF / Condition, Merge, Wait / Delay, JSON Utilities, Error Handler, Filter, Sort and HTTP Request. A catalogue entry marked Planned is not executable.
+The runtime advertises 12 node types: Manual Trigger, Webhook, Schedule, Map / Transform, IF / Condition, Merge, Wait / Delay, JSON Utilities, Error Handler, Filter, Sort and HTTP Request. A catalogue entry marked Planned is not executable.
+
+## Webhook
+
+Authenticated external JSON delivery, generated/rotatable endpoints, publish/pause activation, timestamped HMAC signatures and durable deduplication are implemented. See [webhook setup and API](webhooks.md).
 
 ## HTTP Request
 

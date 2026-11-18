@@ -175,3 +175,77 @@ fn http_simulation_never_creates_an_external_dispatch() {
     assert!(ws.runs[0].external.is_none());
     assert_eq!(run["nodes"][1]["output"]["body"]["ok"], true);
 }
+
+#[test]
+fn webhook_events_are_durable_deduplicated_and_disabled_by_pause_or_rotation() {
+    let mut ws = Workspace::default();
+    save(&mut ws, &document("Webhook"));
+    ws.configure_webhook("flow", "endpoint".into(), "hash".into())
+        .unwrap();
+    assert!(
+        ws.receive_webhook("flow", "endpoint", "event1", json!({}), "digest", 0, "run1")
+            .is_err()
+    );
+    ws.handle("POST", "/api/workflows/flow/publish", b"", 0, "")
+        .unwrap();
+    let first = ws
+        .receive_webhook(
+            "flow",
+            "endpoint",
+            "event1",
+            json!({"hello":1}),
+            "digest",
+            1,
+            "run1",
+        )
+        .unwrap();
+    assert_eq!(first["duplicate"], false);
+    let mut ws = Workspace::from_json(&ws.checkpoint().unwrap()).unwrap();
+    let repeat = ws
+        .receive_webhook(
+            "flow",
+            "endpoint",
+            "event1",
+            json!({"hello":1}),
+            "digest",
+            2,
+            "run2",
+        )
+        .unwrap();
+    assert_eq!(repeat["runId"], "run1");
+    assert_eq!(repeat["duplicate"], true);
+    assert_eq!(ws.runs.len(), 1);
+    assert_eq!(
+        ws.receive_webhook(
+            "flow",
+            "endpoint",
+            "event1",
+            json!({}),
+            "different",
+            3,
+            "run3"
+        )
+        .unwrap_err()
+        .status,
+        409
+    );
+    assert!(ws.snapshot().unwrap().get("webhooks").is_none());
+    ws.handle("POST", "/api/workflows/flow/pause", b"", 4, "")
+        .unwrap();
+    assert_eq!(
+        ws.receive_webhook("flow", "endpoint", "event2", json!({}), "digest", 5, "run2")
+            .unwrap_err()
+            .status,
+        404
+    );
+    ws.handle("POST", "/api/workflows/flow/resume", b"", 6, "")
+        .unwrap();
+    ws.configure_webhook("flow", "new-endpoint".into(), "new-hash".into())
+        .unwrap();
+    assert_eq!(
+        ws.receive_webhook("flow", "endpoint", "event2", json!({}), "digest", 7, "run2")
+            .unwrap_err()
+            .status,
+        404
+    );
+}

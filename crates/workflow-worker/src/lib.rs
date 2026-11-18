@@ -1,5 +1,6 @@
 //! HTTP, SQLite persistence and alarms, implemented directly with workers-rs.
 mod http;
+mod webhook;
 use base64::{Engine, engine::general_purpose::STANDARD};
 use futures_util::StreamExt;
 use serde::Deserialize;
@@ -24,6 +25,22 @@ pub async fn main(req: Request, env: Env, _ctx: Context) -> Result<Response> {
     let url = req.url()?;
     if url.path() == "/api/health" && req.method() == Method::Get {
         return Response::from_json(&json!({"ok":true,"engine":"rust-wasm","version":1}));
+    }
+    // Webhooks use their own event authentication and never inherit browser cookies.
+    if url.path().starts_with("/api/hooks/") {
+        let parts: Vec<_> = url.path().trim_matches('/').split('/').collect();
+        if parts.len() != 5
+            || parts[2].len() != 64
+            || !parts[2].bytes().all(|b| b.is_ascii_hexdigit())
+        {
+            return api_error(404, "Webhook not found");
+        }
+        let namespace = env.durable_object("WORKSPACES")?;
+        let id = match namespace.id_from_string(parts[2]) {
+            Ok(id) => id,
+            Err(_) => return api_error(404, "Webhook not found"),
+        };
+        return id.get_stub()?.fetch_with_request(req).await;
     }
     let credentials = env
         .secret("BASIC_AUTH")
@@ -104,22 +121,38 @@ pub async fn main(req: Request, env: Env, _ctx: Context) -> Result<Response> {
         .filter_map(|part| part.trim().split_once('='))
         .find(|(key, _)| *key == "kasuri_session")
         .map(|(_, value)| value);
-    let existing = session
-        .filter(|s| s.len() == 64 && s.bytes().all(|b| b.is_ascii_hexdigit()))
-        .and_then(|s| namespace.id_from_string(s).ok());
-    let fresh = existing.is_none();
+    let mut session_parts = session.unwrap_or_default().split('.');
+    let workspace_id = session_parts.next().unwrap_or_default();
+    let existing =
+        if workspace_id.len() == 64 && workspace_id.bytes().all(|b| b.is_ascii_hexdigit()) {
+            namespace.id_from_string(workspace_id).ok()
+        } else {
+            None
+        };
+    let provided = session_parts
+        .next()
+        .filter(|s| s.len() == 64 && s.bytes().all(|b| b.is_ascii_hexdigit()));
+    let fresh = provided.is_none();
+    let session_token = match provided {
+        Some(token) => token.to_string(),
+        None => namespace.unique_id()?.to_string(),
+    };
     let id = match existing {
         Some(id) => id,
         None => namespace.unique_id()?,
     };
-    let mut response = id.get_stub()?.fetch_with_request(req).await?;
+    let mut forwarded = req.clone_mut()?;
+    forwarded
+        .headers_mut()?
+        .set("X-Kasuri-Session", &session_token)?;
+    let mut response = id.get_stub()?.fetch_with_request(forwarded).await?;
     let headers = response.headers().clone();
     response = response.with_headers(headers);
-    if fresh {
+    if fresh && response.status_code() < 400 {
         response.headers_mut().append(
             "Set-Cookie",
             &format!(
-                "kasuri_session={id}; HttpOnly; SameSite=Strict; Path=/; Max-Age=31536000{}",
+                "kasuri_session={id}.{session_token}; HttpOnly; SameSite=Strict; Path=/; Max-Age=31536000{}",
                 if url.scheme() == "https" {
                     "; Secure"
                 } else {
@@ -171,6 +204,17 @@ impl DurableObject for WorkflowWorkspace {
         Self { state, env }
     }
     async fn fetch(&self, mut req: Request) -> Result<Response> {
+        let path = req.url()?.path().to_string();
+        if path.starts_with("/api/hooks/") {
+            return self.incoming_webhook(req).await;
+        }
+        let token = req.headers().get("X-Kasuri-Session")?.unwrap_or_default();
+        if !self.authorize_session(&token)? {
+            return api_error(403, "Invalid workspace session");
+        }
+        if let Some(response) = self.webhook_management(&path, req.method()).await? {
+            return Ok(response);
+        }
         let mut body = Vec::new();
         if !matches!(req.method(), Method::Get | Method::Head) {
             let mut stream = req.stream()?;

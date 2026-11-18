@@ -1,4 +1,4 @@
-import type { Json, Run, RunMode, Workflow, Workspace } from '../../../../packages/contracts/src/index'
+import type { Json, Run, RunMode, Workflow, Workspace, WebhookEndpoint } from '../../../../packages/contracts/src/index'
 async function request<T>(path: string, method = 'GET', body?: unknown): Promise<T> {
   const response = await fetch(`/api/${path}`, { method, credentials: 'same-origin', headers: body === undefined ? {} : { 'Content-Type': 'application/json' }, ...(body === undefined ? {} : { body: JSON.stringify(body) }) })
   if (!response.headers.get('content-type')?.includes('application/json')) throw new Error('Backend unavailable. Start the full app with pnpm dev.')
@@ -7,6 +7,8 @@ async function request<T>(path: string, method = 'GET', body?: unknown): Promise
   return result as T
 }
 export const api = {
+  webhook: (id: string) => request<WebhookEndpoint>(`workflows/${id}/webhook`),
+  rotateWebhook: (id: string) => request<WebhookEndpoint>(`workflows/${id}/webhook/rotate`, 'POST'),
   workspace: () => request<Workspace>('workspace'),
   save: (workflow: Workflow) => request<Workflow>(`workflows/${workflow.id}`, 'PUT', workflow),
   workflowAction: (id: string, action: string) => request<Workflow>(`workflows/${id}/${action}`, 'POST'),

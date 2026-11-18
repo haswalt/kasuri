@@ -34,6 +34,7 @@ pnpm deploy:check
 - `crates/workflow-schema`: graph contracts and validation, including canvas positions.
 - `crates/connector-sdk`: typed connector manifests and execution contracts.
 - `crates/connectors-core`: pure core connectors, including filtering and sorting.
+- `crates/connectors-webhook`: inbound event authentication and signature verification.
 - `crates/connectors-http`: HTTP request configuration, outbound policy and response handling.
 - `crates/workflow-engine`: deterministic graph execution, retries, waits and checkpoints.
 - `crates/workflow-service`: Rust workspace application, run management and timezone-aware cron scheduling.
@@ -44,9 +45,9 @@ Cloudflare's official `worker-build` generates JavaScript bindings and a module 
 
 ## Current capabilities
 
-Manual, webhook-payload and cron triggers; mapping, conditions, merge, delay, JSON utilities and error handling. Run executes durable waits; Simulate advances virtual time through the same Rust engine. Publishing a schedule registers a persistent alarm. The webhook node currently accepts run input; external webhook ingress, OAuth and SaaS adapters are not implemented. HTTP Request supports public HTTPS APIs by default, Basic auth through named secrets, and custom headers; Filter and Sort process response arrays. See [connector setup and examples](docs/connectors.md).
+Manual, authenticated webhook and cron triggers; mapping, conditions, merge, delay, JSON utilities and error handling. Run executes durable waits; Simulate advances virtual time through the same Rust engine. Publishing a schedule registers a persistent alarm. Webhook endpoints support bearer authentication, timestamped HMAC signatures and durable event deduplication; see [webhook setup](docs/webhooks.md). OAuth and SaaS adapters are not implemented. HTTP Request supports public HTTPS APIs by default, Basic auth through named secrets, and custom headers; Filter and Sort process response arrays. See [connector setup and examples](docs/connectors.md).
 
-A random HttpOnly cookie selects a browser workspace. Data persists until removed from storage; clearing the cookie loses access to that workspace. This is capability-based isolation, not user accounts or team membership. Protect private deployments with Cloudflare Access or the optional Basic authentication binding. External credential storage, account permissions and production operations remain future work.
+An HttpOnly cookie with a workspace routing ID and a separate random session token selects a browser workspace. Data persists until removed from storage; clearing the cookie loses access to that workspace. This is capability-based isolation, not user accounts or team membership. Protect private deployments with Cloudflare Access or the optional Basic authentication binding. External credential storage, account permissions and production operations remain future work.
 
 ## Planned agent interface
 

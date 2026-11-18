@@ -62,6 +62,7 @@ pub enum Mode {
     Run,
     Simulation,
     Schedule,
+    Webhook,
 }
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -184,7 +185,26 @@ impl RunRecord {
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
+pub struct WebhookRegistration {
+    pub workflow_id: String,
+    pub endpoint_id: String,
+    pub token_hash: String,
+}
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct WebhookEvent {
+    pub endpoint_id: String,
+    pub event_id: String,
+    pub fingerprint: String,
+    pub run_id: String,
+    pub received_at: u64,
+}
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct Workspace {
+    #[serde(default)]
+    pub webhooks: Vec<WebhookRegistration>,
+    #[serde(default)]
+    pub webhook_events: Vec<WebhookEvent>,
     pub workflows: Vec<Document>,
     pub runs: Vec<RunRecord>,
 }
@@ -245,6 +265,28 @@ impl Workspace {
             .map_err(|e| error(400, e.to_string()))?;
         let manifests = manifests();
         for node in &document.graph.nodes {
+            if node.kind == "Webhook" {
+                match node
+                    .config
+                    .get("authentication")
+                    .and_then(Value::as_str)
+                    .unwrap_or("bearer")
+                {
+                    "bearer" => {}
+                    "hmac"
+                        if node
+                            .config
+                            .get("signingSecret")
+                            .and_then(Value::as_str)
+                            .is_some_and(|s| !s.is_empty()) => {}
+                    _ => {
+                        return Err(error(
+                            400,
+                            "Webhook requires bearer authentication or hmac with a signingSecret alias",
+                        ));
+                    }
+                }
+            }
             if node.kind == "HTTP Request" {
                 let mut node = node.clone();
                 node.config.remove("query");
@@ -324,10 +366,10 @@ impl Workspace {
             }
             let input: Input = serde_json::from_slice(body)
                 .map_err(|_| error(400, "Expected workflowId, mode and input"))?;
-            if input.mode == Mode::Schedule {
+            if matches!(input.mode, Mode::Schedule | Mode::Webhook) {
                 return Err(error(
                     400,
-                    "Scheduled events are registered by publishing a schedule",
+                    "Schedule and webhook runs must originate from their registered triggers",
                 ));
             }
             let doc = self.workflows[self.index(&input.workflow_id)?].clone();
@@ -429,6 +471,97 @@ impl Workspace {
             }
         }
         Err(error(404, "Route not found"))
+    }
+    pub fn webhook_document(&self, id: &str) -> Result<&Document, ApiError> {
+        let doc = &self.workflows[self.index(id)?];
+        if !doc.graph.nodes.iter().any(|n| n.kind == "Webhook") {
+            return Err(error(
+                400,
+                "Save a Webhook trigger before configuring its endpoint",
+            ));
+        }
+        Ok(doc)
+    }
+    pub fn webhook_info(&self, id: &str) -> Result<Value, ApiError> {
+        let doc = self.webhook_document(id)?;
+        let registration = self.webhooks.iter().find(|w| w.workflow_id == id);
+        let trigger = doc
+            .graph
+            .nodes
+            .iter()
+            .find(|n| n.kind == "Webhook")
+            .unwrap();
+        Ok(
+            json!({"configured":registration.is_some(),"endpointId":registration.map(|r|&r.endpoint_id),"active":doc.status==Publication::Active,"authentication":trigger.config.get("authentication").and_then(Value::as_str).unwrap_or("bearer")}),
+        )
+    }
+    pub fn configure_webhook(
+        &mut self,
+        id: &str,
+        endpoint_id: String,
+        token_hash: String,
+    ) -> Result<Value, ApiError> {
+        self.webhook_document(id)?;
+        self.webhooks.retain(|w| w.workflow_id != id);
+        self.webhooks.push(WebhookRegistration {
+            workflow_id: id.into(),
+            endpoint_id,
+            token_hash,
+        });
+        self.webhook_info(id)
+    }
+    pub fn receive_webhook(
+        &mut self,
+        id: &str,
+        endpoint: &str,
+        event_id: &str,
+        payload: Value,
+        fingerprint: &str,
+        now: u64,
+        run_id: &str,
+    ) -> Result<Value, ApiError> {
+        let doc = self.webhook_document(id)?.clone();
+        if doc.status != Publication::Active
+            || !self
+                .webhooks
+                .iter()
+                .any(|w| w.workflow_id == id && w.endpoint_id == endpoint)
+        {
+            return Err(error(404, "Webhook is not active"));
+        }
+        if !connectors_webhook::valid_event_id(event_id) {
+            return Err(error(400, "A valid X-Kasuri-Event-Id is required"));
+        }
+        self.webhook_events
+            .retain(|e| now.saturating_sub(e.received_at) < 86_400_000);
+        if let Some(existing) = self
+            .webhook_events
+            .iter()
+            .find(|e| e.endpoint_id == endpoint && e.event_id == event_id)
+        {
+            if existing.fingerprint != fingerprint {
+                return Err(error(
+                    409,
+                    "Event ID was already used with a different payload",
+                ));
+            }
+            return Ok(json!({"runId":existing.run_id,"eventId":event_id,"duplicate":true}));
+        }
+        if self.webhook_events.len() >= 1000 {
+            return Err(error(
+                429,
+                "Webhook deduplication window is full; retry later",
+            ));
+        }
+        self.start_run(run_id, &doc, payload, Mode::Webhook, now)?;
+        self.webhook_events.push(WebhookEvent {
+            endpoint_id: endpoint.into(),
+            event_id: event_id.into(),
+            fingerprint: fingerprint.into(),
+            run_id: run_id.into(),
+            received_at: now,
+        });
+        Ok(json!({"runId":run_id,"eventId":event_id,"duplicate":false}))
     }
     /// Claim before network I/O and persist the returned task with its dispatched marker.
     pub fn claim_external(&mut self, now: u64) -> Result<Option<(String, Task)>, ApiError> {
