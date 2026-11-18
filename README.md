@@ -6,7 +6,6 @@
 
 A workflow automation platform with a React UI, Rust/Wasm engine, Cloudflare Worker host and standalone SQLite server.
 
-Live demo: [your-worker.your-subdomain.workers.dev](https://your-worker.your-subdomain.workers.dev)
 
 ## Deploy your own copy
 

@@ -1,19 +1,5 @@
 # Cloudflare demo host
 
-## Live demo
-
-The demo is deployed at [your-worker.your-subdomain.workers.dev](https://your-worker.your-subdomain.workers.dev). Each browser receives its own isolated session and the three starter workflows. Run or simulate the core data demo, try both condition branches, or publish the scheduled heartbeat and inspect its next occurrence.
-
-The hosted smoke check verifies core-node output, both condition branches, error reporting, a real persisted wait and an actual cron-triggered run. It pauses its test schedule afterward:
-
-```sh
-node scripts/smoke-demo.mjs https://your-worker.your-subdomain.workers.dev
-```
-
-This uses sample data in a new isolated session and can take about one minute while waiting for cron.
-
-For deploying another Cloudflare account, see [one-click deployment](cloudflare-one-click.md). For Docker, Kubernetes or a server without Cloudflare, see [self-hosting](self-hosting.md).
-
 ## Components
 
 One Worker serves static Vite assets and same-origin `/api/*` requests. The actual Rust engine is compiled to Wasm; TypeScript does not reimplement its graph scheduler. A SQLite-backed Durable Object per browser workspace owns workflow documents, run checkpoints and cron registration. There is no shared global workspace.
@@ -33,7 +19,7 @@ Alarms resume real waits even if the browser is closed. Simulations invoke the s
 
 Install Rust's `wasm32-unknown-unknown` target and `wasm-bindgen-cli` 0.2.130 before building. The CLI version is intentionally pinned to the Rust library ABI. Deploy from the repository root. Build outputs under `apps/api/generated`, `apps/web/dist` and local `.wrangler` state are ignored; source, lockfiles, migrations and configuration are tracked.
 
-The default Worker name is `kasuri-demo`. Use a distinct name/account configuration for a separate deployment and keep the Durable Object class name/migration history stable for existing data. This first demo uses one deployment environment; add isolated staging/production resources before production use.
+The default Worker name is `kasuri`. Use a distinct name/account configuration for a separate deployment and keep the Durable Object class name/migration history stable for existing data. This first demo uses one deployment environment; add isolated staging/production resources before production use.
 
 ## API
 
