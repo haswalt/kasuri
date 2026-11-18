@@ -9,5 +9,9 @@ export function demoWorkflows(now: number): Workflow[] {
     { id: 'stringify', type: 'JSON Utilities', label: 'Encode JSON', config: { operation: 'stringify' } },
     { id: 'parse', type: 'JSON Utilities', label: 'Decode JSON', config: { operation: 'parse' } },
   ], edges: [{ id: 'e1', source: 'start', target: 'map' }, { id: 'e2', source: 'map', target: 'wait' }, { id: 'e3', source: 'wait', target: 'stringify' }, { id: 'e4', source: 'stringify', target: 'parse' }] },
-  { ...branch, ...base, name: 'Conditional routing demo' } as Workflow]
+  { ...branch, ...base, name: 'Conditional routing demo' } as Workflow,
+  { ...base, id: 'scheduled-heartbeat', name: 'Scheduled heartbeat', description: 'Publish to run every minute. Pause to unregister the schedule.', nodes: [
+    { id: 'schedule', type: 'Schedule', label: 'Every minute', config: { cron: '* * * * *', timezone: 'Europe/London' } },
+    { id: 'map', type: 'Map / Transform', label: 'Capture scheduled event', config: { mapping: '{"scheduledAt":{"$input":"/scheduledAt"},"source":"cron"}' } },
+  ], edges: [{ id: 'e1', source: 'schedule', target: 'map' }] }]
 }

@@ -1,6 +1,7 @@
 import { DurableObject } from 'cloudflare:workers'
 import type { Json, Run, RunMode, Workflow, Workspace } from '../../../packages/contracts/src/index'
 import { advanceRun, connectors, controlRun, runView, startRun, validateGraph } from './engine'
+import { scheduleFor } from './schedule'
 import { demoWorkflows } from './demos'
 import { assert, HttpError } from './http'
 
@@ -75,7 +76,7 @@ export class DemoWorkspace extends DurableObject<Env> {
     this.ensureActive()
     assert(value && typeof value === 'object', 'Expected a workflow.')
     const workflow = value as Workflow
-    assert(workflow.schemaVersion === 1 && workflow.id === id && typeof workflow.name === 'string' && workflow.name.length <= 160 && typeof workflow.description === 'string', 'Invalid workflow metadata.')
+    assert(workflow.schemaVersion === 1 && workflow.id === id && id.length <= 160 && typeof workflow.name === 'string' && workflow.name.length <= 160 && typeof workflow.description === 'string', 'Invalid workflow metadata.')
     assert(Array.isArray(workflow.nodes) && workflow.nodes.length <= 100 && Array.isArray(workflow.edges) && workflow.edges.length <= 500, 'Invalid graph size.')
     for (const n of workflow.nodes) assert(n && typeof n.id === 'string' && typeof n.type === 'string' && typeof n.label === 'string' && n.config && typeof n.config === 'object' && !Array.isArray(n.config), 'Invalid node configuration.')
     for (const e of workflow.edges) assert(e && typeof e.id === 'string' && typeof e.source === 'string' && typeof e.target === 'string' && (e.sourcePort === undefined || typeof e.sourcePort === 'string'), 'Invalid edge.')
@@ -98,12 +99,15 @@ export class DemoWorkspace extends DurableObject<Env> {
     else {
       assert(action === 'publish' || action === 'resume', 'Unknown workflow action.', 404)
       this.validateExecutable(workflow)
-      assert(!workflow.nodes.some(n => n.type === 'Schedule'), 'Schedule registration is not available yet.')
       workflow.status = 'active'; if (action === 'publish') workflow.revision += 1
     }
     workflow.updatedAt = new Date().toISOString()
-    this.ctx.storage.sql.exec('UPDATE workflows SET document=?,published=?,next_at=NULL WHERE id=?', JSON.stringify(workflow), workflow.status === 'active' ? JSON.stringify(workflow) : row.published, id)
-    await this.setNextAlarm(); return JSON.stringify({ ...workflow, nextScheduledAt: null })
+    const scheduled = workflow.status === 'active' ? scheduleFor(workflow, Date.now()) : null
+    const activeSchedules = this.ctx.storage.sql.exec<{ count: number }>('SELECT COUNT(*) AS count FROM workflows WHERE next_at IS NOT NULL AND id<>?', id).one().count
+    assert(!scheduled || activeSchedules < 3, 'This demo supports three active schedules per workspace.', 409)
+    const nextAt = scheduled && scheduled.at < this.expiresAt()! ? scheduled.at : null
+    this.ctx.storage.sql.exec('UPDATE workflows SET document=?,published=?,next_at=? WHERE id=?', JSON.stringify(workflow), workflow.status === 'active' ? JSON.stringify(workflow) : row.published, nextAt, id)
+    await this.setNextAlarm(); return JSON.stringify({ ...workflow, nextScheduledAt: nextAt })
   }
   private async createRun(workflowId: string, mode: RunMode, inputJson: string): Promise<string> {
     const input: Json = JSON.parse(inputJson)
@@ -161,6 +165,25 @@ export class DemoWorkspace extends DurableObject<Env> {
     const now = Date.now()
     const due = this.ctx.storage.sql.exec<RunRow>('SELECT * FROM runs WHERE wake_at<=? AND host_error IS NULL LIMIT 5', now).toArray()
     this.ctx.storage.transactionSync(() => { for (const row of due) { this.advance(row, now); this.saveRun(row) } })
+    const schedules = this.ctx.storage.sql.exec<WorkflowRow>('SELECT * FROM workflows WHERE next_at<=? LIMIT 3', now).toArray()
+    this.ctx.storage.transactionSync(() => {
+      for (const row of schedules) {
+        const workflow: Workflow = JSON.parse(row.published!)
+        const dueAt = row.next_at!
+        const id = `cron-${workflow.id}-${workflow.revision}-${dueAt}`
+        if (!this.ctx.storage.sql.exec('SELECT id FROM runs WHERE id=?', id).toArray().length) {
+          const trigger = workflow.nodes.find(n => n.type === 'Schedule')!
+          const input = { trigger: 'schedule', scheduledAt: new Date(dueAt).toISOString(), firedAt: new Date(now).toISOString(), cron: trigger.config.cron, timezone: trigger.config.timezone || 'UTC' }
+          const active = this.ctx.storage.sql.exec<{ count: number }>("SELECT COUNT(*) AS count FROM runs WHERE json_extract(summary,'$.status') IN ('running','paused')").one().count
+          const run = active < 5 ? this.newRun(workflow, 'schedule', input, now, id) : { id, checkpoint: startRun(id, workflow, input, now), mode: 'schedule' as const, created_at: now, wake_at: null, host_error: 'concurrency_limit' }
+          this.saveRun(run)
+        }
+        // Coalesce missed occurrences into one run, then compute the next future event.
+        const next = scheduleFor(workflow, now)?.at
+        this.ctx.storage.sql.exec('UPDATE workflows SET next_at=? WHERE id=?', next && next < this.expiresAt()! ? next : null, row.id)
+      }
+    })
+    this.prune()
     await this.setNextAlarm()
   }
 }

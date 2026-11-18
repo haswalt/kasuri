@@ -35,7 +35,7 @@ export default {
           return json(await invoke(stub, 'createRun', { ...body, mode: body.mode ?? 'run' }), 201)
         }
         const id = parts[2]
-        assert(id && /^[A-Za-z0-9_-]{1,160}$/.test(id), 'Invalid resource ID.')
+        assert(id && /^[A-Za-z0-9_-]{1,256}$/.test(id), 'Invalid resource ID.')
         if (parts[1] === 'workflows' && parts.length === 3 && request.method === 'PUT') response = json(await invoke(stub, 'saveWorkflow', { id, workflow: await readJson(request) }))
         else if (parts[1] === 'workflows' && parts.length === 4 && request.method === 'POST') response = json(await invoke(stub, 'workflowAction', { id, action: parts[3] }))
         else if (parts[1] === 'runs' && parts.length === 3 && request.method === 'GET') response = json(await invoke(stub, 'getRun', { id }))
