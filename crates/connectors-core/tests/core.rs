@@ -111,7 +111,7 @@ fn unsupported_nodes_never_execute_code_or_perform_http() {
 #[test]
 fn manifests_only_advertise_implemented_versioned_nodes() {
     let manifests = connectors_core::manifests();
-    assert_eq!(manifests.len(), 9);
+    assert_eq!(manifests.len(), 11);
     assert!(
         manifests
             .iter()
@@ -130,4 +130,49 @@ fn manifests_only_advertise_implemented_versioned_nodes() {
             .output_ports,
         ["true", "false", "error"]
     );
+}
+
+#[test]
+fn filter_handles_nested_arrays_typed_values_and_missing_keys() {
+    assert_eq!(
+        execute(
+            "Filter",
+            json!({"arrayPointer":"/body/items","pointer":"/active","equals":"true"}),
+            json!({"body":{"items":[{"active":true,"id":1},{"active":"true"},{"id":3},{"active":false}]}})
+        ),
+        Outcome::success(json!([{"active":true,"id":1}]))
+    );
+    assert_eq!(
+        execute(
+            "Filter",
+            json!({"pointer":"/x","equals":null}),
+            json!([{}, {"x":null}])
+        ),
+        Outcome::success(json!([{"x":null}]))
+    );
+}
+#[test]
+fn sort_is_stable_numeric_and_rejects_mixed_or_missing_keys() {
+    assert_eq!(
+        execute(
+            "Sort",
+            json!({"pointer":"/n","order":"desc"}),
+            json!([{"n":2,"id":"a"},{"n":10},{"n":2,"id":"b"}])
+        ),
+        Outcome::success(json!([{"n":10},{"n":2,"id":"a"},{"n":2,"id":"b"}]))
+    );
+    assert_eq!(
+        execute(
+            "Sort",
+            json!({}),
+            json!([9007199254740993u64, 9007199254740992u64])
+        ),
+        Outcome::success(json!([9007199254740992u64, 9007199254740993u64]))
+    );
+    for input in [json!([1, "2"]), json!([{"n":1},{}])] {
+        assert!(matches!(
+            execute("Sort", json!({"pointer":"/n"}), input),
+            Outcome::Failed { .. }
+        ));
+    }
 }

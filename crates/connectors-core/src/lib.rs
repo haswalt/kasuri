@@ -71,6 +71,92 @@ impl Connector for CoreConnector {
                     port: if actual == expected { "true" } else { "false" }.into(),
                 }
             }
+            "Filter" => {
+                let Some(items) = task
+                    .input
+                    .pointer(
+                        node.config
+                            .get("arrayPointer")
+                            .and_then(Value::as_str)
+                            .unwrap_or(""),
+                    )
+                    .and_then(Value::as_array)
+                else {
+                    return invalid();
+                };
+                let Some(pointer) = node.config.get("pointer").and_then(Value::as_str) else {
+                    return invalid();
+                };
+                let Some(expected) = node.config.get("equals").and_then(config_json) else {
+                    return invalid();
+                };
+                Outcome::success(Value::Array(
+                    items
+                        .iter()
+                        .filter(|item| item.pointer(pointer) == Some(&expected))
+                        .cloned()
+                        .collect(),
+                ))
+            }
+            "Sort" => {
+                let Some(items) = task
+                    .input
+                    .pointer(
+                        node.config
+                            .get("arrayPointer")
+                            .and_then(Value::as_str)
+                            .unwrap_or(""),
+                    )
+                    .and_then(Value::as_array)
+                else {
+                    return invalid();
+                };
+                let pointer = node
+                    .config
+                    .get("pointer")
+                    .and_then(Value::as_str)
+                    .unwrap_or("");
+                let order = node
+                    .config
+                    .get("order")
+                    .and_then(Value::as_str)
+                    .unwrap_or("asc");
+                if !matches!(order, "asc" | "desc") {
+                    return invalid();
+                }
+                let mut items = items.clone();
+                // Reject missing keys and mixed types instead of silently changing ordering.
+                let numeric = items
+                    .first()
+                    .and_then(|item| item.pointer(pointer))
+                    .is_some_and(Value::is_number);
+                if items.iter().any(|item| {
+                    !item.pointer(pointer).is_some_and(|key| {
+                        if numeric {
+                            key.is_number()
+                        } else {
+                            key.is_string()
+                        }
+                    })
+                }) {
+                    return invalid();
+                }
+                items.sort_by(|a, b| {
+                    let a = a.pointer(pointer).unwrap();
+                    let b = b.pointer(pointer).unwrap();
+                    let result = if numeric {
+                        compare_numbers(a, b)
+                    } else {
+                        a.as_str().unwrap().cmp(b.as_str().unwrap())
+                    };
+                    if order == "desc" {
+                        result.reverse()
+                    } else {
+                        result
+                    }
+                });
+                Outcome::success(Value::Array(items))
+            }
             "Wait / Delay" => {
                 let delay = node
                     .config
@@ -110,6 +196,8 @@ pub fn manifests() -> Vec<connector_sdk::NodeManifest> {
         ("Manual Trigger", json!({"type":"object","properties":{}})),
         ("Webhook", json!({"type":"object","properties":{"path":{"type":"string"}}})),
         ("Schedule", json!({"type":"object","properties":{"cron":{"type":"string"}}})),
+        ("Filter", json!({"type":"object","properties":{"arrayPointer":{"type":"string"},"pointer":{"type":"string"},"equals":{}},"required":["pointer","equals"]})),
+        ("Sort", json!({"type":"object","properties":{"arrayPointer":{"type":"string"},"pointer":{"type":"string"},"order":{"enum":["asc","desc"]}}})),
         ("Merge", json!({"type":"object","properties":{}})),
         ("Error Handler", json!({"type":"object","properties":{}})),
         ("Map / Transform", json!({"type":"object","properties":{"mapping":{"oneOf":[{"type":"object"},{"type":"string","description":"JSON-encoded mapping object"}]}},"required":["mapping"]})),
@@ -121,4 +209,23 @@ pub fn manifests() -> Vec<connector_sdk::NodeManifest> {
         output_ports: if kind == "IF / Condition" { vec!["true".into(),"false".into(),"error".into()] } else { vec!["success".into(),"error".into()] },
         has_external_side_effects: false,
     }).collect()
+}
+
+fn compare_numbers(a: &Value, b: &Value) -> std::cmp::Ordering {
+    if let (Some(a), Some(b)) = (a.as_i64(), b.as_i64()) {
+        return a.cmp(&b);
+    }
+    if let (Some(a), Some(b)) = (a.as_u64(), b.as_u64()) {
+        return a.cmp(&b);
+    }
+    if a.as_i64().is_some_and(|n| n < 0) && b.as_u64().is_some() {
+        return std::cmp::Ordering::Less;
+    }
+    if b.as_i64().is_some_and(|n| n < 0) && a.as_u64().is_some() {
+        return std::cmp::Ordering::Greater;
+    }
+    a.as_f64()
+        .unwrap()
+        .partial_cmp(&b.as_f64().unwrap())
+        .unwrap()
 }

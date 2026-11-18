@@ -1,4 +1,5 @@
 export const catalogue = [
+  { "name": "Sort", "category": "Core platform" },
   {
     "name": "HTTP Request",
     "category": "Core platform"
@@ -207,6 +208,8 @@ export const fields: Record<string, { key: string; label: string; placeholder: s
   Webhook: [{ key: "path", label: "Webhook path", placeholder: "/incoming-event" }],
   "Map / Transform": [{ key: "mapping", label: "Mapping definition", placeholder: '{ "name": { "$input": "/name" } }' }],
   "IF / Condition": [{ key: "pointer", label: "Input JSON Pointer", placeholder: "/priority" }, { key: "equals", label: "Equals (text)", placeholder: "urgent" }],
+  Filter: [{ key: "arrayPointer", label: "Array JSON Pointer (empty = input)", placeholder: "/body/items" }, { key: "pointer", label: "Item JSON Pointer", placeholder: "/active" }, { key: "equals", label: "Equals (JSON value)", placeholder: "true" }],
+  Sort: [{ key: "arrayPointer", label: "Array JSON Pointer (empty = input)", placeholder: "/body/items" }, { key: "pointer", label: "Item JSON Pointer (empty = item)", placeholder: "/name" }, { key: "order", label: "Order: asc or desc", placeholder: "asc" }],
   "Wait / Delay": [{ key: "delayMs", label: "Delay in milliseconds", placeholder: "1500" }],
   "JSON Utilities": [{ key: "operation", label: "Operation: parse or stringify", placeholder: "parse" }],
   Slack: [{ key: "channel", label: "Channel", placeholder: "#notifications" }, { key: "message", label: "Message", placeholder: "A new event arrived" }],
