@@ -5,7 +5,7 @@ test('append and remove maintain a connected graph with stable remaining node ID
   const original = demoWorkflow()
   const updated = removeNode(original, original.nodes[1].id)
   assert.deepEqual(updated.nodes.map(n => n.id), [original.nodes[0].id, original.nodes[2].id, original.nodes[3].id])
-  assert.equal(updated.edges[0].target, original.nodes[2].id)
+  assert.equal(updated.edges.find(e => e.source === original.nodes[0].id)!.target, original.nodes[2].id)
   assert.deepEqual(validateWorkflow(updated), [])
 })
 test('invalid graph and missing HTTP configuration block publishing', () => {
@@ -13,7 +13,7 @@ test('invalid graph and missing HTTP configuration block publishing', () => {
   assert.match(validateWorkflow(w).join(), /HTTP or HTTPS/)
   w.nodes[1].config.url = 'https://example.com'
   w.edges[0].source = 'missing'
-  assert.match(validateWorkflow(w).join(), /sequential/)
+  assert.match(validateWorkflow(w).join(), /missing node/)
 })
 test('import resets identity and publication state', () => {
   const w = { ...demoWorkflow(), status: 'active', revision: 4 }
@@ -37,4 +37,21 @@ test('extra triggers and duplicate node IDs are invalid', () => {
   w.nodes[1].id = w.nodes[0].id
   assert.match(validateWorkflow(w).join(), /first step/)
   assert.match(validateWorkflow(w).join(), /unique/)
+})
+test('branched graphs import with typed ports and retain JSON configuration', async () => {
+  const { readFile } = await import('node:fs/promises')
+  const graph = await readFile(new URL('../../../examples/basic-workflow.json', import.meta.url), 'utf8')
+  const workflow = parseWorkflow(graph)
+  assert.deepEqual(validateWorkflow(workflow), [])
+  assert.equal(workflow.edges.find(e => e.source === 'condition')?.sourcePort, 'true')
+})
+test('cycles and incompatible condition ports fail graph validation', () => {
+  const w = appendNode(createWorkflow(), 'IF / Condition')
+  const next = appendNode(w, 'Merge')
+  assert.equal(next.edges[1].sourcePort, 'true')
+  next.edges[1].sourcePort = 'success'
+  assert.match(validateWorkflow(next).join(), /incompatible/)
+  next.edges[1].sourcePort = 'true'
+  next.edges.push({ id: 'cycle', source: next.nodes[2].id, target: next.nodes[1].id })
+  assert.match(validateWorkflow(next).join(), /cycle/)
 })

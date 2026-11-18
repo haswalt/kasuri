@@ -203,8 +203,11 @@ export const catalogue = [
 
 export const fields: Record<string, { key: string; label: string; placeholder: string }[]> = {
   "HTTP Request": [{ key: "url", label: "Request URL", placeholder: "https://api.example.com/data" }, { key: "method", label: "Method", placeholder: "GET" }],
-  Schedule: [{ key: "cron", label: "Cron expression (UTC)", placeholder: "0 9 * * *" }],
+  Schedule: [{ key: "cron", label: "Cron expression", placeholder: "0 9 * * *" }, { key: "timezone", label: "Timezone", placeholder: "Europe/London" }],
   Webhook: [{ key: "path", label: "Webhook path", placeholder: "/incoming-event" }],
-  "Map / Transform": [{ key: "mapping", label: "Mapping definition", placeholder: '{ "name": "{{ input.name }}" }' }],
+  "Map / Transform": [{ key: "mapping", label: "Mapping definition", placeholder: '{ "name": { "$input": "/name" } }' }],
+  "IF / Condition": [{ key: "pointer", label: "Input JSON Pointer", placeholder: "/priority" }, { key: "equals", label: "Equals (text)", placeholder: "urgent" }],
+  "Wait / Delay": [{ key: "delayMs", label: "Delay in milliseconds", placeholder: "1500" }],
+  "JSON Utilities": [{ key: "operation", label: "Operation: parse or stringify", placeholder: "parse" }],
   Slack: [{ key: "channel", label: "Channel", placeholder: "#notifications" }, { key: "message", label: "Message", placeholder: "A new event arrived" }],
 }
