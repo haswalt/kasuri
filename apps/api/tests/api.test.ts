@@ -74,3 +74,13 @@ describe('Rust-backed demo API', () => {
     expect(cancelled.status).toBe('cancelled')
   })
 })
+it('persists canvas coordinates with workflow documents and rejects invalid positions', async () => {
+  const { cookie, data } = await session()
+  const workflow = structuredClone(data.workflows[0])
+  workflow.nodes[0].position = { x: -50, y: 220 }
+  expect((await request(cookie, `workflows/${workflow.id}`, 'PUT', workflow)).status).toBe(200)
+  const restored = await (await request(cookie, 'workspace')).json() as Workspace
+  expect(restored.workflows[0].nodes[0].position).toEqual({ x: -50, y: 220 })
+  const invalid = { ...workflow, nodes: [{ ...workflow.nodes[0], position: { x: 'bad', y: 0 } }] }
+  expect((await request(cookie, `workflows/${workflow.id}`, 'PUT', invalid)).status).toBe(400)
+})

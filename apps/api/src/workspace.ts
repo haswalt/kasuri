@@ -79,6 +79,7 @@ export class DemoWorkspace extends DurableObject<Env> {
     assert(workflow.schemaVersion === 1 && workflow.id === id && id.length <= 160 && typeof workflow.name === 'string' && workflow.name.length <= 160 && typeof workflow.description === 'string', 'Invalid workflow metadata.')
     assert(Array.isArray(workflow.nodes) && workflow.nodes.length <= 100 && Array.isArray(workflow.edges) && workflow.edges.length <= 500, 'Invalid graph size.')
     for (const n of workflow.nodes) assert(n && typeof n.id === 'string' && typeof n.type === 'string' && typeof n.label === 'string' && n.config && typeof n.config === 'object' && !Array.isArray(n.config), 'Invalid node configuration.')
+    for (const n of workflow.nodes) assert(n.position === undefined || (n.position && Number.isFinite(n.position.x) && Number.isFinite(n.position.y)), 'Invalid node position.')
     for (const e of workflow.edges) assert(e && typeof e.id === 'string' && typeof e.source === 'string' && typeof e.target === 'string' && (e.sourcePort === undefined || typeof e.sourcePort === 'string'), 'Invalid edge.')
     const existing = this.ctx.storage.sql.exec<WorkflowRow>('SELECT * FROM workflows WHERE id=?', id).toArray()[0]
     const count = this.ctx.storage.sql.exec<{ count: number }>('SELECT COUNT(*) AS count FROM workflows').one().count
