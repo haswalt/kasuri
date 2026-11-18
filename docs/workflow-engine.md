@@ -83,8 +83,10 @@ Unsupported types (including HTTP, SaaS and Code) fail explicitly through `unsup
 - Times come from the host and cannot move backwards. Identical state, outcomes and clock inputs produce deterministic scheduling. Task identity changes per retry; the side-effect key remains stable for the run/node. Different intentional side effects within a future multi-operation node need operation-specific key extensions.
 - Stale and duplicate completions return errors without changing state. The host may acknowledge an already recorded duplicate after consulting its durable task journal.
 
-## Next integration work
+## Connected demo host
 
-Bind the Rust JSON contract to TypeScript/Wasm, replace the frontend's simulation with an authenticated API, and implement a durable host with per-run serialization and wake-up scheduling. Then add HTTP with URL policy/SSRF defenses, credential references and redaction, followed by D1/Slack adapters and a real failure/redeploy recovery demonstration. Validate managed Cloudflare Workflows integration before choosing it over a Queue/Durable Object scheduler.
+The `workflow-wasm` crate now exposes the Rust engine to the TypeScript Worker using a JSON/Wasm bridge. The React UI calls that Worker, which persists core run checkpoints in per-browser SQLite Durable Objects and uses alarms for waits and timezone-aware cron scheduling. See [the deployment guide](deployment.md) for setup and API details.
 
-Not implemented: durable Cloudflare storage, HTTP transport, OAuth/vault, cron/webhook ingress, subworkflow invocation, parallel task execution, item loops, human approval events, replay/rollback, arbitrary code isolation, or production authorization. The UI still uses its local prototype state and sequential editor; its simulations do not invoke the Rust engine. UI import intentionally rejects branched examples until the editor supports typed ports.
+The host batches only pure core adapters. External adapters will require persisted dispatch/outcome journaling; do not add network calls inside the current batch loop. The native example above remains a virtual-clock illustration of the low-level host protocol.
+
+Not implemented: account authentication, credential vault, HTTP/SaaS transports, OAuth, public webhook ingress, subworkflows, parallel task execution, item loops, approval events, replay/rollback or arbitrary code isolation. The frontend now supports typed edges and branched JSON imports, but has no drag/drop canvas yet. Validate managed Cloudflare Workflows integration before selecting the production durable hosting architecture.

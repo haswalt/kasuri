@@ -1,6 +1,7 @@
 {
   "$schema": "./node_modules/wrangler/config-schema.json",
   "name": "kasuri-demo",
+  "workers_dev": true,
   "main": "apps/api/src/index.ts",
   "compatibility_date": "2026-11-18",
   "compatibility_flags": ["nodejs_compat"],
