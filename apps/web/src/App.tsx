@@ -62,8 +62,7 @@ export default function App() {
     [filter, setFilter] = useState('All'),
     [runWorkflow, setRunWorkflow] = useState('all'),
     [trigger, setTrigger] = useState('all'),
-    [timeRange, setTimeRange] = useState('all'),
-    [categoryFilter, setCategoryFilter] = useState('All')
+    [timeRange, setTimeRange] = useState('all')
   const [theme, setThemeState] = useState<Theme>(savedTheme),
     [help, setHelp] = useState(false),
     [input, setInput] = useState('{}'),
@@ -401,10 +400,21 @@ export default function App() {
               ? 'Monitoring'
               : 'Apps'
   }
+  const categoryFilter = route.query.get('category') || 'All'
+  const connectorSearch = route.query.get('q') || ''
+  const connectorStatus = route.query.get('status') || 'all'
+  const setConnectorQuery = (key: string, value: string) => {
+    const query = new URLSearchParams(route.query)
+    if (value && value !== 'All' && value !== 'all') query.set(key, value)
+    else query.delete(key)
+    go(path('connectors') + (query.size ? '?' + query.toString() : ''))
+  }
   const visibleConnectors = catalogue.filter(
     (c) =>
       (categoryFilter === 'All' || group(c.name) === categoryFilter) &&
-      c.name.toLowerCase().includes(search.toLowerCase())
+      c.name.toLowerCase().includes(connectorSearch.toLowerCase()) &&
+      (connectorStatus === 'all' ||
+        (connectorStatus === 'built-in' ? connectors.some((m) => m.kind === c.name) : !connectors.some((m) => m.kind === c.name)))
   )
   const editorToolbar = workflow && (
     <>
@@ -1315,7 +1325,7 @@ export default function App() {
                       <Button
                         key={c}
                         aria-pressed={categoryFilter === c}
-                        onClick={() => setCategoryFilter(c)}
+                        onClick={() => setConnectorQuery('category', c)}
                       >
                         {c}
                         <small>
@@ -1328,9 +1338,17 @@ export default function App() {
                       </Button>
                     ))}
                   </div>
+                  <label>
+                    Availability{' '}
+                    <select aria-label="Connector availability" value={connectorStatus} onChange={(e) => setConnectorQuery('status', e.target.value)}>
+                      <option value="all">All connectors</option>
+                      <option value="built-in">Built in</option>
+                      <option value="planned">Planned</option>
+                    </select>
+                  </label>
                   <Search
-                    value={search}
-                    onChange={setSearch}
+                    value={connectorSearch}
+                    onChange={(value) => setConnectorQuery('q', value)}
                     placeholder="Search connectors…"
                   />
                 </div>
