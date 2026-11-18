@@ -1,0 +1,9 @@
+export type Json = null | boolean | number | string | Json[] | { [key: string]: Json }
+export type WorkflowNode = { id: string; type: string; label: string; version?: number; timeoutMs?: number; retry?: { maxAttempts: number; delayMs: number; maxDelayMs: number }; config: Record<string, Json> }
+export type Workflow = { schemaVersion: 1; id: string; name: string; description: string; status: 'draft' | 'active' | 'paused'; revision: number; updatedAt: string; nodes: WorkflowNode[]; edges: { id: string; source: string; target: string; sourcePort?: string }[]; nextScheduledAt?: number | null }
+export type RunStatus = 'running' | 'paused' | 'succeeded' | 'failed' | 'cancelled'
+export type RunMode = 'run' | 'simulation' | 'schedule'
+export type RunNode = { id: string; label: string; type: string; status: string; attempts: number; output?: Json; error?: string; untilMs?: number }
+export type Run = { id: string; workflowId: string; name: string; createdAt: string; revision: number; mode: RunMode; status: RunStatus; nodes: RunNode[]; input: Json; error?: string; wakeAt?: number | null }
+export type NodeManifest = { kind: string; version: number; configSchema: Record<string, unknown>; outputPorts: string[]; hasExternalSideEffects: boolean }
+export type Workspace = { workflows: Workflow[]; runs: Run[]; connectors: NodeManifest[]; expiresAt: number }

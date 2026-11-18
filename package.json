@@ -5,10 +5,16 @@
   "main": "index.js",
   "scripts": {
     "dev": "pnpm --filter web dev",
-    "build": "pnpm --filter web build",
-    "test": "pnpm test:web && pnpm test:rust",
+    "build": "pnpm build:engine && pnpm build:web",
+    "test": "pnpm test:web && pnpm test:rust && pnpm test:api",
     "test:web": "pnpm --filter web test",
-    "test:rust": "cargo test --workspace"
+    "test:rust": "cargo test --workspace",
+    "build:engine": "node scripts/build-engine.mjs",
+    "build:web": "pnpm --filter web build",
+    "dev:api": "pnpm build:engine && wrangler dev",
+    "check:api": "tsc -p apps/api/tsconfig.json",
+    "test:api": "pnpm build:engine && vitest run",
+    "test:wasm": "pnpm build:engine && node scripts/test-engine.mjs"
   },
   "keywords": [],
   "author": "",
