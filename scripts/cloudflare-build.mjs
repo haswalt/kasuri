@@ -6,5 +6,5 @@ run(process.execPath,['scripts/ensure-toolchain.mjs','--install'])
 // rustup may have been installed by the bootstrap child; extend PATH for the actual build.
 process.env.PATH = join(process.env.CARGO_HOME || join(homedir(),'.cargo'),'bin') + (process.platform === 'win32' ? ';' : ':') + process.env.PATH
 process.env.RUSTUP_TOOLCHAIN = '1.100.0'
-run('pnpm',['build:engine'])
+run('pnpm',['build:worker'])
 run('pnpm',['build:web'])

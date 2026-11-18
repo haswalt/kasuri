@@ -16,3 +16,6 @@ apps/api/generated/
 # Standalone server data
 data/
 secrets/
+
+# Official worker-build output
+crates/workflow-worker/build/

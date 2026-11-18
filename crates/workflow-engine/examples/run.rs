@@ -13,7 +13,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let workflow = Workflow::from_json(&std::fs::read_to_string(&args[1])?)?;
     let input: Value = serde_json::from_str(&std::fs::read_to_string(&args[2])?)?;
     let mut now = 0;
-    let mut run = Run::new("local-demo", workflow, input, now, Limits::default())?;
+    let mut run = Run::new("local-example", workflow, input, now, Limits::default())?;
     loop {
         let dispatch = run.next(now)?;
         // A production host must DURABLY persist this before performing a side effect.

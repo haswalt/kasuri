@@ -6,23 +6,17 @@
   "scripts": {
     "dev": "pnpm build && wrangler dev --ip 127.0.0.1",
     "build": "node scripts/cloudflare-build.mjs",
-    "test": "pnpm build:selfhost && pnpm test:web && pnpm test:rust && pnpm test:api && node scripts/test-engine.mjs && pnpm test:server",
+    "build:worker": "worker-build crates/workflow-worker --release --no-opt",
+    "build:web": "pnpm --filter web build",
+    "build:selfhost": "pnpm build && node scripts/build-selfhost.mjs",
+    "start": "cd dist && workerd serve workerd.capnp",
+    "dev:web": "pnpm --filter web dev",
+    "test": "pnpm test:web && pnpm test:rust && pnpm test:runtime",
     "test:web": "pnpm --filter web test",
     "test:rust": "cargo test --workspace",
-    "build:engine": "node scripts/build-engine.mjs",
-    "build:web": "pnpm --filter web build",
-    "check:api": "tsc -p apps/api/tsconfig.json",
-    "test:api": "pnpm build:engine && vitest run",
-    "test:wasm": "pnpm build:engine && node scripts/test-engine.mjs",
-    "dev:web": "pnpm --filter web dev",
-    "deploy": "pnpm build && pnpm check:api && wrangler deploy",
-    "deploy:check": "pnpm build && pnpm check:api && wrangler deploy --dry-run",
-    "types": "wrangler types --include-runtime=false",
-    "build:server": "node scripts/build-server.mjs",
-    "build:selfhost": "pnpm build && pnpm check:server && pnpm build:server",
-    "check:server": "tsc -p apps/server/tsconfig.json",
-    "start": "node dist/server/main.mjs",
-    "test:server": "pnpm build:server && node --test apps/server/tests/*.test.mjs",
+    "test:runtime": "node scripts/test-runtime.mjs",
+    "deploy": "pnpm build && wrangler deploy",
+    "deploy:check": "pnpm build && wrangler deploy --dry-run",
     "setup:selfhost": "node scripts/setup-selfhost.mjs",
     "setup:repository": "node scripts/configure-repository.mjs",
     "test:container": "node scripts/test-container.mjs"
@@ -41,22 +35,13 @@
   "type": "module",
   "private": true,
   "devDependencies": {
-    "@cloudflare/vitest-plugin": "^1.8.3",
-    "@cloudflare/workers-types": "^5.20261117.1",
-    "@types/node": "^24.19.2",
-    "cron-parser": "^5.10.6",
-    "esbuild": "^0.28.2",
-    "typescript": "^7.0.2",
-    "vitest": "^5.1.0",
-    "wrangler": "^4.164.0"
+    "wrangler": "^4.164.0",
+    "workerd": "1.20261117.1"
   },
   "cloudflare": {
     "bindings": {
       "WORKSPACES": {
-        "description": "Private demo workflows, run checkpoints and persistent cron/wait timers in SQLite-backed Durable Objects."
-      },
-      "SESSION_TTL_HOURS": {
-        "description": "Workspace lifetime in hours: 24 for an expiring public demo, or 0 to retain data in your own deployment. Applies to new workspaces."
+        "description": "Persistent workflows, Rust run checkpoints and cron/wait alarms in SQLite-backed Durable Objects."
       }
     }
   }

@@ -1120,19 +1120,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "workflow-wasm"
-version = "0.1.0"
-dependencies = [
- "connector-sdk",
- "connectors-core",
- "serde",
- "serde_json",
- "wasm-bindgen",
- "workflow-engine",
- "workflow-schema",
-]
-
-[[package]]
 name = "workflow-worker"
 version = "0.1.0"
 dependencies = [

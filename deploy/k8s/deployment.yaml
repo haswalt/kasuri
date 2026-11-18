@@ -30,10 +30,6 @@ spec:
             - name: http
               containerPort: 8080
           env:
-            - name: DATA_DIR
-              value: /data
-            - name: SESSION_TTL_HOURS
-              value: "0"
             - name: BASIC_AUTH_FILE
               value: /run/secrets/kasuri/credentials
           resources:
