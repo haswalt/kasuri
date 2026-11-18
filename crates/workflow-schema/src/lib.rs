@@ -38,7 +38,10 @@ pub struct Workflow {
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-pub struct Position { pub x: f64, pub y: f64 }
+pub struct Position {
+    pub x: f64,
+    pub y: f64,
+}
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -150,7 +153,13 @@ impl Workflow {
         }
         let mut nodes = BTreeMap::new();
         for node in &self.nodes {
-            if node.position.as_ref().is_some_and(|p| !p.x.is_finite() || !p.y.is_finite()) { return fail("Invalid node position"); }
+            if node
+                .position
+                .as_ref()
+                .is_some_and(|p| !p.x.is_finite() || !p.y.is_finite())
+            {
+                return fail("Invalid node position");
+            }
             if node.id.trim().is_empty()
                 || node.kind.trim().is_empty()
                 || node.label.trim().is_empty()
