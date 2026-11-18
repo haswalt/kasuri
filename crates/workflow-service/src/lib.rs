@@ -249,7 +249,7 @@ impl Workspace {
                 let mut node = node.clone();
                 node.config.remove("query");
                 node.config.remove("body");
-                connectors_http::validate(&Task{id:"validate".into(),idempotency_key:"validate".into(),node,input:Value::Null,attempt:1,deadline_ms:1}).map_err(|_|error(400,"Invalid HTTP request: use a public HTTPS URL; write retries and credential headers are unsupported"))?;
+                connectors_http::validate(&Task{id:"validate".into(),idempotency_key:"validate".into(),node,input:Value::Null,attempt:1,deadline_ms:1}).map_err(|_|error(400,"Invalid HTTP request: use HTTPS, a supported auth configuration and one attempt for writes"))?;
             }
             if !manifests
                 .iter()

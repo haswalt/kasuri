@@ -51,4 +51,4 @@ Local runtime checks exercise the actual Rust Wasm Worker in workerd, including 
 
 ## HTTP egress
 
-Set the deployment variable `HTTP_ALLOWED_HOSTS` to approved exact public hostnames before using HTTP Request. It defaults to deny all. See [connector configuration, simulation and recovery semantics](connectors.md).
+HTTP Request allows public HTTPS by default. Optionally restrict it with `HTTP_ALLOWED_HOSTS`; empty means unrestricted public destinations. Basic passwords and sensitive custom headers use named aliases in the `HTTP_SECRETS` Worker secret. See [connector configuration, simulation and recovery semantics](connectors.md).

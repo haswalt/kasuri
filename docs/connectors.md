@@ -4,7 +4,7 @@ The runtime advertises 12 node types: Manual Trigger, Webhook (supplied payload 
 
 ## HTTP Request
 
-HTTP Request supports GET, HEAD, POST, PUT, PATCH and DELETE against approved public HTTPS hosts on port 443. Requests run asynchronously from persisted checkpoints. The node emits:
+HTTP Request supports GET, HEAD, POST, PUT, PATCH and DELETE against public HTTPS destinations by default. Requests run asynchronously from persisted checkpoints. The node emits:
 
 ```json
 {"status":200,"contentType":"application/json","body":{"items":[]}}
@@ -21,19 +21,51 @@ Configure `url`, optional `method` (GET by default), `query` (JSON object), `hea
 
 Pointers refer to the node's incoming payload. A single parent passes its output directly; multiple active parents produce an object keyed by parent node ID. Put a Map / Transform node before HTTP to prepare fields and after HTTP to extract `/body` when needed.
 
-Only `accept`, `content-type` and `user-agent` custom headers are currently accepted. JSON bodies set Content-Type automatically. URLs cannot contain user credentials, fragments, IP literals or private/local hostnames. Redirects are rejected. Credential headers, OAuth, secret connections and pagination are pending; do not put secrets in workflow JSON or URL query parameters.
+Custom headers accept ordinary string values, for example `{"X-Tenant":"team-a"}`. Sensitive headers such as Authorization, Cookie and API keys use named secret references instead of literal credentials:
 
-### Approve outbound hosts
+```json
+{"Authorization":{"$secret":"service_bearer"},"X-Api-Key":{"$secret":"service_key"}}
+```
 
-The operator must set `HTTP_ALLOWED_HOSTS` to a comma-separated list of exact hostnames. An empty list denies all real requests with `egress_denied`. Wildcards and automatic subdomain matching are not supported. Approve only public services you trust.
+The referenced secret contains the complete header value (`Bearer ...` when required). Header names are case-insensitive; transport and proxy headers such as Host, Content-Length, Connection and X-Forwarded-For are managed by the runtime. Header names and values are checked for injection. A JSON body gets Content-Type automatically unless a custom Content-Type is supplied. Idempotency-Key remains managed by the workflow engine.
 
-For Cloudflare, add a deployment variable (or a local ignored `.dev.vars` entry):
+### Basic authentication and named secrets
+
+Set the node's `authentication` to `basic`, enter `username`, and set `passwordSecret` to a secret alias. The editor has these fields. For example:
+
+```json
+{"authentication":"basic","username":"api-user","passwordSecret":"service_password"}
+```
+
+Configure aliases in the installation's `HTTP_SECRETS` JSON map:
+
+```json
+{"service_password":"YOUR_PASSWORD","service_bearer":"Bearer YOUR_TOKEN","service_key":"YOUR_API_KEY"}
+```
+
+Named HTTP secrets require the installation’s existing `BASIC_AUTH` protection to be configured, so anonymous workflow authors cannot use shared installation credentials. Without it, secret-backed requests fail with `egress_denied`; unauthenticated public HTTP requests still work.
+
+On Cloudflare, store that JSON with `pnpm exec wrangler secret put HTTP_SECRETS`. Locally, put it in ignored `.dev.vars`. For self-hosting supply `HTTP_SECRETS` from the environment or a Kubernetes Secret; the container also accepts `HTTP_SECRETS_FILE` pointing at a mounted JSON file. Compose reads `HTTP_SECRETS` from the ignored `.env`. Keep these values out of Git.
+
+The workflow contains the username and secret aliases. Password/header secret values are resolved only after dispatch is persisted, are not returned by the workspace API, and are not copied into task checkpoints. Known secret values and Basic authorization encodings are redacted from successful response bodies if echoed by an upstream. Missing aliases fail with `missing_input`; there is no fallback to plaintext passwords. Non-sensitive literal custom headers remain part of workflow JSON. Do not put credentials in URL queries, run input, ordinary literals or fixtures. OAuth and a connection-management vault UI remain future work.
+
+### Optional destination restrictions
+
+`HTTP_ALLOWED_HOSTS` is optional. Unset or empty allows public HTTPS destinations without per-API deployment changes. Setting a nonempty comma-separated list restricts outbound requests to those exact hostnames (case-insensitive). Wildcards and implicit subdomain matching are unsupported.
 
 ```json
 {"vars":{"HTTP_ALLOWED_HOSTS":"api.example.com,other.example.com"}}
 ```
 
-Keep deployment-specific configuration outside the public repository when appropriate. For Compose, set `HTTP_ALLOWED_HOSTS` in your ignored `.env`; for a standalone workerd process or Kubernetes container, set the environment variable. Self-hosted workerd's default outbound network policy allows publicly routable addresses only; preserve that restriction.
+URLs cannot contain credentials or fragments. Private, loopback, link-local, metadata, special-use addresses and local hostnames are blocked by default. Before dispatch, the Rust host checks A and AAAA DNS answers through Cloudflare's public DNS-over-HTTPS resolver and rejects the destination if any answer is nonpublic. DNS lookup failures fail closed. The trusted DNS endpoint is independent of the optional application host allowlist.
+
+Redirects are rejected, including redirects to another public host, so credentials are never automatically forwarded to a new destination. The connection layer must also enforce public-only networking: self-hosted workerd explicitly allows only publicly routable destination addresses, protecting against DNS rebinding between lookup and connect. Preserve this network policy when modifying the deployment. Cloudflare runs through its platform's outbound networking; the application does not provision private connectivity.
+
+### Explicit private-host opt-in
+
+An operator can set `HTTP_PRIVATE_HOSTS` to exact destination hostnames or IP addresses that may bypass the public-destination/DNS checks. Leave it empty unless deliberately enabling a trusted private service. If `HTTP_ALLOWED_HOSTS` is also set, the destination must satisfy that restriction too. HTTPS and header/redirect protections still apply.
+
+This setting grants permission; it does not create connectivity. Self-hosted operators must additionally add the specific private IP/CIDR to the `internet` service's `network.allow` list in workerd configuration. Keep `public` and add only the required ranges, rather than enabling all private networks. Cloudflare private connectivity requires separately configured platform networking; a host opt-in alone does not enable it.
 
 ### Simulations and failures
 

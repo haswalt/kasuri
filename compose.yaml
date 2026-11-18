@@ -8,6 +8,8 @@ services:
       - "127.0.0.1:${PORT:-8080}:8080"
     environment:
       HTTP_ALLOWED_HOSTS: ${HTTP_ALLOWED_HOSTS:-}
+      HTTP_PRIVATE_HOSTS: ${HTTP_PRIVATE_HOSTS:-}
+      HTTP_SECRETS: ${HTTP_SECRETS:-}
       BASIC_AUTH_FILE: /run/secrets/basic_auth
     volumes:
       - kasuri-data:/data

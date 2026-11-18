@@ -116,6 +116,7 @@ dependencies = [
 name = "connectors-http"
 version = "0.1.0"
 dependencies = [
+ "base64",
  "connector-sdk",
  "serde_json",
  "url",

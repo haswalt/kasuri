@@ -60,4 +60,4 @@ For a different address or storage path, use workerd's `--socket-addr http=127.0
 
 ## Outbound HTTP connectors
 
-Set `HTTP_ALLOWED_HOSTS` in the Compose `.env`, standalone environment, or Kubernetes container environment to a comma-separated list of exact public HTTPS hosts. It defaults to deny all; redirects and private destinations are unsupported. See [connector configuration](connectors.md).
+Public HTTPS works by default. Optionally set `HTTP_ALLOWED_HOSTS` to restrict destinations. Basic authentication and sensitive custom headers resolve aliases from `HTTP_SECRETS` (a JSON map); use an environment secret, Kubernetes Secret or an `HTTP_SECRETS_FILE` mount. `HTTP_PRIVATE_HOSTS` opts specific private hosts into the application policy, but workerd network permissions/connectivity must also allow those destinations. Redirects remain blocked. See [connector configuration](connectors.md).

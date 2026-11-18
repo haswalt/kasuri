@@ -1,6 +1,7 @@
 using Workerd = import "/workerd/workerd.capnp";
 const config :Workerd.Config = (
   services = [
+    (name = "internet", network = (allow = ["public"], tlsOptions = (trustBrowserCas = true))),
     (name = "main", worker = (
       modules = [
         (name = "index.js", esModule = embed "worker/index.js"),
@@ -11,7 +12,9 @@ const config :Workerd.Config = (
         (name = "WORKSPACES", durableObjectNamespace = "WorkflowWorkspace"),
         (name = "ASSETS", service = "assets"),
         (name = "BASIC_AUTH", fromEnvironment = "BASIC_AUTH"),
-        (name = "HTTP_ALLOWED_HOSTS", fromEnvironment = "HTTP_ALLOWED_HOSTS")
+        (name = "HTTP_ALLOWED_HOSTS", fromEnvironment = "HTTP_ALLOWED_HOSTS"),
+        (name = "HTTP_PRIVATE_HOSTS", fromEnvironment = "HTTP_PRIVATE_HOSTS"),
+        (name = "HTTP_SECRETS", fromEnvironment = "HTTP_SECRETS")
       ],
       durableObjectNamespaces = [(className = "WorkflowWorkspace", uniqueKey = "workspaces", enableSql = true)],
       durableObjectStorage = (localDisk = "storage")
