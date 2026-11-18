@@ -1,0 +1,187 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Kasuri · Run detail</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+body{margin:0}
+a{color:inherit}a:hover{color:var(--accent)}
+input::placeholder{color:var(--text-3)}
+@keyframes flow{to{stroke-dashoffset:-20}}
+@keyframes pulse{50%{opacity:.35}}
+</style>
+</helmet>
+<div style="{{ root }}">
+
+  <dc-import name="Sidebar" active="runs" theme="{{ theme }}" hint-size="240px,900px"></dc-import>
+
+  <div style="flex: 1; min-width: 0; display: flex; flex-direction: column">
+    <header style="height: 56px; flex: none; box-sizing: border-box; display: flex; align-items: center; gap: 10px; padding: 0 40px; border-bottom: 1px solid var(--line); background: var(--surface); font-size: 14px">
+      <span style="color: var(--text-2)">Personal workspace</span>
+      <span style="color: var(--text-3)">/</span>
+      <span style="color: var(--text-2)">Runs</span>
+      <span style="color: var(--text-3)">/</span>
+      <span style="font-family: 'JetBrains Mono', monospace; font-size: 13px">run_7Hq2xK9d</span>
+    </header>
+
+    <main style="flex: 1; min-height: 0; box-sizing: border-box; padding: 28px 40px; display: flex; flex-direction: column; gap: 24px">
+      <div style="display: flex; flex-direction: column; gap: 10px">
+        <a href="{{ links.history }}" style="font-size: 13px; color: var(--text-2); text-decoration: none">← All runs</a>
+        <div style="display: flex; align-items: center; justify-content: space-between; gap: 24px">
+          <div style="display: flex; align-items: center; gap: 12px">
+            <h1 style="margin: 0; font-size: 26px; font-weight: 600; letter-spacing: -0.025em">Nightly Sheets → GitHub sync</h1>
+            <span style="display: inline-flex; align-items: center; gap: 6px; font-size: 12px; color: var(--fail); background: var(--fail-soft); border-radius: 5px; padding: 3px 8px"><span style="width: 6px; height: 6px; border-radius: 50%; background: currentColor"></span>Failed</span>
+          </div>
+          <div style="display: flex; gap: 8px">
+            <button style="height: 36px; padding: 0 14px; border-radius: 8px; border: 1px solid var(--line-strong); background: var(--surface); color: var(--text); font: inherit; font-size: 14px; cursor: pointer">Export</button>
+            <button style="height: 36px; padding: 0 14px; border-radius: 8px; border: 1px solid var(--line-strong); background: var(--surface); color: var(--text); font: inherit; font-size: 14px; cursor: pointer">Replay from start</button>
+            <button style="height: 36px; padding: 0 14px; border-radius: 8px; border: 0; background: var(--accent); color: var(--accent-fg); font: inherit; font-size: 14px; font-weight: 500; cursor: pointer">Retry from checkpoint</button>
+          </div>
+        </div>
+        <p style="margin: 0; font-size: 13px; color: var(--text-2)">Started 18 Nov, 02:00:04 Europe/London · 4 m 12 s · Schedule trigger · Revision v8 · <span style="font-family: 'JetBrains Mono', monospace; font-size: 12px">corr_e41b…09a</span></p>
+      </div>
+
+      <div style="flex: 1; min-height: 0; display: grid; grid-template-columns: minmax(0, 1fr) 340px; gap: 24px; align-items: start">
+        <div style="display: flex; flex-direction: column; gap: 16px">
+          <section aria-label="Node timeline" style="border: 1px solid var(--line); border-radius: 10px; background: var(--surface); box-shadow: var(--shadow); overflow: hidden">
+            <div style="display: grid; grid-template-columns: 260px minmax(0, 1fr) 80px; font-size: 12px; color: var(--text-3); background: var(--surface-2); border-bottom: 1px solid var(--line)">
+              <div style="padding: 9px 16px">Node</div>
+              <div style="padding: 9px 0; display: flex; justify-content: space-between"><span>0 s</span><span>1 m</span><span>2 m</span><span>3 m</span><span>4 m</span></div>
+              <div style="padding: 9px 16px; text-align: right">Time</div>
+            </div>
+            <sc-for list="{{ rows }}" as="r" hint-placeholder-count="7">
+              <div style="{{ r.rowStyle }}">
+                <div style="padding: 0 16px; display: flex; align-items: center; gap: 10px; min-width: 0">
+                  <span style="{{ r.dot }}"></span>
+                  <span style="min-width: 0">
+                    <span style="display: block; font-size: 13px; font-weight: 500; white-space: nowrap; overflow: hidden; text-overflow: ellipsis">{{ r.name }}</span>
+                    <span style="display: block; font-size: 12px; color: var(--text-3); white-space: nowrap; overflow: hidden; text-overflow: ellipsis">{{ r.note }}</span>
+                  </span>
+                </div>
+                <div style="position: relative; height: 48px; background-image: linear-gradient(to right, var(--line) 1px, transparent 1px); background-size: 25% 100%">
+                  <sc-for list="{{ r.segs }}" as="g" hint-placeholder-count="1">
+                    <span style="{{ g.style }}"></span>
+                  </sc-for>
+                </div>
+                <div style="padding: 0 16px; text-align: right; font-family: 'JetBrains Mono', monospace; font-size: 12px; color: var(--text-2)">{{ r.dur }}</div>
+              </div>
+            </sc-for>
+            <div style="display: flex; gap: 18px; padding: 10px 16px; font-size: 12px; color: var(--text-2); border-top: 1px solid var(--line)">
+              <span style="display: inline-flex; align-items: center; gap: 6px"><span style="width: 10px; height: 4px; border-radius: 2px; background: var(--ok)"></span>Succeeded</span>
+              <span style="display: inline-flex; align-items: center; gap: 6px"><span style="width: 10px; height: 4px; border-radius: 2px; background: var(--warn)"></span>Backoff</span>
+              <span style="display: inline-flex; align-items: center; gap: 6px"><span style="width: 10px; height: 4px; border-radius: 2px; background: var(--fail)"></span>Failed attempt</span>
+            </div>
+          </section>
+
+          <section aria-label="Logs" style="border: 1px solid var(--line); border-radius: 10px; background: var(--surface); box-shadow: var(--shadow)">
+            <div style="display: flex; justify-content: space-between; padding: 10px 16px; border-bottom: 1px solid var(--line); font-size: 13px"><span style="font-weight: 500">Logs · Upsert GitHub issues</span><span style="font-size: 12px; color: var(--text-3)">Secrets redacted</span></div>
+            <pre style="margin: 0; padding: 12px 16px; font-family: 'JetBrains Mono', monospace; font-size: 12px; line-height: 1.75; color: var(--text-2); white-space: pre-wrap">{{ logs }}</pre>
+          </section>
+        </div>
+
+        <aside aria-label="Failed node" style="border: 1px solid var(--line); border-radius: 10px; background: var(--surface); box-shadow: var(--shadow)">
+          <div style="padding: 16px 18px; border-bottom: 1px solid var(--line)">
+            <div style="font-size: 11px; letter-spacing: .1em; color: var(--text-3)">FAILED NODE</div>
+            <div style="font-size: 15px; font-weight: 600; margin-top: 4px">Upsert GitHub issues</div>
+            <div style="font-size: 12px; color: var(--text-3); margin-top: 2px">GitHub · issues.update · loop over batches</div>
+          </div>
+          <div style="padding: 14px 18px; border-bottom: 1px solid var(--line); display: flex; flex-direction: column; gap: 4px">
+            <div style="font-size: 13px; font-weight: 500; color: var(--fail)">HTTP 403 · secondary rate limit</div>
+            <div style="font-size: 13px; color: var(--text-2); line-height: 1.5">Batch 25 of 25 failed after 5 attempts; the error branch ran.</div>
+          </div>
+          <div style="padding: 14px 18px; border-bottom: 1px solid var(--line); display: flex; flex-direction: column; gap: 7px">
+            <div style="font-size: 11px; letter-spacing: .1em; color: var(--text-3); margin-bottom: 2px">ATTEMPTS</div>
+            <sc-for list="{{ attempts }}" as="a" hint-placeholder-count="5">
+              <div style="display: flex; gap: 10px; font-size: 12px"><span style="font-family: 'JetBrains Mono', monospace; color: var(--text-3); width: 18px">{{ a.n }}</span><span style="flex: 1">403</span><span style="color: var(--text-3)">{{ a.wait }}</span></div>
+            </sc-for>
+          </div>
+          <div style="padding: 14px 18px; border-bottom: 1px solid var(--line); display: flex; justify-content: space-between; font-size: 13px">
+            <span>Input · 40 items</span>
+            <a href="#" style="font-family: 'JetBrains Mono', monospace; font-size: 12px; color: var(--accent); text-decoration: none">r2://…/b25.json</a>
+          </div>
+          <div style="padding: 14px 18px; display: flex; flex-direction: column; gap: 12px">
+            <div style="font-size: 13px; line-height: 1.55; color: var(--text-2); background: var(--warn-soft); border-radius: 6px; padding: 10px 12px"><strong style="color: var(--warn); font-weight: 600">1,200 issues already written.</strong> Retrying from the checkpoint re-sends batch 25 only and reuses its idempotency keys.</div>
+            <fieldset style="border: 0; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 8px; font-size: 13px">
+              <legend style="font-size: 11px; letter-spacing: .1em; color: var(--text-3); margin-bottom: 8px">RESUME FROM</legend>
+              <label style="display: flex; gap: 10px; align-items: center"><input type="radio" name="cp" checked style="margin: 0; accent-color: #0B6E79">Batch 25 <span style="color: var(--text-3)">· recommended</span></label>
+              <label style="display: flex; gap: 10px; align-items: center"><input type="radio" name="cp" style="margin: 0; accent-color: #0B6E79">Transform rows <span style="color: var(--text-3)">· all 25 batches</span></label>
+              <label style="display: flex; gap: 10px; align-items: center"><input type="radio" name="cp" style="margin: 0; accent-color: #0B6E79">Start <span style="color: var(--text-3)">· new run</span></label>
+            </fieldset>
+          </div>
+        </aside>
+      </div>
+    </main>
+  </div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"theme":{"editor":"enum","options":["light","dark"],"default":"light"},"$preview":{"width":1440,"height":900}}'>
+class Component extends DCLogic {
+  themeVars(name) {
+    var L = { bg: '#F7F8FA', surface: '#FFFFFF', 'surface-2': '#F2F3F6', canvas: '#F4F5F8', dot: '#D3D7DF', line: '#E5E7EB', 'line-strong': '#D0D4DC', text: '#181B21', 'text-2': '#525967', 'text-3': '#6B7280', accent: '#0B6E79', 'accent-fg': '#FFFFFF', 'accent-soft': '#E4F2F3', ok: '#1A7F37', 'ok-soft': '#E9F5EC', run: '#0969DA', 'run-soft': '#E4EFFC', warn: '#9A6700', 'warn-soft': '#FBF2DD', fail: '#CF222E', 'fail-soft': '#FCECED', wait: '#8250DF', 'wait-soft': '#F3EEFD', skip: '#6E7781', 'c-trigger': '#7C5CD6', 'c-trigger-bg': '#F1EDFB', 'c-http': '#2563EB', 'c-http-bg': '#E8EFFD', 'c-logic': '#475467', 'c-logic-bg': '#EEF0F3', 'c-cf': '#B4590F', 'c-cf-bg': '#FCEFE3', 'c-app': '#A8436A', 'c-app-bg': '#F9ECF1', 'c-error': '#CF222E', 'c-error-bg': '#FCECED', shadow: '0 1px 2px rgba(16,24,40,.04)' };
+    var D = { bg: '#0B0D11', surface: '#111419', 'surface-2': '#181C23', canvas: '#0D1015', dot: '#22272F', line: '#1F242C', 'line-strong': '#2E343E', text: '#E6E8EC', 'text-2': '#A3ABB9', 'text-3': '#8B93A3', accent: '#4CC3CB', 'accent-fg': '#061A1C', 'accent-soft': 'rgba(76,195,203,.14)', ok: '#3FB950', 'ok-soft': 'rgba(63,185,80,.13)', run: '#58A6FF', 'run-soft': 'rgba(88,166,255,.16)', warn: '#D29922', 'warn-soft': 'rgba(210,153,34,.14)', fail: '#F85149', 'fail-soft': 'rgba(248,81,73,.13)', wait: '#A78BFA', 'wait-soft': 'rgba(167,139,250,.14)', skip: '#768390', 'c-trigger': '#A78BFA', 'c-trigger-bg': 'rgba(167,139,250,.13)', 'c-http': '#7DA6FF', 'c-http-bg': 'rgba(125,166,255,.13)', 'c-logic': '#B4BCC8', 'c-logic-bg': 'rgba(180,188,200,.12)', 'c-cf': '#FB923C', 'c-cf-bg': 'rgba(251,146,60,.12)', 'c-app': '#F472B6', 'c-app-bg': 'rgba(244,114,182,.12)', 'c-error': '#F85149', 'c-error-bg': 'rgba(248,81,73,.12)', shadow: 'none' };
+    var t = name === 'dark' ? D : L;
+    return Object.keys(t).map(function (k) { return '--' + k + ': ' + t[k]; }).join('; ');
+  }
+  renderVals() {
+    var theme = this.props.theme === 'dark' ? 'dark' : 'light';
+    var sfx = theme === 'dark' ? 'Dark' : '';
+    var links = { dash: 'Dashboard' + sfx + '.dc.html', runs: 'RunDetail' + sfx + '.dc.html', history: 'RunHistory' + sfx + '.dc.html', connectors: 'Connectors' + sfx + '.dc.html', connections: 'Connections' + sfx + '.dc.html' };
+    var nav = [
+      ['Workflows', 'M12 2.5 21.5 12 12 21.5 2.5 12z', links.dash, false],
+      ['Runs', 'M7 17 17 7M8 7h9v9', links.history, true],
+      ['Connectors', 'M3 3h18v18H3zM3 12h18M12 3v18', links.connectors, false],
+      ['Connections', 'M21 2l-2 2m-7.61 7.61a5.5 5.5 0 1 1-7.78 7.78 5.5 5.5 0 0 1 7.78-7.78zm0 0L15.5 7.5m0 0l3 3L22 7l-3-3m-3.5 3.5L19 4', links.connections, false],
+      ['Audit log', 'M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8zM14 2v6h6M16 13H8M16 17H8', '#', false],
+      ['Settings', 'M4 21v-7M4 10V3M12 21v-9M12 8V3M20 21v-5M20 12V3M1 14h6M9 8h6M17 16h6', '#', false]
+    ].map(function (n) {
+      return {
+        label: n[0], icon: n[1], href: n[2], current: n[3] ? 'page' : 'false',
+        style: 'display: flex; align-items: center; gap: 12px; height: 36px; padding: 0 10px; border-radius: 7px; text-decoration: none; font-size: 14px; ' + (n[3] ? 'background: var(--accent-soft); color: var(--accent); font-weight: 500' : 'color: var(--text-2)')
+      };
+    });
+
+    var T = 252;
+    var C = { ok: 'var(--ok)', wait: 'var(--warn)', fail: 'var(--fail)' };
+    var seg = function (a, b, kind) {
+      return { style: 'position: absolute; top: 21px; height: 6px; border-radius: 3px; left: ' + (a / T * 100) + '%; width: ' + Math.max((b - a) / T * 100, 0.5) + '%; background: ' + C[kind] };
+    };
+    var dot = function (c) { return 'width: 7px; height: 7px; border-radius: 50%; flex: none; background: ' + c; };
+    var base = 'display: grid; grid-template-columns: 260px minmax(0, 1fr) 80px; align-items: center; height: 48px; border-bottom: 1px solid var(--line)';
+    var rows = [
+      { name: 'Schedule', note: 'cron 0 2 * * * · Europe/London', dur: '4 ms', dot: dot(C.ok), segs: [seg(0, 0.1, 'ok')] },
+      { name: 'Read sheet rows', note: 'Google Sheets · 13 pages → R2', dur: '6.3 s', dot: dot(C.ok), segs: [seg(0.1, 6.4, 'ok')] },
+      { name: 'Split in batches', note: '50 per batch · 25 batches', dur: '82 ms', dot: dot(C.ok), segs: [seg(6.4, 6.6, 'ok')] },
+      { name: 'Transform rows', note: 'Map / Transform · 7 fields', dur: '1.4 s', dot: dot(C.ok), segs: [seg(6.6, 8, 'ok')] },
+      { name: 'Upsert GitHub issues', note: '24 of 25 batches committed', dur: '4 m 4 s', dot: dot(C.fail), segs: [seg(8, 190, 'ok'), seg(190, 193, 'fail'), seg(193, 202, 'wait'), seg(202, 205, 'fail'), seg(205, 221, 'wait'), seg(221, 224, 'fail'), seg(224, 240, 'wait'), seg(240, 243, 'fail'), seg(243, 249, 'wait'), seg(249, 251.5, 'fail')] },
+      { name: 'Notify Discord', note: 'Skipped · upstream failed', dur: '—', dot: dot('var(--line-strong)'), segs: [] },
+      { name: 'On error → PagerDuty', note: 'Error Handler · incident opened', dur: '0.9 s', dot: dot(C.ok), segs: [seg(251.5, 252, 'ok')] }
+    ].map(function (r, i) {
+      r.rowStyle = base + (i === 4 ? '; background: var(--fail-soft)' : '') + (i === 5 ? '; opacity: .55' : '');
+      return r;
+    });
+    var attempts = [
+      { n: '1', wait: 'backoff 8 s' }, { n: '2', wait: 'backoff 16 s' }, { n: '3', wait: 'backoff 16 s' },
+      { n: '4', wait: 'Retry-After 6 s' }, { n: '5', wait: 'retry budget exhausted' }
+    ];
+    var logs = [
+      '02:03:14.208  batch 25  PATCH /repos/acme/roadmap/issues  idem=sync-8f2c-b25',
+      '02:03:14.210  authorization: Bearer ••••••••',
+      '02:03:14.611  ← 403  secondary rate limit · retry-after: 6',
+      '02:04:15.902  attempt 5 failed · route → On error'
+    ].join('\n');
+    return {
+      root: this.themeVars(theme) + '; width: 1440px; height: 900px; box-sizing: border-box; display: flex; overflow: hidden; font-family: Inter, system-ui, sans-serif; color: var(--text); background: var(--bg); color-scheme: ' + theme,
+      theme: theme, links: links, nav: nav, rows: rows, attempts: attempts, logs: logs
+    };
+  }
+}
+</script>
+</body>
+</html>

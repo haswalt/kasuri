@@ -1,0 +1,188 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Kasuri · MCP server</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+body{margin:0}
+a{color:inherit}a:hover{color:var(--accent)}
+input::placeholder{color:var(--text-3)}
+@keyframes flow{to{stroke-dashoffset:-20}}
+@keyframes pulse{50%{opacity:.35}}
+</style>
+</helmet>
+<div style="{{ root }}">
+  <dc-import name="Sidebar" active="mcp" theme="{{ theme }}" hint-size="240px,900px"></dc-import>
+
+  <div style="flex: 1; min-width: 0; display: flex; flex-direction: column">
+    <header style="height: 56px; flex: none; box-sizing: border-box; display: flex; align-items: center; gap: 10px; padding: 0 40px; border-bottom: 1px solid var(--line); background: var(--surface); font-size: 14px">
+      <span style="color: var(--text-2)">Personal workspace</span>
+      <span style="color: var(--text-3)">/</span>
+      <span>MCP server</span>
+    </header>
+
+    <main style="flex: 1; min-height: 0; box-sizing: border-box; padding: 28px 40px; display: flex; flex-direction: column; gap: 20px">
+      <div style="display: flex; align-items: flex-end; justify-content: space-between">
+        <div>
+          <div style="font-size: 11px; letter-spacing: .14em; color: var(--text-3); margin-bottom: 8px">MODEL CONTEXT PROTOCOL</div>
+          <h1 style="margin: 0 0 6px; font-size: 28px; font-weight: 600; letter-spacing: -0.025em">MCP server</h1>
+          <p style="margin: 0; font-size: 14px; color: var(--text-2)">Let Claude and other MCP clients connect to Kasuri and call your workflows as tools. To give your own agents tools from other MCP servers, add them under <a href="{{ connectionsHref }}" style="color: var(--accent); text-decoration: none">Connections</a>.</p>
+        </div>
+        <button style="height: 36px; padding: 0 14px; border-radius: 8px; border: 0; background: var(--accent); color: var(--accent-fg); font: inherit; font-size: 14px; font-weight: 500; cursor: pointer; white-space: nowrap">Expose a workflow</button>
+      </div>
+
+      <section style="border: 1px solid var(--line); border-radius: 10px; background: var(--surface); box-shadow: var(--shadow); display: grid; grid-template-columns: repeat(4, minmax(0, 1fr))">
+        <sc-for list="{{ endpoint }}" as="e" hint-placeholder-count="4">
+          <div style="{{ e.cell }}"><div style="font-size: 12px; color: var(--text-3)">{{ e.label }}</div><div style="{{ e.valueStyle }}">{{ e.value }}</div></div>
+        </sc-for>
+      </section>
+
+      <div style="flex: 1; min-height: 0; display: grid; grid-template-columns: minmax(0, 1fr) 380px; gap: 20px; align-items: start">
+        <div style="display: flex; flex-direction: column; gap: 20px; min-width: 0">
+          <section aria-label="Exposed tools" style="border: 1px solid var(--line); border-radius: 10px; background: var(--surface); box-shadow: var(--shadow); overflow: hidden">
+            <div style="padding: 12px 16px; border-bottom: 1px solid var(--line)">
+              <div style="font-size: 14px; font-weight: 600">Workflows exposed as tools</div>
+              <div style="font-size: 12px; color: var(--text-3); margin-top: 2px">The input schema comes from each workflow's trigger. Calls run as normal runs and appear in Run history.</div>
+            </div>
+            <table style="width: 100%; border-collapse: collapse; font-size: 13px">
+              <thead><tr style="text-align: left; color: var(--text-3); font-size: 12px; background: var(--surface-2)"><th style="padding: 9px 16px; font-weight: 500; border-bottom: 1px solid var(--line)">Tool</th><th style="padding: 9px 12px; font-weight: 500; border-bottom: 1px solid var(--line)">Workflow</th><th style="padding: 9px 12px; font-weight: 500; border-bottom: 1px solid var(--line)">Input</th><th style="padding: 9px 12px; font-weight: 500; border-bottom: 1px solid var(--line)">Policy</th><th style="padding: 9px 16px; font-weight: 500; border-bottom: 1px solid var(--line); text-align: right">Calls 24h</th></tr></thead>
+              <tbody>
+                <sc-for list="{{ exposed }}" as="x" hint-placeholder-count="3">
+                  <tr>
+                    <td style="padding: 12px 16px; border-bottom: 1px solid var(--line); font-family: 'JetBrains Mono', monospace; font-size: 12.5px">{{ x.tool }}</td>
+                    <td style="padding: 12px; border-bottom: 1px solid var(--line)">{{ x.wf }}</td>
+                    <td style="padding: 12px; border-bottom: 1px solid var(--line); font-family: 'JetBrains Mono', monospace; font-size: 12px; color: var(--text-2)">{{ x.input }}</td>
+                    <td style="padding: 12px; border-bottom: 1px solid var(--line)"><button onClick="{{ x.cycle }}" aria-label="{{ x.aria }}" style="{{ x.policyStyle }}">{{ x.policy }}</button></td>
+                    <td style="padding: 12px 16px; border-bottom: 1px solid var(--line); text-align: right; font-variant-numeric: tabular-nums">{{ x.calls }}</td>
+                  </tr>
+                </sc-for>
+              </tbody>
+            </table>
+            <div style="padding: 10px 16px; font-size: 12px; color: var(--text-3)">Click a policy to change it · Auto runs straight away · Ask first waits for an approval · Blocked hides the tool</div>
+          </section>
+
+          <section aria-label="Client access" style="border: 1px solid var(--line); border-radius: 10px; background: var(--surface); box-shadow: var(--shadow)">
+            <div style="display: flex; align-items: center; justify-content: space-between; padding: 12px 16px; border-bottom: 1px solid var(--line)">
+              <div style="font-size: 14px; font-weight: 600">Clients allowed to connect</div>
+              <button style="height: 30px; padding: 0 12px; border-radius: 7px; border: 1px solid var(--line-strong); background: var(--surface); color: var(--text); font: inherit; font-size: 13px; cursor: pointer">Issue client token</button>
+            </div>
+            <sc-for list="{{ clients }}" as="c" hint-placeholder-count="2">
+              <div style="display: flex; align-items: center; gap: 14px; padding: 11px 16px; border-bottom: 1px solid var(--line); font-size: 13px">
+                <span style="flex: 1"><span style="font-weight: 500">{{ c.name }}</span> <span style="color: var(--text-3)">· {{ c.how }}</span></span>
+                <span style="color: var(--text-2)">{{ c.scope }}</span>
+                <span style="color: var(--text-3); width: 100px; text-align: right">{{ c.last }}</span>
+                <button style="padding: 0; border: 0; background: transparent; color: var(--fail); font: inherit; font-size: 13px; cursor: pointer">Revoke</button>
+              </div>
+            </sc-for>
+          </section>
+        </div>
+
+        <aside aria-label="Connect a client" style="border: 1px solid var(--line); border-radius: 10px; background: var(--surface); box-shadow: var(--shadow)">
+          <div style="padding: 14px 18px; border-bottom: 1px solid var(--line)">
+            <div style="font-size: 14px; font-weight: 600">Connect a client</div>
+            <div style="font-size: 12px; color: var(--text-3); margin-top: 2px">Any MCP client that supports remote servers over HTTP</div>
+          </div>
+          <div role="tablist" aria-label="Client" style="display: flex; gap: 16px; padding: 0 18px; border-bottom: 1px solid var(--line); font-size: 13px">
+            <sc-for list="{{ guideTabs }}" as="g" hint-placeholder-count="2">
+              <button role="tab" aria-selected="{{ g.on }}" onClick="{{ g.pick }}" style="{{ g.style }}">{{ g.label }}</button>
+            </sc-for>
+          </div>
+          <div style="padding: 14px 18px; display: flex; flex-direction: column; gap: 10px">
+            <ol style="margin: 0; padding-left: 18px; font-size: 13px; line-height: 1.6; color: var(--text-2)">
+              <sc-for list="{{ guide.steps }}" as="s" hint-placeholder-count="3"><li>{{ s }}</li></sc-for>
+            </ol>
+            <pre style="margin: 0; padding: 10px 12px; border-radius: 8px; background: #11141A; color: #E6E8EC; font-family: 'JetBrains Mono', monospace; font-size: 11.5px; line-height: 1.6; white-space: pre-wrap; word-break: break-all">{{ guide.code }}</pre>
+            <button style="align-self: flex-start; height: 30px; padding: 0 12px; border-radius: 7px; border: 1px solid var(--line-strong); background: var(--surface); color: var(--text); font: inherit; font-size: 13px; cursor: pointer">Copy</button>
+          </div>
+        </aside>
+      </div>
+    </main>
+  </div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"theme":{"editor":"enum","options":["light","dark"],"default":"light"},"$preview":{"width":1440,"height":900}}'>
+class Component extends DCLogic {
+  constructor(props) {
+    super(props);
+    this.state = { policy: {}, guide: 'oauth' };
+  }
+  themeVars(name) {
+    var L = { bg: '#F7F8FA', surface: '#FFFFFF', 'surface-2': '#F2F3F6', canvas: '#F4F5F8', dot: '#D3D7DF', line: '#E5E7EB', 'line-strong': '#D0D4DC', text: '#181B21', 'text-2': '#525967', 'text-3': '#6B7280', accent: '#0B6E79', 'accent-fg': '#FFFFFF', 'accent-soft': '#E4F2F3', ok: '#1A7F37', 'ok-soft': '#E9F5EC', run: '#0969DA', 'run-soft': '#E4EFFC', warn: '#9A6700', 'warn-soft': '#FBF2DD', fail: '#CF222E', 'fail-soft': '#FCECED', wait: '#8250DF', 'wait-soft': '#F3EEFD', skip: '#6E7781', 'c-trigger': '#7C5CD6', 'c-trigger-bg': '#F1EDFB', 'c-http': '#2563EB', 'c-http-bg': '#E8EFFD', 'c-logic': '#475467', 'c-logic-bg': '#EEF0F3', 'c-cf': '#B4590F', 'c-cf-bg': '#FCEFE3', 'c-app': '#A8436A', 'c-app-bg': '#F9ECF1', 'c-error': '#CF222E', 'c-error-bg': '#FCECED', shadow: '0 1px 2px rgba(16,24,40,.04)' };
+    var D = { bg: '#0B0D11', surface: '#111419', 'surface-2': '#181C23', canvas: '#0D1015', dot: '#22272F', line: '#1F242C', 'line-strong': '#2E343E', text: '#E6E8EC', 'text-2': '#A3ABB9', 'text-3': '#8B93A3', accent: '#4CC3CB', 'accent-fg': '#061A1C', 'accent-soft': 'rgba(76,195,203,.14)', ok: '#3FB950', 'ok-soft': 'rgba(63,185,80,.13)', run: '#58A6FF', 'run-soft': 'rgba(88,166,255,.16)', warn: '#D29922', 'warn-soft': 'rgba(210,153,34,.14)', fail: '#F85149', 'fail-soft': 'rgba(248,81,73,.13)', wait: '#A78BFA', 'wait-soft': 'rgba(167,139,250,.14)', skip: '#768390', 'c-trigger': '#A78BFA', 'c-trigger-bg': 'rgba(167,139,250,.13)', 'c-http': '#7DA6FF', 'c-http-bg': 'rgba(125,166,255,.13)', 'c-logic': '#B4BCC8', 'c-logic-bg': 'rgba(180,188,200,.12)', 'c-cf': '#FB923C', 'c-cf-bg': 'rgba(251,146,60,.12)', 'c-app': '#F472B6', 'c-app-bg': 'rgba(244,114,182,.12)', 'c-error': '#F85149', 'c-error-bg': 'rgba(248,81,73,.12)', shadow: 'none' };
+    var t = name === 'dark' ? D : L;
+    return Object.keys(t).map(function (k) { return '--' + k + ': ' + t[k]; }).join('; ');
+  }
+  renderVals() {
+    var self = this;
+    var st = this.state;
+    var theme = this.props.theme === 'dark' ? 'dark' : 'light';
+    var sfx = theme === 'dark' ? 'Dark' : '';
+    var POL = ['Auto', 'Ask first', 'Blocked'];
+    var polStyle = function (p) {
+      var c = p === 'Auto' ? ['var(--ok)', 'var(--ok-soft)'] : p === 'Ask first' ? ['var(--wait)', 'var(--wait-soft)'] : ['var(--fail)', 'var(--fail-soft)'];
+      return 'min-width: 82px; height: 26px; padding: 0 10px; border-radius: 6px; border: 0; font: inherit; font-size: 12px; cursor: pointer; color: ' + c[0] + '; background: ' + c[1];
+    };
+    var exposed = [
+      ['triage_lead', 'Inbound lead triage', '{ email, company, source }', 'Auto', '38'],
+      ['archive_drive_folder', 'Drive → R2 archive', '{ folderId }', 'Ask first', '2'],
+      ['request_refund', 'Refund approval agent', '{ orderId, reason }', 'Ask first', '11']
+    ].map(function (x) {
+      var p = st.policy[x[0]] || x[3];
+      return {
+        tool: x[0], wf: x[1], input: x[2], calls: x[4], policy: p, policyStyle: polStyle(p),
+        aria: 'Policy for ' + x[0] + ': ' + p + '. Click to change.',
+        cycle: function () {
+          var pol = {}; for (var k in self.state.policy) pol[k] = self.state.policy[k];
+          pol[x[0]] = POL[(POL.indexOf(p) + 1) % POL.length];
+          self.setState({ policy: pol });
+        }
+      };
+    });
+    var visible = exposed.filter(function (x) { return x.policy !== 'Blocked'; }).length;
+    var endpoint = [
+      ['Endpoint', 'https://flows.example.com/mcp', true],
+      ['Transport', 'Streamable HTTP', false],
+      ['Auth', 'OAuth 2.1 or client token', false],
+      ['Status', 'Enabled · ' + visible + ' of 3 tools visible', false]
+    ].map(function (e, i) {
+      return { label: e[0], value: e[1], cell: 'padding: 16px 20px' + (i ? '; border-left: 1px solid var(--line)' : ''), valueStyle: 'margin-top: 6px; font-size: ' + (e[2] ? '12.5px; font-family: \'JetBrains Mono\', monospace' : '14px; font-weight: 500') };
+    });
+    var clients = [
+      { name: 'Claude', how: 'OAuth · admin@example.com', scope: 'All tools', last: '14 min ago' },
+      { name: 'Ops assistant', how: 'client token ksr_mcp_4Hd…', scope: 'triage_lead only', last: '2 days ago' }
+    ];
+    var guides = {
+      oauth: {
+        steps: ['In your MCP client, add a custom connector or remote server.', 'Paste the endpoint URL below.', 'Sign in to Kasuri when prompted and approve the tools it may use.'],
+        code: 'https://flows.example.com/mcp'
+      },
+      token: {
+        steps: ['Issue a client token and choose which tools it can see.', 'Add this to the client’s MCP configuration.', 'Restart the client; the tools appear under “kasuri”.'],
+        code: '{\n  "mcpServers": {\n    "kasuri": {\n      "url": "https://flows.example.com/mcp",\n      "headers": { "Authorization": "Bearer ksr_mcp_…" }\n    }\n  }\n}'
+      }
+    };
+    var guideTabs = [['oauth', 'Sign in (OAuth)'], ['token', 'Client token']].map(function (g) {
+      var on = st.guide === g[0];
+      return {
+        label: g[1], on: on ? 'true' : 'false',
+        style: 'height: 36px; padding: 0; border: 0; border-bottom: 1.5px solid ' + (on ? 'var(--accent)' : 'transparent') + '; margin-bottom: -1px; background: transparent; font: inherit; font-size: 13px; cursor: pointer; color: ' + (on ? 'var(--text)' : 'var(--text-2)') + (on ? '; font-weight: 500' : ''),
+        pick: function () { self.setState({ guide: g[0] }); }
+      };
+    });
+    return {
+      root: this.themeVars(theme) + '; position: relative; width: 1440px; height: 900px; box-sizing: border-box; display: flex; overflow: hidden; font-family: Inter, system-ui, sans-serif; color: var(--text); background: var(--bg); color-scheme: ' + theme,
+      theme: theme, connectionsHref: 'Connections' + sfx + '.dc.html',
+      endpoint: endpoint, exposed: exposed, clients: clients, guideTabs: guideTabs, guide: guides[st.guide]
+    };
+  }
+}
+</script>
+</body>
+</html>

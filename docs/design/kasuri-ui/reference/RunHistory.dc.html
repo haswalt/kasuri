@@ -1,0 +1,589 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Kasuri · Runs</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+body{margin:0}
+a{color:inherit}a:hover{color:var(--accent)}
+input::placeholder{color:var(--text-3)}
+@keyframes flow{to{stroke-dashoffset:-20}}
+@keyframes pulse{50%{opacity:.35}}
+</style>
+</helmet>
+<div style="{{ root }}">
+
+  <dc-import name="Sidebar" active="runs" theme="{{ theme }}" hint-size="240px,900px"></dc-import>
+
+  <div style="flex: 1; min-width: 0; display: flex; flex-direction: column">
+    <header style="height: 56px; flex: none; box-sizing: border-box; display: flex; align-items: center; gap: 10px; padding: 0 40px; border-bottom: 1px solid var(--line); background: var(--surface); font-size: 14px">
+      <span style="color: var(--text-2)">Personal workspace</span>
+      <span style="color: var(--text-3)">/</span>
+      <span>Runs</span>
+      <span style="flex: 1"></span>
+      <span style="display: inline-flex; align-items: center; gap: 6px; font-size: 12px; color: var(--text-2)"><span style="width: 6px; height: 6px; border-radius: 50%; background: var(--run); animation: pulse 1.4s ease-in-out infinite"></span>Live · updates every 5 s</span>
+    </header>
+
+    <main style="flex: 1; min-height: 0; box-sizing: border-box; padding: 32px 40px; display: flex; flex-direction: column; gap: 22px">
+      <div style="display: flex; align-items: flex-end; justify-content: space-between">
+        <div>
+          <div style="font-size: 11px; letter-spacing: .14em; color: var(--text-3); margin-bottom: 8px">OBSERVE</div>
+          <h1 style="margin: 0 0 6px; font-size: 28px; font-weight: 600; letter-spacing: -0.025em">Runs</h1>
+          <p style="margin: 0; font-size: 14px; color: var(--text-2)">Every execution across your workflows. Select a run to step through it node by node.</p>
+        </div>
+        <button style="height: 36px; padding: 0 14px; border-radius: 8px; border: 1px solid var(--line-strong); background: var(--surface); color: var(--text); font: inherit; font-size: 14px; cursor: pointer">Export CSV</button>
+      </div>
+
+      <section aria-label="Run history" style="border: 1px solid var(--line); border-radius: 10px; background: var(--surface); box-shadow: var(--shadow); overflow: hidden">
+        <div style="display: flex; align-items: center; gap: 4px; padding: 12px 16px; border-bottom: 1px solid var(--line)">
+          <sc-for list="{{ tabs }}" as="t" hint-placeholder-count="7">
+            <button onClick="{{ t.pick }}" aria-pressed="{{ t.on }}" style="{{ t.style }}">{{ t.label }}<span style="{{ t.countStyle }}">{{ t.count }}</span></button>
+          </sc-for>
+        </div>
+        <div style="display: flex; align-items: center; gap: 8px; padding: 10px 16px">
+          <select aria-label="Workflow" style="height: 32px; border-radius: 7px; border: 1px solid var(--line-strong); background: var(--surface); color: var(--text); font: inherit; font-size: 13px; padding: 0 8px"><option>All workflows</option></select>
+          <select aria-label="Trigger" style="height: 32px; border-radius: 7px; border: 1px solid var(--line-strong); background: var(--surface); color: var(--text); font: inherit; font-size: 13px; padding: 0 8px"><option>Any trigger</option></select>
+          <select aria-label="Time range" style="height: 32px; border-radius: 7px; border: 1px solid var(--line-strong); background: var(--surface); color: var(--text); font: inherit; font-size: 13px; padding: 0 8px"><option>Last 24 hours</option></select>
+          <span style="flex: 1"></span>
+          <label style="display: flex; align-items: center; gap: 8px; width: 300px; height: 32px; box-sizing: border-box; padding: 0 10px; border: 1px solid var(--line-strong); border-radius: 7px">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true" style="color: var(--text-3)"><circle cx="11" cy="11" r="7"></circle><path d="m20 20-3.5-3.5"></path></svg>
+            <span style="position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0)">Search runs</span>
+            <input placeholder="Run ID, correlation ID or payload key" style="flex: 1; min-width: 0; border: 0; background: transparent; color: var(--text); font: inherit; font-size: 13px; outline: none">
+          </label>
+        </div>
+        <table style="width: 100%; border-collapse: collapse; font-size: 13px">
+          <thead>
+            <tr style="text-align: left; color: var(--text-3); font-size: 12px; background: var(--surface-2)">
+              <th style="padding: 9px 16px; font-weight: 500; border-top: 1px solid var(--line); border-bottom: 1px solid var(--line)">Run</th>
+              <th style="padding: 9px 12px; font-weight: 500; border-top: 1px solid var(--line); border-bottom: 1px solid var(--line)">Workflow</th>
+              <th style="padding: 9px 12px; font-weight: 500; border-top: 1px solid var(--line); border-bottom: 1px solid var(--line)">Status</th>
+              <th style="padding: 9px 12px; font-weight: 500; border-top: 1px solid var(--line); border-bottom: 1px solid var(--line)">Trigger</th>
+              <th style="padding: 9px 12px; font-weight: 500; border-top: 1px solid var(--line); border-bottom: 1px solid var(--line)">Started</th>
+              <th style="padding: 9px 12px; font-weight: 500; border-top: 1px solid var(--line); border-bottom: 1px solid var(--line); text-align: right">Duration</th>
+              <th style="padding: 9px 12px; font-weight: 500; border-top: 1px solid var(--line); border-bottom: 1px solid var(--line); text-align: right">Nodes</th>
+              <th style="padding: 9px 16px; font-weight: 500; border-top: 1px solid var(--line); border-bottom: 1px solid var(--line); text-align: right">Retries</th>
+            </tr>
+          </thead>
+          <tbody>
+            <sc-for list="{{ rows }}" as="r" hint-placeholder-count="10">
+              <tr>
+                <td style="padding: 0 16px; height: 46px; border-bottom: 1px solid var(--line)"><button onClick="{{ r.open }}" aria-label="{{ r.aria }}" style="padding: 0; border: 0; background: transparent; font-family: 'JetBrains Mono', monospace; font-size: 12px; color: var(--accent); cursor: pointer">{{ r.id }}</button></td>
+                <td style="padding: 0 12px; border-bottom: 1px solid var(--line)"><button onClick="{{ r.open }}" style="display: block; padding: 0; border: 0; background: transparent; color: var(--text); font: inherit; font-weight: 500; text-align: left; cursor: pointer">{{ r.wf }}</button><span style="{{ r.noteStyle }}">{{ r.note }}</span></td>
+                <td style="padding: 0 12px; border-bottom: 1px solid var(--line)"><span style="{{ r.pill }}"><span style="{{ r.dot }}"></span>{{ r.label }}</span></td>
+                <td style="padding: 0 12px; border-bottom: 1px solid var(--line); color: var(--text-2)">{{ r.trigger }}</td>
+                <td style="padding: 0 12px; border-bottom: 1px solid var(--line); color: var(--text-2); font-variant-numeric: tabular-nums">{{ r.started }}</td>
+                <td style="padding: 0 12px; border-bottom: 1px solid var(--line); text-align: right; font-family: 'JetBrains Mono', monospace; font-size: 12px">{{ r.dur }}</td>
+                <td style="padding: 0 12px; border-bottom: 1px solid var(--line); text-align: right; font-variant-numeric: tabular-nums; color: var(--text-2)">{{ r.nodes }}</td>
+                <td style="padding: 0 16px; border-bottom: 1px solid var(--line); text-align: right; font-variant-numeric: tabular-nums; color: var(--text-2)">{{ r.retries }}</td>
+              </tr>
+            </sc-for>
+          </tbody>
+        </table>
+        <sc-if value="{{ empty }}" hint-placeholder-val="{{ false }}">
+          <div style="padding: 32px 16px; text-align: center; font-size: 13px; color: var(--text-3); border-bottom: 1px solid var(--line)">No runs in this state in the last 24 hours.</div>
+        </sc-if>
+        <div style="display: flex; align-items: center; justify-content: space-between; padding: 12px 16px; font-size: 12px; color: var(--text-3)">
+          <span>{{ footer }}</span>
+          <div style="display: flex; gap: 6px">
+            <button style="height: 28px; padding: 0 10px; border-radius: 6px; border: 1px solid var(--line); background: var(--surface); color: var(--text-3); font: inherit; font-size: 12px">Previous</button>
+            <button style="height: 28px; padding: 0 10px; border-radius: 6px; border: 1px solid var(--line-strong); background: var(--surface); color: var(--text); font: inherit; font-size: 12px; cursor: pointer">Next</button>
+          </div>
+        </div>
+      </section>
+    </main>
+  </div>
+
+  <sc-if value="{{ modalOpen }}" hint-placeholder-val="{{ false }}">
+    <div style="position: absolute; inset: 0; z-index: 10; display: flex; align-items: center; justify-content: center">
+      <button onClick="{{ close }}" aria-label="Close run details" style="position: absolute; inset: 0; padding: 0; border: 0; background: rgba(12,16,24,.45); cursor: default"></button>
+      <div role="dialog" aria-modal="true" aria-label="Run details" style="position: relative; width: 1180px; height: 790px; box-sizing: border-box; display: flex; flex-direction: column; background: var(--surface); border: 1px solid var(--line); border-radius: 12px; box-shadow: 0 24px 64px rgba(12,16,24,.28); overflow: hidden">
+
+        <div style="flex: none; display: flex; align-items: flex-start; gap: 16px; padding: 18px 24px; border-bottom: 1px solid var(--line)">
+          <div style="flex: 1; min-width: 0">
+            <div style="font-size: 11px; letter-spacing: .1em; color: var(--text-3)">RUN · <span style="font-family: 'JetBrains Mono', monospace; letter-spacing: 0">{{ m.id }}</span></div>
+            <div style="display: flex; align-items: center; gap: 10px; margin-top: 4px">
+              <h2 style="margin: 0; font-size: 18px; font-weight: 600; letter-spacing: -0.015em">{{ m.wf }}</h2>
+              <span style="{{ m.pill }}"><span style="width: 6px; height: 6px; border-radius: 50%; background: currentColor"></span>{{ m.label }}</span>
+            </div>
+            <div style="font-size: 13px; color: var(--text-2); margin-top: 4px">{{ m.meta }}</div>
+          </div>
+          <a href="{{ links.runs }}" style="height: 32px; padding: 0 12px; border-radius: 7px; border: 1px solid var(--line-strong); font-size: 13px; display: flex; align-items: center; text-decoration: none">Open run page</a>
+          <button onClick="{{ close }}" aria-label="Close" style="width: 32px; height: 32px; border-radius: 7px; border: 1px solid var(--line); background: var(--surface); color: var(--text-2); display: flex; align-items: center; justify-content: center; cursor: pointer"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M18 6 6 18M6 6l12 12"></path></svg></button>
+        </div>
+
+        <div style="flex: 1; min-height: 0; display: flex">
+          <div style="width: 300px; flex: none; box-sizing: border-box; border-right: 1px solid var(--line); padding: 14px 12px; overflow: auto; display: flex; flex-direction: column; gap: 2px">
+            <div style="font-size: 11px; letter-spacing: .1em; color: var(--text-3); padding: 0 8px 8px">STEPS · {{ m.count }}</div>
+            <sc-for list="{{ m.steps }}" as="s" hint-placeholder-count="7">
+              <button onClick="{{ s.pick }}" aria-current="{{ s.current }}" style="{{ s.rowStyle }}">
+                <span style="font-family: 'JetBrains Mono', monospace; font-size: 11px; color: var(--text-3); width: 16px; text-align: right">{{ s.n }}</span>
+                <span style="{{ s.dot }}"></span>
+                <span style="flex: 1; min-width: 0">
+                  <span style="display: block; font-size: 13px; font-weight: 500; white-space: nowrap; overflow: hidden; text-overflow: ellipsis">{{ s.name }}</span>
+                  <span style="display: block; font-size: 10px; letter-spacing: .08em; color: var(--text-3)">{{ s.kind }}</span>
+                </span>
+                <span style="font-family: 'JetBrains Mono', monospace; font-size: 11px; color: var(--text-3)">{{ s.dur }}</span>
+              </button>
+            </sc-for>
+          </div>
+
+          <div style="flex: 1; min-width: 0; box-sizing: border-box; padding: 18px 24px; display: flex; flex-direction: column; gap: 14px">
+            <div role="group" aria-label="Step timeline" style="display: flex; gap: 3px">
+              <sc-for list="{{ m.steps }}" as="s" hint-placeholder-count="7">
+                <button onClick="{{ s.pick }}" aria-label="{{ s.segLabel }}" style="{{ s.seg }}"></button>
+              </sc-for>
+            </div>
+
+            <div style="display: flex; align-items: flex-start; justify-content: space-between; gap: 16px">
+              <div style="min-width: 0">
+                <div style="font-size: 11px; letter-spacing: .1em; color: var(--text-3)">{{ cur.eyebrow }}</div>
+                <div style="display: flex; align-items: center; gap: 10px; margin-top: 4px">
+                  <span style="{{ cur.tile }}"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="{{ cur.icon }}"></path></svg></span>
+                  <span style="font-size: 16px; font-weight: 600">{{ cur.name }}</span>
+                  <span style="{{ cur.pill }}">{{ cur.label }}</span>
+                </div>
+                <div style="font-size: 13px; color: var(--text-2); margin-top: 6px">{{ cur.note }}</div>
+              </div>
+              <dl style="margin: 0; display: grid; grid-template-columns: auto auto; column-gap: 12px; row-gap: 4px; font-size: 12px; flex: none">
+                <dt style="color: var(--text-3)">Duration</dt><dd style="margin: 0; font-family: 'JetBrains Mono', monospace; text-align: right">{{ cur.dur }}</dd>
+                <dt style="color: var(--text-3)">Attempts</dt><dd style="margin: 0; font-family: 'JetBrains Mono', monospace; text-align: right">{{ cur.attempts }}</dd>
+              </dl>
+            </div>
+
+            <div style="display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 14px">
+              <div style="display: flex; flex-direction: column; gap: 6px; min-width: 0">
+                <div style="display: flex; justify-content: space-between; font-size: 11px; letter-spacing: .1em; color: var(--text-3)"><span>INPUT</span><span style="letter-spacing: 0">{{ cur.inSize }}</span></div>
+                <pre style="margin: 0; height: 270px; overflow: auto; box-sizing: border-box; padding: 10px 12px; border-radius: 8px; border: 1px solid var(--line); background: var(--surface-2); font-family: 'JetBrains Mono', monospace; font-size: 12px; line-height: 1.55; color: var(--text-2)">{{ cur.input }}</pre>
+              </div>
+              <div style="display: flex; flex-direction: column; gap: 6px; min-width: 0">
+                <div style="display: flex; justify-content: space-between; font-size: 11px; letter-spacing: .1em; color: var(--text-3)"><span>OUTPUT</span><span style="letter-spacing: 0">{{ cur.outSize }}</span></div>
+                <pre style="{{ cur.outStyle }}">{{ cur.output }}</pre>
+              </div>
+            </div>
+
+            <div style="display: flex; flex-direction: column; gap: 6px">
+              <div style="display: flex; justify-content: space-between; font-size: 11px; letter-spacing: .1em; color: var(--text-3)"><span>LOGS</span><span style="letter-spacing: 0">Secrets redacted</span></div>
+              <pre style="margin: 0; height: 104px; overflow: auto; box-sizing: border-box; padding: 10px 12px; border-radius: 8px; border: 1px solid var(--line); background: var(--surface-2); font-family: 'JetBrains Mono', monospace; font-size: 12px; line-height: 1.6; color: var(--text-2); white-space: pre-wrap">{{ cur.logs }}</pre>
+            </div>
+          </div>
+        </div>
+
+        <div style="flex: none; height: 60px; box-sizing: border-box; display: flex; align-items: center; gap: 8px; padding: 0 24px; border-top: 1px solid var(--line)">
+          <button onClick="{{ prev }}" style="{{ prevStyle }}">← Previous step</button>
+          <button onClick="{{ next }}" style="{{ nextStyle }}">Next step →</button>
+          <span style="font-size: 12px; color: var(--text-3); margin-left: 6px">{{ cur.position }}</span>
+          <span style="flex: 1"></span>
+          <button style="height: 32px; padding: 0 12px; border-radius: 7px; border: 1px solid var(--line-strong); background: var(--surface); color: var(--text); font: inherit; font-size: 13px; cursor: pointer">Pin input as test fixture</button>
+          <button onClick="{{ openReplay }}" style="{{ replayStyle }}">Replay from this step</button>
+        </div>
+
+        <sc-if value="{{ startedShow }}" hint-placeholder-val="{{ false }}">
+          <div role="status" style="position: absolute; left: 24px; right: 24px; top: 96px; z-index: 3; display: flex; align-items: center; gap: 12px; padding: 10px 14px; border-radius: 8px; border: 1px solid var(--ok); background: var(--ok-soft); font-size: 13px">
+            <span style="width: 7px; height: 7px; border-radius: 50%; background: var(--ok)"></span>
+            <span style="flex: 1">{{ startedText }}</span>
+            <button onClick="{{ dismissStarted }}" style="padding: 0; border: 0; background: transparent; color: var(--text-2); font: inherit; font-size: 13px; cursor: pointer">Dismiss</button>
+          </div>
+        </sc-if>
+
+        <sc-if value="{{ replayShow }}" hint-placeholder-val="{{ false }}">
+          <div style="position: absolute; inset: 0; z-index: 4; display: flex; align-items: center; justify-content: center">
+            <button onClick="{{ closeReplay }}" aria-label="Cancel replay" style="position: absolute; inset: 0; padding: 0; border: 0; background: rgba(12,16,24,.35); cursor: default"></button>
+            <div role="dialog" aria-modal="true" aria-label="Replay run" style="position: relative; width: 600px; box-sizing: border-box; padding: 22px 24px; border-radius: 12px; border: 1px solid var(--line); background: var(--surface); box-shadow: 0 24px 64px rgba(12,16,24,.28); display: flex; flex-direction: column; gap: 16px">
+              <div>
+                <div style="font-size: 11px; letter-spacing: .1em; color: var(--text-3)">REPLAY</div>
+                <h3 style="margin: 4px 0 6px; font-size: 17px; font-weight: 600">{{ rp.title }}</h3>
+                <p style="margin: 0; font-size: 13px; line-height: 1.55; color: var(--text-2)">{{ rp.intro }}</p>
+              </div>
+              <fieldset style="border: 0; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 8px; font-size: 13px">
+                <legend style="font-size: 11px; letter-spacing: .1em; color: var(--text-3); margin-bottom: 8px">INPUT FOR THIS STEP</legend>
+                <sc-for list="{{ rp.inputs }}" as="o" hint-placeholder-count="2">
+                  <button onClick="{{ o.pick }}" role="radio" aria-checked="{{ o.on }}" style="{{ o.style }}"><span style="{{ o.dot }}"></span><span><span style="display: block">{{ o.label }}</span><span style="display: block; font-size: 12px; color: var(--text-3)">{{ o.hint }}</span></span></button>
+                </sc-for>
+                <sc-if value="{{ rp.editing }}" hint-placeholder-val="{{ false }}">
+                  <label for="replay-input" style="position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0)">Edited input JSON</label>
+                  <textarea id="replay-input" style="height: 110px; box-sizing: border-box; padding: 10px 12px; border-radius: 8px; border: 1px solid var(--line-strong); background: var(--surface-2); color: var(--text); font-family: 'JetBrains Mono', monospace; font-size: 12px; line-height: 1.5; resize: none">{{ rp.inputJson }}</textarea>
+                </sc-if>
+              </fieldset>
+              <fieldset style="border: 0; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 8px; font-size: 13px">
+                <legend style="font-size: 11px; letter-spacing: .1em; color: var(--text-3); margin-bottom: 8px">RUN AGAINST</legend>
+                <sc-for list="{{ rp.targets }}" as="o" hint-placeholder-count="2">
+                  <button onClick="{{ o.pick }}" role="radio" aria-checked="{{ o.on }}" style="{{ o.style }}"><span style="{{ o.dot }}"></span><span><span style="display: block">{{ o.label }}</span><span style="display: block; font-size: 12px; color: var(--text-3)">{{ o.hint }}</span></span></button>
+                </sc-for>
+              </fieldset>
+              <div style="display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; font-size: 12.5px">
+                <div style="border: 1px solid var(--line); border-radius: 8px; padding: 10px 12px">
+                  <div style="font-size: 11px; letter-spacing: .1em; color: var(--text-3); margin-bottom: 6px">REUSED, NOT RE-SENT</div>
+                  <sc-for list="{{ rp.reused }}" as="x" hint-placeholder-count="2"><div style="color: var(--text-2); line-height: 1.6">{{ x }}</div></sc-for>
+                </div>
+                <div style="border: 1px solid var(--line); border-radius: 8px; padding: 10px 12px; background: var(--warn-soft)">
+                  <div style="font-size: 11px; letter-spacing: .1em; color: var(--warn); margin-bottom: 6px">WILL RUN AGAIN</div>
+                  <sc-for list="{{ rp.again }}" as="x" hint-placeholder-count="2"><div style="color: var(--text-2); line-height: 1.6">{{ x }}</div></sc-for>
+                </div>
+              </div>
+              <div style="display: flex; justify-content: flex-end; gap: 8px">
+                <button onClick="{{ closeReplay }}" style="height: 34px; padding: 0 14px; border-radius: 7px; border: 1px solid var(--line-strong); background: var(--surface); color: var(--text); font: inherit; font-size: 13px; cursor: pointer">Cancel</button>
+                <button onClick="{{ startReplay }}" style="height: 34px; padding: 0 14px; border-radius: 7px; border: 0; background: var(--accent); color: var(--accent-fg); font: inherit; font-size: 13px; font-weight: 500; cursor: pointer">{{ rp.cta }}</button>
+              </div>
+            </div>
+          </div>
+        </sc-if>
+      </div>
+    </div>
+  </sc-if>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"theme":{"editor":"enum","options":["light","dark"],"default":"light"},"$preview":{"width":1440,"height":900}}'>
+class Component extends DCLogic {
+  constructor(props) {
+    super(props);
+    this.state = { filter: 'all', open: null, step: 0, replay: false, rInput: 'recorded', rTarget: 'production', started: null };
+  }
+  themeVars(name) {
+    var L = { bg: '#F7F8FA', surface: '#FFFFFF', 'surface-2': '#F2F3F6', canvas: '#F4F5F8', dot: '#D3D7DF', line: '#E5E7EB', 'line-strong': '#D0D4DC', text: '#181B21', 'text-2': '#525967', 'text-3': '#6B7280', accent: '#0B6E79', 'accent-fg': '#FFFFFF', 'accent-soft': '#E4F2F3', ok: '#1A7F37', 'ok-soft': '#E9F5EC', run: '#0969DA', 'run-soft': '#E4EFFC', warn: '#9A6700', 'warn-soft': '#FBF2DD', fail: '#CF222E', 'fail-soft': '#FCECED', wait: '#8250DF', 'wait-soft': '#F3EEFD', skip: '#6E7781', 'c-trigger': '#7C5CD6', 'c-trigger-bg': '#F1EDFB', 'c-http': '#2563EB', 'c-http-bg': '#E8EFFD', 'c-logic': '#475467', 'c-logic-bg': '#EEF0F3', 'c-cf': '#B4590F', 'c-cf-bg': '#FCEFE3', 'c-app': '#A8436A', 'c-app-bg': '#F9ECF1', 'c-error': '#CF222E', 'c-error-bg': '#FCECED', shadow: '0 1px 2px rgba(16,24,40,.04)' };
+    var D = { bg: '#0B0D11', surface: '#111419', 'surface-2': '#181C23', canvas: '#0D1015', dot: '#22272F', line: '#1F242C', 'line-strong': '#2E343E', text: '#E6E8EC', 'text-2': '#A3ABB9', 'text-3': '#8B93A3', accent: '#4CC3CB', 'accent-fg': '#061A1C', 'accent-soft': 'rgba(76,195,203,.14)', ok: '#3FB950', 'ok-soft': 'rgba(63,185,80,.13)', run: '#58A6FF', 'run-soft': 'rgba(88,166,255,.16)', warn: '#D29922', 'warn-soft': 'rgba(210,153,34,.14)', fail: '#F85149', 'fail-soft': 'rgba(248,81,73,.13)', wait: '#A78BFA', 'wait-soft': 'rgba(167,139,250,.14)', skip: '#768390', 'c-trigger': '#A78BFA', 'c-trigger-bg': 'rgba(167,139,250,.13)', 'c-http': '#7DA6FF', 'c-http-bg': 'rgba(125,166,255,.13)', 'c-logic': '#B4BCC8', 'c-logic-bg': 'rgba(180,188,200,.12)', 'c-cf': '#FB923C', 'c-cf-bg': 'rgba(251,146,60,.12)', 'c-app': '#F472B6', 'c-app-bg': 'rgba(244,114,182,.12)', 'c-error': '#F85149', 'c-error-bg': 'rgba(248,81,73,.12)', shadow: 'none' };
+    var t = name === 'dark' ? D : L;
+    return Object.keys(t).map(function (k) { return '--' + k + ': ' + t[k]; }).join('; ');
+  }
+
+  // Step traces for each run: [name, kind, colour, status, duration, note, input, output, logs, attempts]
+  trace(id) {
+    var S = function (name, kind, cat, st, dur, note, input, output, logs, attempts) {
+      return { name: name, kind: kind, cat: cat, st: st, dur: dur, note: note, input: input, output: output, logs: logs || [], attempts: attempts || (st === 'pending' || st === 'skipped' ? '—' : '1') };
+    };
+    var lead = function (mode) {
+      var body = mode === 'cold' ? { email: 'jo@tinyshop.example', company: 'Tiny Shop', source: 'newsletter' }
+        : mode === 'invalid' ? { email: 'not-an-email', company: '', source: 'pricing-page' }
+        : mode === 'hot' ? { email: 'sam@northwind.example', company: 'Northwind', source: 'pricing-page' }
+        : { email: 'li@harbourline.example', company: 'Harbourline', source: 'demo-request' };
+      var domain = body.email.split('@')[1];
+      var mapped = { email: body.email, domain: domain, company: body.company, source: body.source };
+      var score = mode === 'cold' ? 34 : 82;
+      var enrichOut = { status: 200, json: { employees: mode === 'cold' ? 6 : 420, industry: mode === 'cold' ? 'Retail' : 'Logistics', score: score } };
+      var req = { method: 'GET', url: 'https://api.enrich.example/v1/company?domain=' + domain, headers: { 'x-api-key': '••••••••' } };
+      var out = [
+        S('Receive lead', 'WEBHOOK', 'trigger', 'success', '2 ms', 'Signature verified · dedupe key recorded',
+          { method: 'POST', path: '/hooks/leads', headers: { 'content-type': 'application/json', 'x-signature': '••••••••' }, bytes: 1842 },
+          { body: body }, ['POST /hooks/leads · 1.8 KB', 'x-signature verified · dedupe key ld_9f3a'])
+      ];
+      if (mode === 'invalid') {
+        out.push(S('Validate & map', 'MAP / TRANSFORM', 'logic', 'failed', '3 ms', 'Schema validation failed · event sent to dead-letter queue',
+          { body: body }, { error: 'ValidationError', issues: [{ path: 'email', message: 'Invalid email' }, { path: 'company', message: 'Required' }], routedTo: 'dlq:leads' },
+          ['zod: 2 issues', 'event ld_7c21 → dead-letter queue leads-dlq']));
+        ['Enrich company', 'Score ≥ 70?', 'Insert lead', 'Notify #sales', 'Nurture queue'].forEach(function (n, i) {
+          out.push(S(n, ['HTTP REQUEST', 'IF / CONDITION', 'CLOUDFLARE D1', 'SLACK', 'CLOUDFLARE QUEUES'][i], ['http', 'logic', 'cf', 'app', 'cf'][i], 'skipped', '—', 'Not run · an upstream step failed'));
+        });
+        return out;
+      }
+      out.push(S('Validate & map', 'MAP / TRANSFORM', 'logic', 'success', '4 ms', '6 fields mapped', { body: body }, mapped, ['zod: valid', 'mapped 6 fields']));
+      if (mode === 'running') {
+        out.push(S('Enrich company', 'HTTP REQUEST', 'http', 'running', '1.1 s', 'Waiting for the response · timeout 30 s', req, '// Waiting for the response', ['GET api.enrich.example/v1/company …']));
+      } else if (mode === 'retrying') {
+        out.push(S('Enrich company', 'HTTP REQUEST', 'http', 'retrying', '2 m 3 s', '503 on attempt 2 of 3 · next attempt in 40 s', req, { status: 503, error: 'Service Unavailable', nextAttemptIn: '40 s' },
+          ['attempt 1 ← 503 · backoff 20 s', 'attempt 2 ← 503 · backoff 40 s (with jitter)'], '2 of 3'));
+      } else {
+        out.push(S('Enrich company', 'HTTP REQUEST', 'http', 'success', mode === 'hot' ? '443 ms' : '188 ms', mode === 'hot' ? 'Succeeded after one rate-limit retry' : '200 OK', req, enrichOut,
+          mode === 'hot' ? ['attempt 1 ← 429 · retry-after 0.4 s', 'attempt 2 ← 200 in 211 ms'] : ['attempt 1 ← 200 in 188 ms'], mode === 'hot' ? '2' : '1'));
+      }
+      if (mode === 'running' || mode === 'retrying') {
+        ['Score ≥ 70?', 'Insert lead', 'Notify #sales', 'Nurture queue'].forEach(function (n, i) {
+          out.push(S(n, ['IF / CONDITION', 'CLOUDFLARE D1', 'SLACK', 'CLOUDFLARE QUEUES'][i], ['logic', 'cf', 'app', 'cf'][i], 'pending', '—', 'Not reached yet'));
+        });
+        return out;
+      }
+      var hot = score >= 70;
+      out.push(S('Score ≥ 70?', 'IF / CONDITION', 'logic', 'success', '1 ms', score + (hot ? ' ≥ 70 → true branch' : ' < 70 → false branch'), { score: score }, { branch: hot ? 'true' : 'false', items: 1 }, ['evaluated $node["Enrich company"].json.score = ' + score]));
+      var row = { email: body.email, company: body.company, score: score };
+      if (hot) {
+        out.push(S('Insert lead', 'CLOUDFLARE D1', 'cf', 'success', '14 ms', 'INSERT · 1 row', row, { meta: { changes: 1, last_row_id: 1842 } }, ['INSERT INTO leads (email, company, score) VALUES (?, ?, ?)', 'idempotency key ld_9f3a']));
+        out.push(S('Notify #sales', 'SLACK', 'app', 'success', '31 ms', 'Posted to #sales', { channel: '#sales', text: 'New hot lead: ' + body.company + ' (score ' + score + ')' }, { ok: true, channel: 'C04SALES', ts: '1731942999.004200' }, ['chat.postMessage ← 200 ok']));
+        out.push(S('Nurture queue', 'CLOUDFLARE QUEUES', 'cf', 'skipped', '—', 'Branch not taken'));
+      } else {
+        out.push(S('Insert lead', 'CLOUDFLARE D1', 'cf', 'skipped', '—', 'Branch not taken'));
+        out.push(S('Notify #sales', 'SLACK', 'app', 'skipped', '—', 'Branch not taken'));
+        out.push(S('Nurture queue', 'CLOUDFLARE QUEUES', 'cf', 'success', '9 ms', 'Message sent to nurture-leads', row, { messageId: 'msg_4f2a91', queue: 'nurture-leads' }, ['send → nurture-leads · 1 message']));
+      }
+      return out;
+    };
+    var drive = function (running) {
+      var files = [{ id: '1aZ…9Qk', name: 'contract-acme.pdf', size: '412 KB' }, { id: '1bT…2Lm', name: 'floorplan-v3.png', size: '2.1 MB' }];
+      var out = [
+        S('Every hour', 'SCHEDULE', 'trigger', 'success', '3 ms', 'cron 17 * * * * · Europe/London', { cron: '17 * * * *' }, { firedAt: running ? '2026-11-18T15:17:24Z' : '2026-11-18T14:17:24Z' }),
+        S('List new files', 'GOOGLE DRIVE', 'app', 'success', '1.8 s', '12 files changed since the last cursor', { folderId: '0B7…ops', since: 'cursor:9f21' }, { count: 12, files: files, nextCursor: 'cursor:9f3c' }, ['files.list · 1 page', 'cursor saved']),
+        S('Skip archived', 'FILTER', 'logic', 'success', '2 ms', '3 already in R2 · 9 kept', { count: 12 }, { kept: 9, dropped: 3 }),
+        S('Upload to R2', 'CLOUDFLARE R2', 'cf', running ? 'running' : 'success', running ? '34 s' : '36 s', running ? 'Uploading file 5 of 9 · streamed, not buffered' : '9 objects written', { file: files[1] }, running ? '// Upload in progress' : { written: 9, bytes: '18.4 MB', prefix: 'r2://archive/drive/2026-11-18/' }, ['GET drive file 1bT…2Lm (stream)', 'PUT r2://archive/drive/2026-11-18/floorplan-v3.png']),
+        S('Record archive row', 'CLOUDFLARE D1', 'cf', running ? 'pending' : 'success', running ? '—' : '22 ms', running ? 'Not reached yet' : '9 rows inserted', running ? undefined : { rows: 9 }, running ? undefined : { meta: { changes: 9 } }),
+        S('Post summary', 'SLACK', 'app', running ? 'pending' : 'success', running ? '—' : '28 ms', running ? 'Not reached yet' : 'Posted to #ops', running ? undefined : { channel: '#ops', text: 'Archived 9 Drive files to R2' }, running ? undefined : { ok: true })
+      ];
+      return out;
+    };
+    var refund = function () {
+      var order = { orderId: 'ord_51882', customer: 'c_2210', total: '£86.40', items: 2, deliveredAt: '2026-11-12' };
+      return [
+        S('Refund request', 'WEBHOOK', 'trigger', 'success', '2 ms', 'Signature verified', { method: 'POST', path: '/hooks/refunds' }, { orderId: 'ord_51882', reason: 'Item arrived damaged', photos: 2 }),
+        S('Load order', 'CLOUDFLARE D1', 'cf', 'success', '11 ms', '1 row', { orderId: 'ord_51882' }, order),
+        S('Refund agent', 'AI AGENT', 'http', 'success', '6.2 s', '3 tool calls · 2,914 tokens · within budget', { model: 'gpt-4.1', tools: ['get_order', 'check_refund_policy', 'draft_reply'], maxSteps: 6 }, { decision: 'refund', amount: '£86.40', confidence: 0.86, reason: 'Damage reported within 14 days; photos attached' }, ['tool get_order(ord_51882) ✓', 'tool check_refund_policy(damaged, 6 days) → eligible', 'tool draft_reply ✓', 'structured output validated']),
+        S('Over £50?', 'IF / CONDITION', 'logic', 'success', '1 ms', '86.40 > 50 → needs approval', { amount: 86.4 }, { branch: 'true' }),
+        S('Finance approval', 'HUMAN APPROVAL', 'trigger', 'waiting', '2 h 14 m', 'Sent to finance@ · link expires in 22 h', { approvers: ['finance@example.com'], summary: 'Refund £86.40 for ord_51882' }, '// Waiting for a decision', ['approval link sent · expires 2026-11-19T13:04Z', 'run suspended · no compute while waiting'], '—'),
+        S('Issue refund', 'SQUARE', 'app', 'pending', '—', 'Runs after approval'),
+        S('Email customer', 'CLOUDFLARE EMAIL', 'cf', 'pending', '—', 'Runs after approval'),
+        S('Log outcome', 'CLOUDFLARE D1', 'cf', 'pending', '—', 'Runs after approval')
+      ];
+    };
+    var incident = function () {
+      return [
+        S('Workflow failed', 'ERROR TRIGGER', 'error', 'success', '1 ms', 'From run_7Hq2xK9d', { sourceRun: 'run_7Hq2xK9d', node: 'Upsert GitHub issues' }, { error: 'HTTP 403 · secondary rate limit', workflow: 'Nightly Sheets → GitHub sync' }),
+        S('Format incident', 'MAP / TRANSFORM', 'logic', 'success', '2 ms', '', { error: 'HTTP 403 · secondary rate limit' }, { summary: 'Nightly sync failed at batch 25', severity: 'warning' }),
+        S('Page on-call', 'PAGERDUTY', 'error', 'success', '880 ms', 'Incident opened', { summary: 'Nightly sync failed at batch 25', severity: 'warning' }, { status: 'success', dedup_key: 'kasuri-run_7Hq2xK9d' }, ['events.enqueue ← 202'])
+      ];
+    };
+    var nightly = function () {
+      return [
+        S('Schedule', 'SCHEDULE', 'trigger', 'success', '4 ms', 'cron 0 2 * * * · Europe/London', { cron: '0 2 * * *' }, { firedAt: '2026-11-18T02:00:04Z' }),
+        S('Read sheet rows', 'GOOGLE SHEETS', 'app', 'success', '6.3 s', '13 pages · 1,240 rows → R2', { sheet: 'Roadmap', range: 'A2:G' }, { rows: 1240, artifact: 'r2://artifacts/run_7Hq2/rows.json' }),
+        S('Split in batches', 'SPLIT / BATCH', 'logic', 'success', '82 ms', '50 per batch', { rows: 1240 }, { batches: 25 }),
+        S('Transform rows', 'MAP / TRANSFORM', 'logic', 'success', '1.4 s', '7 fields', { batch: 25, sample: { Title: 'SSO for admin', Status: 'Planned' } }, { batch: 25, sample: { title: 'SSO for admin', labels: ['planned'] } }),
+        S('Upsert GitHub issues', 'GITHUB', 'app', 'failed', '4 m 4 s', '24 of 25 batches committed · batch 25 failed with 403', { batch: 25, items: 40, artifact: 'r2://artifacts/run_7Hq2/b25.json', idempotencyKey: 'sync-8f2c-b25' }, { status: 403, error: 'secondary rate limit', retryAfter: 6, committedBatches: 24 }, ['batch 25 PATCH /repos/acme/roadmap/issues', 'authorization: Bearer ••••••••', '← 403 secondary rate limit · retry-after 6', 'attempt 5 failed · route → On error'], '5 of 5'),
+        S('Notify Discord', 'DISCORD', 'app', 'skipped', '—', 'Not run · upstream failed'),
+        S('On error', 'ERROR HANDLER', 'error', 'success', '0.9 s', 'Started Incident escalation', { error: 'HTTP 403' }, { startedRun: 'run_9K2a1nMd' })
+      ];
+    };
+    var roster = function () {
+      return [
+        S('Manual run', 'MANUAL TRIGGER', 'trigger', 'success', '1 ms', 'Started by Admin', {}, { startedBy: 'admin@example.com' }),
+        S('List team members', 'SQUARE TEAMS', 'app', 'cancelled', '3 s', 'Cancelled by Admin during page 2', { locationId: 'L8…Q2', limit: 100 }, { partial: true, fetched: 100 }, ['page 1 ← 100 members', 'cancel requested · stopped before page 2']),
+        S('Map members', 'MAP / TRANSFORM', 'logic', 'skipped', '—', 'Not run · cancelled'),
+        S('Upsert staff', 'CLOUDFLARE D1', 'cf', 'skipped', '—', 'Not run · cancelled')
+      ];
+    };
+    var map = {
+      run_9Kd2mQ1a: function () { return lead('running'); },
+      run_9Kc8sV7e: function () { return drive(true); },
+      run_9Kb1xT3p: function () { return lead('hot'); },
+      run_9Ka9fE2u: function () { return lead('retrying'); },
+      run_9K97dN4r: function () { return lead('cold'); },
+      run_9K8zqR5b: function () { return lead('invalid'); },
+      run_9K8u4Gt1: function () { return drive(false); },
+      run_9Ka6pL0w: refund,
+      run_9K2a1nMd: incident,
+      run_7Hq2xK9d: nightly,
+      run_8Zx0bC4k: roster
+    };
+    return (map[id] || function () { return lead('hot'); })();
+  }
+
+  renderVals() {
+    var self = this;
+    var theme = this.props.theme === 'dark' ? 'dark' : 'light';
+    var sfx = theme === 'dark' ? 'Dark' : '';
+    var links = { dash: 'Dashboard' + sfx + '.dc.html', runs: 'RunDetail' + sfx + '.dc.html', history: 'RunHistory' + sfx + '.dc.html', connectors: 'Connectors' + sfx + '.dc.html', connections: 'Connections' + sfx + '.dc.html' };
+    var nav = [
+      ['Workflows', 'M12 2.5 21.5 12 12 21.5 2.5 12z', links.dash, false],
+      ['Runs', 'M7 17 17 7M8 7h9v9', links.history, true],
+      ['Connectors', 'M3 3h18v18H3zM3 12h18M12 3v18', links.connectors, false],
+      ['Connections', 'M21 2l-2 2m-7.61 7.61a5.5 5.5 0 1 1-7.78 7.78 5.5 5.5 0 0 1 7.78-7.78zm0 0L15.5 7.5m0 0l3 3L22 7l-3-3m-3.5 3.5L19 4', links.connections, false],
+      ['Audit log', 'M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8zM14 2v6h6M16 13H8M16 17H8', '#', false],
+      ['Settings', 'M4 21v-7M4 10V3M12 21v-9M12 8V3M20 21v-5M20 12V3M1 14h6M9 8h6M17 16h6', '#', false]
+    ].map(function (n) {
+      return {
+        label: n[0], icon: n[1], href: n[2], current: n[3] ? 'page' : 'false',
+        style: 'display: flex; align-items: center; gap: 12px; height: 36px; padding: 0 10px; border-radius: 7px; text-decoration: none; font-size: 14px; ' + (n[3] ? 'background: var(--accent-soft); color: var(--accent); font-weight: 500' : 'color: var(--text-2)')
+      };
+    });
+
+    var RS = {
+      running: ['var(--run)', 'var(--run-soft)', 'Running'],
+      waiting: ['var(--wait)', 'var(--wait-soft)', 'Waiting'],
+      retrying: ['var(--warn)', 'var(--warn-soft)', 'Retrying'],
+      failed: ['var(--fail)', 'var(--fail-soft)', 'Failed'],
+      succeeded: ['var(--ok)', 'var(--ok-soft)', 'Succeeded'],
+      cancelled: ['var(--text-2)', 'var(--surface-2)', 'Cancelled']
+    };
+    var pillOf = function (fg, bg) {
+      return 'display: inline-flex; align-items: center; gap: 6px; font-size: 12px; white-space: nowrap; color: ' + fg + '; background: ' + bg + '; border-radius: 5px; padding: 3px 8px';
+    };
+    var tabDefs = [['all', 'All', '1,284'], ['running', 'Running', '6'], ['waiting', 'Waiting', '3'], ['retrying', 'Retrying', '2'], ['failed', 'Failed', '17'], ['succeeded', 'Succeeded', '1,248'], ['cancelled', 'Cancelled', '4']];
+    var tabs = tabDefs.map(function (t) {
+      var on = self.state.filter === t[0];
+      return {
+        label: t[1], count: t[2], on: on ? 'true' : 'false',
+        style: 'height: 30px; padding: 0 10px; border-radius: 6px; border: 0; font: inherit; font-size: 13px; display: inline-flex; align-items: center; gap: 7px; cursor: pointer; ' + (on ? 'background: var(--accent-soft); color: var(--accent); font-weight: 500' : 'background: transparent; color: var(--text-2)'),
+        countStyle: 'font-size: 11px; font-variant-numeric: tabular-nums; color: ' + (on ? 'var(--accent)' : 'var(--text-3)'),
+        pick: function () { self.setState({ filter: t[0] }); }
+      };
+    });
+
+    var data = [
+      ['run_9Kd2mQ1a', 'Inbound lead triage', 'running', '', 'Webhook', 'Today 15:18:02', '1.2 s', '3 / 7', '0'],
+      ['run_9Kc8sV7e', 'Drive → R2 archive', 'running', '', 'Schedule', 'Today 15:17:24', '38 s', '4 / 6', '0'],
+      ['run_9Kb1xT3p', 'Inbound lead triage', 'succeeded', '', 'Webhook', 'Today 15:16:40', '0.7 s', '6 / 7', '1'],
+      ['run_9Ka9fE2u', 'Inbound lead triage', 'retrying', 'Enrich company · 503 · next attempt in 40 s', 'Webhook', 'Today 15:15:58', '2 m 3 s', '3 / 7', '2'],
+      ['run_9K97dN4r', 'Inbound lead triage', 'succeeded', '', 'Webhook', 'Today 15:12:09', '0.6 s', '5 / 7', '0'],
+      ['run_9K8zqR5b', 'Inbound lead triage', 'failed', 'Payload failed validation · sent to dead-letter queue', 'Webhook', 'Today 14:51:30', '12 ms', '2 / 7', '0'],
+      ['run_9K8u4Gt1', 'Drive → R2 archive', 'succeeded', '', 'Schedule', 'Today 14:17:24', '41 s', '6 / 6', '0'],
+      ['run_9Ka6pL0w', 'Refund approval agent', 'waiting', 'Approval by finance · expires in 22 h', 'Webhook', 'Today 13:04:11', '2 h 14 m', '5 / 8', '0'],
+      ['run_9K2a1nMd', 'Incident escalation', 'succeeded', '', 'Workflow error', 'Today 02:04:16', '0.9 s', '3 / 3', '0'],
+      ['run_7Hq2xK9d', 'Nightly Sheets → GitHub sync', 'failed', 'Upsert GitHub issues · 403 after 5 attempts', 'Schedule', 'Today 02:00:04', '4 m 12 s', '6 / 7', '5'],
+      ['run_8Zx0bC4k', 'Square team roster sync', 'cancelled', 'Cancelled by Admin', 'Manual', '15 Nov 06:30:00', '3 s', '2 / 4', '0']
+    ];
+    var openRun = function (id) {
+      var steps = self.trace(id);
+      var first = 0;
+      for (var i = 0; i < steps.length; i++) {
+        if (['failed', 'running', 'retrying', 'waiting', 'cancelled'].indexOf(steps[i].st) >= 0) { first = i; break; }
+      }
+      self.setState({ open: id, step: first, replay: false, started: null });
+    };
+    var f = this.state.filter;
+    var rows = data.filter(function (d) { return f === 'all' || d[2] === f; }).slice(0, 10).map(function (d) {
+      var s = RS[d[2]];
+      return {
+        id: d[0], wf: d[1], label: s[2], note: d[3], trigger: d[4], started: d[5], dur: d[6], nodes: d[7], retries: d[8],
+        aria: 'Inspect run ' + d[0],
+        noteStyle: d[3] ? 'display: block; font-size: 12px; color: var(--text-3); margin-top: 1px' : 'display: none',
+        pill: pillOf(s[0], s[1]),
+        dot: 'width: 6px; height: 6px; border-radius: 50%; background: currentColor' + (d[2] === 'running' ? '; animation: pulse 1.4s ease-in-out infinite' : ''),
+        open: function () { openRun(d[0]); }
+      };
+    });
+    var tabCount = tabDefs.filter(function (t) { return t[0] === f; })[0][2];
+
+    // Run detail modal
+    var SM = {
+      success: ['var(--ok)', 'var(--ok-soft)', 'Succeeded'],
+      running: ['var(--run)', 'var(--run-soft)', 'Running'],
+      retrying: ['var(--warn)', 'var(--warn-soft)', 'Retrying'],
+      failed: ['var(--fail)', 'var(--fail-soft)', 'Failed'],
+      waiting: ['var(--wait)', 'var(--wait-soft)', 'Waiting'],
+      cancelled: ['var(--text-2)', 'var(--surface-2)', 'Cancelled'],
+      skipped: ['var(--skip)', 'var(--surface-2)', 'Skipped'],
+      pending: ['var(--text-3)', 'var(--surface-2)', 'Pending']
+    };
+    var I = {
+      trigger: 'M13 2 3 14h9l-1 8 10-12h-9l1-8z',
+      logic: 'M6 3v12M18 9a3 3 0 1 0 0-6 3 3 0 0 0 0 6zM6 21a3 3 0 1 0 0-6 3 3 0 0 0 0 6zM18 9a9 9 0 0 1-9 9',
+      http: 'M7 17 17 7M8 7h9v9',
+      cf: 'M3 5c0 1.66 4 3 9 3s9-1.34 9-3-4-3-9-3-9 1.34-9 3zM3 5v14c0 1.66 4 3 9 3s9-1.34 9-3V5M3 12c0 1.66 4 3 9 3s9-1.34 9-3',
+      app: 'M4 9h16M4 15h16M10 3 8 21M16 3l-2 18',
+      error: 'M10.29 3.86 1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0zM12 9v4M12 17h.01'
+    };
+    var j = function (o) { return o === undefined ? '// No data: this step did not run' : (typeof o === 'string' ? o : JSON.stringify(o, null, 2)); };
+    var size = function (o) {
+      if (o === undefined || typeof o === 'string') return '';
+      var b = JSON.stringify(o).length;
+      return b < 1024 ? b + ' B' : (b / 1024).toFixed(1) + ' KB';
+    };
+    var modalOpen = !!this.state.open;
+    var m = { id: '', wf: '', label: '', meta: '', pill: '', count: 0, steps: [] };
+    var cur = {};
+    var prev = function () {}, next = function () {};
+    var prevStyle = '', nextStyle = '', replayStyle = '';
+    var openReplay = function () {}, startReplay = function () {};
+    var rp = { title: '', intro: '', editing: false, inputJson: '', inputs: [], targets: [], reused: [], again: [], cta: '' };
+    if (modalOpen) {
+      var row = data.filter(function (d) { return d[0] === self.state.open; })[0];
+      var steps = this.trace(row[0]);
+      var idx = Math.min(this.state.step, steps.length - 1);
+      var rs = RS[row[2]];
+      m = {
+        id: row[0], wf: row[1], label: rs[2], pill: pillOf(rs[0], rs[1]), count: steps.length,
+        meta: 'Started ' + row[5] + ' · ' + row[6] + ' · ' + row[4] + ' trigger · ' + row[8] + ' retries',
+        steps: steps.map(function (s, i) {
+          var sm = SM[s.st];
+          var on = i === idx;
+          var muted = s.st === 'skipped' || s.st === 'pending';
+          return {
+            n: i + 1, name: s.name, kind: s.kind, dur: s.dur, current: on ? 'step' : 'false',
+            segLabel: 'Step ' + (i + 1) + ': ' + s.name + ', ' + sm[2],
+            dot: 'width: 7px; height: 7px; border-radius: 50%; flex: none; background: ' + (muted ? 'var(--line-strong)' : sm[0]) + (s.st === 'running' ? '; animation: pulse 1.4s ease-in-out infinite' : ''),
+            rowStyle: 'display: flex; align-items: center; gap: 10px; width: 100%; padding: 8px; border: 0; border-radius: 7px; font: inherit; text-align: left; cursor: pointer; color: var(--text); ' + (on ? 'background: var(--accent-soft)' : 'background: transparent') + (muted ? '; opacity: .6' : ''),
+            seg: 'flex: 1; height: ' + (on ? '8px' : '6px') + '; padding: 0; border: 0; border-radius: 3px; cursor: pointer; align-self: center; background: ' + (muted ? 'var(--line-strong)' : sm[0]) + (on ? '; box-shadow: 0 0 0 2px var(--surface), 0 0 0 3.5px var(--accent)' : ''),
+            pick: function () { self.setState({ step: i }); }
+          };
+        })
+      };
+      var s = steps[idx];
+      var sm = SM[s.st];
+      cur = {
+        eyebrow: 'STEP ' + (idx + 1) + ' OF ' + steps.length + ' · ' + s.kind,
+        name: s.name, note: s.note || ' ', dur: s.dur, attempts: s.attempts,
+        label: sm[2], pill: pillOf(sm[0], sm[1]),
+        icon: I[s.cat] || I.logic,
+        tile: 'width: 26px; height: 26px; border-radius: 6px; flex: none; display: flex; align-items: center; justify-content: center; background: var(--c-' + s.cat + '-bg); color: var(--c-' + s.cat + ')',
+        input: j(s.input), output: j(s.output), inSize: size(s.input), outSize: size(s.output),
+        outStyle: 'margin: 0; height: 270px; overflow: auto; box-sizing: border-box; padding: 10px 12px; border-radius: 8px; font-family: \'JetBrains Mono\', monospace; font-size: 12px; line-height: 1.55; color: var(--text); border: 1px solid ' + (s.st === 'failed' ? 'var(--fail)' : 'var(--line)') + '; background: ' + (s.st === 'failed' ? 'var(--fail-soft)' : 'var(--surface-2)'),
+        logs: s.logs.length ? s.logs.join('\n') : 'No log lines for this step.',
+        position: 'Step ' + (idx + 1) + ' of ' + steps.length
+      };
+      var btn = function (enabled) {
+        return 'height: 32px; padding: 0 12px; border-radius: 7px; border: 1px solid var(--line-strong); background: var(--surface); font: inherit; font-size: 13px; ' + (enabled ? 'color: var(--text); cursor: pointer' : 'color: var(--text-3); opacity: .6; cursor: default');
+      };
+      prevStyle = btn(idx > 0);
+      nextStyle = btn(idx < steps.length - 1);
+      prev = function () { if (idx > 0) self.setState({ step: idx - 1 }); };
+      next = function () { if (idx < steps.length - 1) self.setState({ step: idx + 1 }); };
+      var canReplay = s.st !== 'pending' && s.st !== 'running';
+      replayStyle = 'height: 32px; padding: 0 12px; border-radius: 7px; border: 0; font: inherit; font-size: 13px; font-weight: 500; ' + (canReplay ? 'background: var(--accent); color: var(--accent-fg); cursor: pointer' : 'background: var(--surface-2); color: var(--text-3); cursor: default');
+      openReplay = function () { if (canReplay) self.setState({ replay: true, rInput: 'recorded', rTarget: 'production' }); };
+
+      var SIDE = ['CLOUDFLARE D1', 'SLACK', 'GITHUB', 'SQUARE', 'CLOUDFLARE QUEUES', 'CLOUDFLARE EMAIL', 'PAGERDUTY', 'CLOUDFLARE R2', 'DISCORD'];
+      var reused = [], again = [];
+      steps.forEach(function (x, k) {
+        if (SIDE.indexOf(x.kind) < 0) return;
+        if (k < idx && x.st === 'success') reused.push(x.name + ' · ' + x.kind.toLowerCase());
+        if (k >= idx && x.st !== 'skipped') again.push(x.name + ' · ' + (x.kind === 'GITHUB' || x.kind === 'CLOUDFLARE D1' ? 'deduped by idempotency key' : 'may send again'));
+      });
+      if (!reused.length) reused.push('No earlier side effects');
+      if (!again.length) again.push('No side effects from this step on');
+      var radio = function (on) {
+        return 'display: flex; align-items: flex-start; gap: 10px; width: 100%; padding: 9px 12px; border-radius: 8px; font: inherit; font-size: 13px; color: var(--text); text-align: left; cursor: pointer; background: var(--surface); border: 1px solid ' + (on ? 'var(--accent)' : 'var(--line)');
+      };
+      var rdot = function (on) {
+        return 'width: 14px; height: 14px; border-radius: 50%; flex: none; margin-top: 2px; box-sizing: border-box; border: ' + (on ? '4px solid var(--accent)' : '1.5px solid var(--line-strong)');
+      };
+      var sandbox = this.state.rTarget === 'sandbox';
+      rp = {
+        title: 'Replay from step ' + (idx + 1) + ' · ' + s.name,
+        intro: 'Starts a new run linked to ' + row[0] + '. Steps 1–' + idx + ' are restored from their checkpoints and do not run again.',
+        editing: this.state.rInput === 'edited',
+        inputJson: j(s.input),
+        inputs: [['recorded', 'Recorded input', 'Exactly what this step received in the original run'], ['edited', 'Edit input', 'Change the payload before replaying, e.g. to fix bad data']].map(function (o) {
+          var on = self.state.rInput === o[0];
+          return { label: o[1], hint: o[2], on: on ? 'true' : 'false', style: radio(on), dot: rdot(on), pick: function () { self.setState({ rInput: o[0] }); } };
+        }),
+        targets: [['production', 'Production · live v12', 'Real side effects; idempotency keys prevent duplicates where supported'], ['sandbox', 'Sandbox · draft v13', 'External calls recorded, not sent; use this to test a fix first']].map(function (o) {
+          var on = self.state.rTarget === o[0];
+          return { label: o[1], hint: o[2], on: on ? 'true' : 'false', style: radio(on), dot: rdot(on), pick: function () { self.setState({ rTarget: o[0] }); } };
+        }),
+        reused: reused, again: sandbox ? again.map(function (a) { return a.split(' · ')[0] + ' · recorded only'; }) : again,
+        cta: sandbox ? 'Start sandbox replay' : 'Start replay'
+      };
+      startReplay = function () {
+        self.setState({ replay: false, started: (sandbox ? 'Sandbox replay' : 'Replay') + ' started as run_9Kf3pZ8w from step ' + (idx + 1) + ' · linked to ' + row[0] });
+      };
+    }
+
+    return {
+      root: this.themeVars(theme) + '; position: relative; width: 1440px; height: 900px; box-sizing: border-box; display: flex; overflow: hidden; font-family: Inter, system-ui, sans-serif; color: var(--text); background: var(--bg); color-scheme: ' + theme,
+      theme: theme, links: links, nav: nav, tabs: tabs, rows: rows, empty: rows.length === 0,
+      openReplay: openReplay, startReplay: startReplay, rp: rp,
+      replayShow: modalOpen && this.state.replay,
+      closeReplay: function () { self.setState({ replay: false }); },
+      startedShow: modalOpen && !!this.state.started, startedText: this.state.started || '',
+      dismissStarted: function () { self.setState({ started: null }); },
+      footer: 'Showing ' + rows.length + ' of ' + tabCount + ' runs · newest first',
+      modalOpen: modalOpen, m: m, cur: cur,
+      close: function () { self.setState({ open: null }); },
+      prev: prev, next: next, prevStyle: prevStyle, nextStyle: nextStyle, replayStyle: replayStyle
+    };
+  }
+}
+</script>
+</body>
+</html>

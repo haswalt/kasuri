@@ -1,0 +1,276 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Kasuri · Connections</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+body{margin:0}
+a{color:inherit}a:hover{color:var(--accent)}
+input::placeholder{color:var(--text-3)}
+@keyframes flow{to{stroke-dashoffset:-20}}
+@keyframes pulse{50%{opacity:.35}}
+</style>
+</helmet>
+<div style="{{ root }}">
+
+  <dc-import name="Sidebar" active="connections" theme="{{ theme }}" hint-size="240px,900px"></dc-import>
+
+  <div style="flex: 1; min-width: 0; display: flex; flex-direction: column">
+    <header style="height: 56px; flex: none; box-sizing: border-box; display: flex; align-items: center; gap: 10px; padding: 0 40px; border-bottom: 1px solid var(--line); background: var(--surface); font-size: 14px">
+      <span style="color: var(--text-2)">Personal workspace</span>
+      <span style="color: var(--text-3)">/</span>
+      <span>Connections</span>
+    </header>
+
+    <main style="flex: 1; min-height: 0; box-sizing: border-box; padding: 28px 40px; display: flex; flex-direction: column; gap: 22px">
+      <div style="display: flex; align-items: flex-end; justify-content: space-between">
+        <div>
+          <div style="font-size: 11px; letter-spacing: .14em; color: var(--text-3); margin-bottom: 8px">CREDENTIALS</div>
+          <h1 style="margin: 0 0 6px; font-size: 28px; font-weight: 600; letter-spacing: -0.025em">Connections</h1>
+          <p style="margin: 0; font-size: 14px; color: var(--text-2)">Accounts and keys your workflows use. Secrets are encrypted with a key held in Workers Secrets and never shown again.</p>
+        </div>
+        <button style="height: 36px; padding: 0 14px; border-radius: 8px; border: 0; background: var(--accent); color: var(--accent-fg); font: inherit; font-size: 14px; font-weight: 500; display: flex; align-items: center; gap: 6px; cursor: pointer"><span style="font-size: 17px; line-height: 1">+</span> New connection</button>
+      </div>
+
+      <div style="flex: 1; min-height: 0; display: grid; grid-template-columns: minmax(0, 1fr) 360px; gap: 20px; align-items: start">
+        <section aria-label="Connection list" style="border: 1px solid var(--line); border-radius: 10px; background: var(--surface); box-shadow: var(--shadow); overflow: hidden">
+          <div style="display: flex; align-items: center; gap: 4px; padding: 12px 16px">
+            <sc-for list="{{ tabs }}" as="t" hint-placeholder-count="3">
+              <button onClick="{{ t.pick }}" aria-pressed="{{ t.on }}" style="{{ t.style }}">{{ t.label }}<span style="{{ t.countStyle }}">{{ t.count }}</span></button>
+            </sc-for>
+            <span style="flex: 1"></span>
+            <label style="display: flex; align-items: center; gap: 8px; width: 200px; height: 32px; box-sizing: border-box; padding: 0 10px; border: 1px solid var(--line-strong); border-radius: 7px">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true" style="color: var(--text-3)"><circle cx="11" cy="11" r="7"></circle><path d="m20 20-3.5-3.5"></path></svg>
+              <span style="position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0)">Search connections</span>
+              <input placeholder="Search" style="flex: 1; min-width: 0; border: 0; background: transparent; color: var(--text); font: inherit; font-size: 13px; outline: none">
+            </label>
+          </div>
+          <table style="width: 100%; border-collapse: collapse; font-size: 13px">
+            <thead>
+              <tr style="text-align: left; color: var(--text-3); font-size: 12px; background: var(--surface-2)">
+                <th style="padding: 9px 16px; font-weight: 500; border-top: 1px solid var(--line); border-bottom: 1px solid var(--line)">Connection</th>
+                <th style="padding: 9px 12px; font-weight: 500; border-top: 1px solid var(--line); border-bottom: 1px solid var(--line)">Auth</th>
+                <th style="padding: 9px 12px; font-weight: 500; border-top: 1px solid var(--line); border-bottom: 1px solid var(--line); text-align: right">Used by</th>
+                <th style="padding: 9px 12px; font-weight: 500; border-top: 1px solid var(--line); border-bottom: 1px solid var(--line)">Status</th>
+                <th style="padding: 9px 16px; font-weight: 500; border-top: 1px solid var(--line); border-bottom: 1px solid var(--line)">Last used</th>
+              </tr>
+            </thead>
+            <tbody>
+              <sc-for list="{{ rows }}" as="r" hint-placeholder-count="8">
+                <tr style="{{ r.rowStyle }}">
+                  <td style="padding: 0 16px; height: 50px; border-bottom: 1px solid var(--line)">
+                    <button onClick="{{ r.pick }}" aria-pressed="{{ r.on }}" style="display: flex; align-items: center; gap: 12px; padding: 0; border: 0; background: transparent; color: inherit; font: inherit; text-align: left; cursor: pointer">
+                      <span style="{{ r.tile }}"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="{{ r.icon }}"></path></svg></span>
+                      <span><span style="display: block; font-weight: 500">{{ r.name }}</span><span style="display: block; font-family: 'JetBrains Mono', monospace; font-size: 11.5px; color: var(--text-3); margin-top: 1px">{{ r.account }}</span></span>
+                    </button>
+                  </td>
+                  <td style="padding: 0 12px; border-bottom: 1px solid var(--line); color: var(--text-2)">{{ r.auth }}</td>
+                  <td style="padding: 0 12px; border-bottom: 1px solid var(--line); text-align: right; font-variant-numeric: tabular-nums; color: var(--text-2)">{{ r.usedCount }}</td>
+                  <td style="padding: 0 12px; border-bottom: 1px solid var(--line)"><span style="{{ r.pill }}"><span style="width: 6px; height: 6px; border-radius: 50%; background: currentColor"></span>{{ r.status }}</span></td>
+                  <td style="padding: 0 16px; border-bottom: 1px solid var(--line); color: var(--text-2)">{{ r.last }}</td>
+                </tr>
+              </sc-for>
+            </tbody>
+          </table>
+          <div style="padding: 12px 16px; font-size: 12px; color: var(--text-3)">{{ footer }}</div>
+        </section>
+
+        <aside aria-label="Connection details" style="border: 1px solid var(--line); border-radius: 10px; background: var(--surface); box-shadow: var(--shadow)">
+          <div style="padding: 16px 18px; border-bottom: 1px solid var(--line); display: flex; align-items: flex-start; gap: 12px">
+            <span style="{{ sel.tileLg }}"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="{{ sel.icon }}"></path></svg></span>
+            <div style="flex: 1; min-width: 0">
+              <div style="font-size: 15px; font-weight: 600">{{ sel.name }}</div>
+              <div style="font-family: 'JetBrains Mono', monospace; font-size: 12px; color: var(--text-3); margin-top: 2px">{{ sel.account }}</div>
+            </div>
+            <span style="{{ sel.pill }}"><span style="width: 6px; height: 6px; border-radius: 50%; background: currentColor"></span>{{ sel.status }}</span>
+          </div>
+          <sc-if value="{{ sel.hasAlert }}" hint-placeholder-val="{{ true }}">
+            <div style="{{ sel.alertStyle }}">{{ sel.alert }}</div>
+          </sc-if>
+          <dl style="margin: 0; padding: 14px 18px; border-bottom: 1px solid var(--line); display: grid; grid-template-columns: 110px minmax(0, 1fr); row-gap: 8px; font-size: 13px">
+            <dt style="color: var(--text-3)">Auth</dt><dd style="margin: 0">{{ sel.auth }}</dd>
+            <dt style="color: var(--text-3)">Created</dt><dd style="margin: 0">{{ sel.created }}</dd>
+            <dt style="color: var(--text-3)">Token</dt><dd style="margin: 0">{{ sel.token }}</dd>
+            <dt style="color: var(--text-3)">Key version</dt><dd style="margin: 0; font-family: 'JetBrains Mono', monospace; font-size: 12px">{{ sel.key }}</dd>
+          </dl>
+          <sc-if value="{{ sel.hasTools }}" hint-placeholder-val="{{ false }}">
+            <div style="padding: 12px 18px 4px; border-bottom: 1px solid var(--line)">
+              <div style="font-size: 11px; letter-spacing: .1em; color: var(--text-3); margin-bottom: 4px">TOOLS AGENTS MAY CALL · CLICK A POLICY TO CHANGE IT</div>
+              <sc-for list="{{ sel.tools }}" as="t" hint-placeholder-count="3">
+                <div style="display: flex; align-items: center; gap: 8px; padding: 6px 0">
+                  <span style="flex: 1; min-width: 0"><span style="display: block; font-family: 'JetBrains Mono', monospace; font-size: 12px">{{ t.name }}</span><span style="display: block; font-size: 11.5px; color: var(--text-3)">{{ t.desc }}</span></span>
+                  <span style="{{ t.kindStyle }}">{{ t.kind }}</span>
+                  <button onClick="{{ t.cycle }}" aria-label="{{ t.aria }}" style="{{ t.policyStyle }}">{{ t.policy }}</button>
+                </div>
+              </sc-for>
+            </div>
+          </sc-if>
+          <div style="padding: 14px 18px; border-bottom: 1px solid var(--line)">
+            <div style="font-size: 11px; letter-spacing: .1em; color: var(--text-3); margin-bottom: 8px">SCOPES</div>
+            <div style="display: flex; flex-wrap: wrap; gap: 6px">
+              <sc-for list="{{ sel.scopes }}" as="s" hint-placeholder-count="2">
+                <span style="font-family: 'JetBrains Mono', monospace; font-size: 11.5px; color: var(--text-2); border: 1px solid var(--line); border-radius: 4px; padding: 1px 6px">{{ s }}</span>
+              </sc-for>
+            </div>
+          </div>
+          <div style="padding: 14px 18px; border-bottom: 1px solid var(--line)">
+            <div style="font-size: 11px; letter-spacing: .1em; color: var(--text-3); margin-bottom: 8px">USED BY</div>
+            <div style="display: flex; flex-direction: column; gap: 6px">
+              <sc-for list="{{ sel.used }}" as="u" hint-placeholder-count="2">
+                <a href="{{ editorHref }}" style="display: flex; align-items: center; gap: 8px; font-size: 13px; text-decoration: none"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round" aria-hidden="true" style="color: var(--accent)"><path d="M12 2.5 21.5 12 12 21.5 2.5 12z"></path></svg>{{ u }}</a>
+              </sc-for>
+            </div>
+          </div>
+          <div style="padding: 14px 18px; display: flex; align-items: center; gap: 8px">
+            <button style="{{ sel.primaryStyle }}">{{ sel.primary }}</button>
+            <button style="height: 32px; padding: 0 12px; border-radius: 7px; border: 1px solid var(--line-strong); background: var(--surface); color: var(--text); font: inherit; font-size: 13px; cursor: pointer">Test</button>
+            <span style="flex: 1"></span>
+            <button style="height: 32px; padding: 0; border: 0; background: transparent; color: var(--fail); font: inherit; font-size: 13px; cursor: pointer">Revoke</button>
+          </div>
+        </aside>
+      </div>
+    </main>
+  </div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"theme":{"editor":"enum","options":["light","dark"],"default":"light"},"$preview":{"width":1440,"height":900}}'>
+class Component extends DCLogic {
+  constructor(props) {
+    super(props);
+    this.state = { selected: 0, filter: 'all', policy: {} };
+  }
+  themeVars(name) {
+    var L = { bg: '#F7F8FA', surface: '#FFFFFF', 'surface-2': '#F2F3F6', canvas: '#F4F5F8', dot: '#D3D7DF', line: '#E5E7EB', 'line-strong': '#D0D4DC', text: '#181B21', 'text-2': '#525967', 'text-3': '#6B7280', accent: '#0B6E79', 'accent-fg': '#FFFFFF', 'accent-soft': '#E4F2F3', ok: '#1A7F37', 'ok-soft': '#E9F5EC', run: '#0969DA', 'run-soft': '#E4EFFC', warn: '#9A6700', 'warn-soft': '#FBF2DD', fail: '#CF222E', 'fail-soft': '#FCECED', wait: '#8250DF', 'wait-soft': '#F3EEFD', skip: '#6E7781', 'c-trigger': '#7C5CD6', 'c-trigger-bg': '#F1EDFB', 'c-http': '#2563EB', 'c-http-bg': '#E8EFFD', 'c-logic': '#475467', 'c-logic-bg': '#EEF0F3', 'c-cf': '#B4590F', 'c-cf-bg': '#FCEFE3', 'c-app': '#A8436A', 'c-app-bg': '#F9ECF1', 'c-error': '#CF222E', 'c-error-bg': '#FCECED', shadow: '0 1px 2px rgba(16,24,40,.04)' };
+    var D = { bg: '#0B0D11', surface: '#111419', 'surface-2': '#181C23', canvas: '#0D1015', dot: '#22272F', line: '#1F242C', 'line-strong': '#2E343E', text: '#E6E8EC', 'text-2': '#A3ABB9', 'text-3': '#8B93A3', accent: '#4CC3CB', 'accent-fg': '#061A1C', 'accent-soft': 'rgba(76,195,203,.14)', ok: '#3FB950', 'ok-soft': 'rgba(63,185,80,.13)', run: '#58A6FF', 'run-soft': 'rgba(88,166,255,.16)', warn: '#D29922', 'warn-soft': 'rgba(210,153,34,.14)', fail: '#F85149', 'fail-soft': 'rgba(248,81,73,.13)', wait: '#A78BFA', 'wait-soft': 'rgba(167,139,250,.14)', skip: '#768390', 'c-trigger': '#A78BFA', 'c-trigger-bg': 'rgba(167,139,250,.13)', 'c-http': '#7DA6FF', 'c-http-bg': 'rgba(125,166,255,.13)', 'c-logic': '#B4BCC8', 'c-logic-bg': 'rgba(180,188,200,.12)', 'c-cf': '#FB923C', 'c-cf-bg': 'rgba(251,146,60,.12)', 'c-app': '#F472B6', 'c-app-bg': 'rgba(244,114,182,.12)', 'c-error': '#F85149', 'c-error-bg': 'rgba(248,81,73,.12)', shadow: 'none' };
+    var t = name === 'dark' ? D : L;
+    return Object.keys(t).map(function (k) { return '--' + k + ': ' + t[k]; }).join('; ');
+  }
+  renderVals() {
+    var self = this;
+    var theme = this.props.theme === 'dark' ? 'dark' : 'light';
+    var sfx = theme === 'dark' ? 'Dark' : '';
+    var links = { dash: 'Dashboard' + sfx + '.dc.html', history: 'RunHistory' + sfx + '.dc.html', connectors: 'Connectors' + sfx + '.dc.html', connections: 'Connections' + sfx + '.dc.html', editor: 'Editor' + sfx + '.dc.html' };
+    var nav = [
+      ['Workflows', 'M12 2.5 21.5 12 12 21.5 2.5 12z', links.dash, false],
+      ['Runs', 'M7 17 17 7M8 7h9v9', links.history, false],
+      ['Connectors', 'M3 3h18v18H3zM3 12h18M12 3v18', links.connectors, false],
+      ['Connections', 'M21 2l-2 2m-7.61 7.61a5.5 5.5 0 1 1-7.78 7.78 5.5 5.5 0 0 1 7.78-7.78zm0 0L15.5 7.5m0 0l3 3L22 7l-3-3m-3.5 3.5L19 4', links.connections, true],
+      ['Audit log', 'M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8zM14 2v6h6M16 13H8M16 17H8', '#', false],
+      ['Settings', 'M4 21v-7M4 10V3M12 21v-9M12 8V3M20 21v-5M20 12V3M1 14h6M9 8h6M17 16h6', '#', false]
+    ].map(function (n) {
+      return {
+        label: n[0], icon: n[1], href: n[2], current: n[3] ? 'page' : 'false',
+        style: 'display: flex; align-items: center; gap: 12px; height: 36px; padding: 0 10px; border-radius: 7px; text-decoration: none; font-size: 14px; ' + (n[3] ? 'background: var(--accent-soft); color: var(--accent); font-weight: 500' : 'color: var(--text-2)')
+      };
+    });
+
+    var I = {
+      hash: 'M4 9h16M4 15h16M10 3 8 21M16 3l-2 18',
+      branch: 'M6 3v12M18 9a3 3 0 1 0 0-6 3 3 0 0 0 0 6zM6 21a3 3 0 1 0 0-6 3 3 0 0 0 0 6zM18 9a9 9 0 0 1-9 9',
+      grid: 'M3 3h18v18H3zM3 9h18M3 15h18M9 3v18',
+      square: 'M5 3h14a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2zM9 9h6v6H9z',
+      sparkle: 'M12 3l1.9 5.8L20 11l-6.1 2.2L12 19l-1.9-5.8L4 11l6.1-2.2z',
+      alert: 'M10.29 3.86 1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0zM12 9v4M12 17h.01',
+      msg: 'M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z',
+      arrow: 'M7 17 17 7M8 7h9v9',
+      plug: 'M9 2v6M15 2v6M6 8h12v4a6 6 0 0 1-12 0zM12 18v4'
+    };
+    var ST = {
+      ok: ['var(--ok)', 'var(--ok-soft)'],
+      warn: ['var(--warn)', 'var(--warn-soft)'],
+      fail: ['var(--fail)', 'var(--fail-soft)'],
+      idle: ['var(--text-2)', 'var(--surface-2)']
+    };
+    var data = [
+      { name: 'Google', account: 'ops@example.com', icon: 'grid', cat: 'app', auth: 'OAuth 2.0 + PKCE', st: 'fail', status: 'Refresh failing', last: '6 h ago', created: '2 Oct 2026', token: 'Refresh failed 02:00 · invalid_grant', key: 'k3', scopes: ['drive.readonly', 'spreadsheets'], used: ['Nightly Sheets → GitHub sync', 'Drive → R2 archive'], alert: 'Google rejected the refresh token at 02:00. Reconnect to restore 2 workflows; their runs will retry once it is valid.' },
+      { name: 'Square', account: 'Main location', icon: 'square', cat: 'app', auth: 'OAuth 2.0', st: 'warn', status: 'Expires in 6 days', last: '3 days ago', created: '14 Sep 2026', token: 'Access token expires 24 Nov', key: 'k3', scopes: ['EMPLOYEES_READ', 'MERCHANT_PROFILE_READ', 'PAYMENTS_READ'], used: ['Square team roster sync'], alert: 'Square access expires on 24 Nov. Kasuri will try to refresh it 48 hours before.' },
+      { name: 'Slack', account: 'acme-sales', icon: 'hash', cat: 'app', auth: 'OAuth 2.0', st: 'ok', status: 'Healthy', last: '2 min ago', created: '28 Aug 2026', token: 'Bot token · no expiry', key: 'k3', scopes: ['chat:write', 'channels:read'], used: ['Inbound lead triage', 'Incident escalation'], alert: '' },
+      { name: 'GitHub', account: 'acme/roadmap', icon: 'branch', cat: 'app', auth: 'GitHub App', st: 'ok', status: 'Healthy', last: '6 h ago', created: '3 Sep 2026', token: 'Installation token · rotated hourly', key: 'k3', scopes: ['issues:write', 'metadata:read'], used: ['Nightly Sheets → GitHub sync'], alert: '' },
+      { name: 'OpenAI', account: 'Production key', icon: 'sparkle', cat: 'http', auth: 'API key', st: 'ok', status: 'Healthy', last: '2 h ago', created: '10 Oct 2026', token: 'API key · no expiry', key: 'k3', scopes: ['All models'], used: ['Refund approval agent'], alert: '' },
+      { name: 'Enrich API', account: 'api.enrich.example', icon: 'arrow', cat: 'http', auth: 'Header · X-Api-Key', st: 'ok', status: 'Healthy', last: '2 min ago', created: '11 Nov 2026', token: 'Static key · no expiry', key: 'k3', scopes: ['Host allowlist: api.enrich.example'], used: ['Inbound lead triage'], alert: '' },
+      { name: 'Ticketing', account: 'tickets.example.com/mcp', icon: 'plug', cat: 'http', auth: 'MCP · OAuth 2.1', st: 'ok', status: 'Healthy', last: '14 min ago', created: '6 Nov 2026', token: 'Access token · refreshed automatically', key: 'k3', scopes: ['tickets:read', 'tickets:write'], used: ['Refund approval agent'], alert: '',
+        tools: [['search_tickets', 'Find tickets by customer or order', 'read', 'Auto'], ['get_ticket', 'Fetch a ticket with its history', 'read', 'Auto'], ['add_note', 'Add an internal note', 'write', 'Auto'], ['issue_credit', 'Credit a customer account', 'write', 'Ask first'], ['close_ticket', 'Close and notify the customer', 'destructive', 'Blocked']] },
+      { name: 'Knowledge base', account: 'kb.example.com/mcp', icon: 'plug', cat: 'http', auth: 'MCP · OAuth 2.1', st: 'ok', status: 'Healthy', last: '2 h ago', created: '6 Nov 2026', token: 'Access token · refreshed automatically', key: 'k3', scopes: ['kb:read'], used: ['Support inbox triage'], alert: '',
+        tools: [['search_articles', 'Full-text search over help articles', 'read', 'Auto'], ['get_article', 'Fetch one article by ID', 'read', 'Auto']] },
+      { name: 'PagerDuty', account: 'On-call service', icon: 'alert', cat: 'error', auth: 'Events API v2 key', st: 'ok', status: 'Healthy', last: '6 h ago', created: '1 Nov 2026', token: 'Integration key · no expiry', key: 'k2', scopes: ['events:write'], used: ['Incident escalation', 'Nightly Sheets → GitHub sync'], alert: '' },
+      { name: 'Discord', account: '#alerts webhook', icon: 'msg', cat: 'app', auth: 'Webhook URL', st: 'idle', status: 'Unused 30 days', last: '19 Oct', created: '20 Sep 2026', token: 'Webhook URL · no expiry', key: 'k2', scopes: ['Post to #alerts'], used: ['Incident escalation'], alert: '' }
+    ];
+    var f = this.state.filter;
+    var visible = data.map(function (d, i) { return { d: d, i: i }; }).filter(function (x) {
+      if (f === 'all') return true;
+      if (f === 'attention') return x.d.st === 'fail' || x.d.st === 'warn';
+      if (f === 'mcp') return x.d.auth.indexOf('MCP') === 0;
+      return x.d.auth.indexOf('OAuth') === 0 || x.d.auth === 'GitHub App';
+    });
+    var tile = function (cat, size) {
+      return 'width: ' + size + 'px; height: ' + size + 'px; border-radius: 7px; flex: none; display: flex; align-items: center; justify-content: center; background: var(--c-' + cat + '-bg); color: var(--c-' + cat + ')';
+    };
+    var pill = function (st) {
+      return 'display: inline-flex; align-items: center; gap: 6px; font-size: 12px; white-space: nowrap; color: ' + ST[st][0] + '; background: ' + ST[st][1] + '; border-radius: 5px; padding: 3px 8px';
+    };
+    var rows = visible.map(function (x) {
+      var d = x.d, on = x.i === self.state.selected;
+      return {
+        name: d.name, account: d.account, auth: d.auth, status: d.status, last: d.last, icon: I[d.icon],
+        usedCount: d.used.length, on: on ? 'true' : 'false',
+        tile: tile(d.cat, 30), pill: pill(d.st),
+        rowStyle: on ? 'background: var(--accent-soft)' : '',
+        pick: function () { self.setState({ selected: x.i }); }
+      };
+    });
+    var s = data[this.state.selected];
+    var POL = ['Auto', 'Ask first', 'Blocked'];
+    var KIND = { read: ['var(--text-2)', 'var(--surface-2)'], write: ['var(--warn)', 'var(--warn-soft)'], destructive: ['var(--fail)', 'var(--fail-soft)'] };
+    var toolRows = (s.tools || []).map(function (t) {
+      var key = s.name + t[0];
+      var p = self.state.policy[key] || t[3];
+      var c = p === 'Auto' ? ['var(--ok)', 'var(--ok-soft)'] : p === 'Ask first' ? ['var(--wait)', 'var(--wait-soft)'] : ['var(--fail)', 'var(--fail-soft)'];
+      return {
+        name: t[0], desc: t[1], kind: t[2], policy: p,
+        kindStyle: 'font-size: 11px; border-radius: 4px; padding: 1px 6px; color: ' + KIND[t[2]][0] + '; background: ' + KIND[t[2]][1],
+        policyStyle: 'min-width: 76px; height: 24px; padding: 0 8px; border-radius: 6px; border: 0; font: inherit; font-size: 12px; cursor: pointer; color: ' + c[0] + '; background: ' + c[1],
+        aria: 'Policy for ' + t[0] + ': ' + p + '. Click to change.',
+        cycle: function () {
+          var pol = {}; for (var k in self.state.policy) pol[k] = self.state.policy[k];
+          pol[key] = POL[(POL.indexOf(p) + 1) % POL.length];
+          self.setState({ policy: pol });
+        }
+      };
+    });
+    var sel = {
+      hasTools: toolRows.length > 0, tools: toolRows, hasScopes: toolRows.length === 0,
+      name: s.name, account: s.account, auth: s.auth, created: s.created, token: s.token, key: s.key,
+      scopes: s.scopes, used: s.used, status: s.status, icon: I[s.icon],
+      tileLg: tile(s.cat, 36), pill: pill(s.st),
+      hasAlert: !!s.alert, alert: s.alert,
+      alertStyle: 'margin: 14px 18px 0; font-size: 13px; line-height: 1.55; border-radius: 6px; padding: 10px 12px; color: var(--text-2); background: ' + (s.st === 'fail' ? 'var(--fail-soft)' : 'var(--warn-soft)'),
+      primary: s.st === 'fail' ? 'Reconnect' : 'Edit',
+      primaryStyle: 'height: 32px; padding: 0 12px; border-radius: 7px; font: inherit; font-size: 13px; cursor: pointer; ' + (s.st === 'fail' ? 'border: 0; background: var(--accent); color: var(--accent-fg); font-weight: 500' : 'border: 1px solid var(--line-strong); background: var(--surface); color: var(--text)')
+    };
+    var tabDefs = [['all', 'All', 10], ['attention', 'Needs attention', 2], ['oauth', 'OAuth', 4], ['mcp', 'MCP servers', 2]];
+    var tabs = tabDefs.map(function (t) {
+      var on = f === t[0];
+      return {
+        label: t[1], count: t[2], on: on ? 'true' : 'false',
+        style: 'height: 30px; padding: 0 10px; border-radius: 6px; border: 0; font: inherit; font-size: 13px; display: inline-flex; align-items: center; gap: 7px; cursor: pointer; ' + (on ? 'background: var(--accent-soft); color: var(--accent); font-weight: 500' : 'background: transparent; color: var(--text-2)'),
+        countStyle: 'font-size: 11px; color: ' + (t[0] === 'attention' ? 'var(--fail)' : on ? 'var(--accent)' : 'var(--text-3)'),
+        pick: function () { self.setState({ filter: t[0] }); }
+      };
+    });
+    return {
+      root: this.themeVars(theme) + '; width: 1440px; height: 900px; box-sizing: border-box; display: flex; overflow: hidden; font-family: Inter, system-ui, sans-serif; color: var(--text); background: var(--bg); color-scheme: ' + theme,
+      theme: theme, nav: nav, tabs: tabs, rows: rows, sel: sel, editorHref: links.editor,
+      footer: rows.length + ' of 10 connections · encrypted at rest with envelope encryption'
+    };
+  }
+}
+</script>
+</body>
+</html>

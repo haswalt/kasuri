@@ -1,0 +1,165 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Kasuri · Sidebar</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+body{margin:0}
+</style>
+</helmet>
+<aside style="{{ root }}">
+  <div style="display: flex; align-items: center; gap: 10px; padding: 0 8px">
+    <svg width="28" height="28" viewBox="0 0 32 32" aria-hidden="true" style="flex: none"><rect x="3" y="7" width="26" height="7" rx="1" fill="#4CC3CB"></rect><rect x="3" y="11.5" width="26" height="2.5" fill="#2A9AA4"></rect><rect x="3" y="18" width="26" height="7" rx="1" fill="#4CC3CB"></rect><rect x="3" y="22.5" width="26" height="2.5" fill="#2A9AA4"></rect><rect x="5.5" y="7" width="1.5" height="7" fill="#04363C" fill-opacity=".35"></rect><rect x="14" y="7" width="1.5" height="7" fill="#04363C" fill-opacity=".35"></rect><rect x="16.5" y="18" width="1.5" height="7" fill="#04363C" fill-opacity=".35"></rect><rect x="25" y="18" width="1.5" height="7" fill="#04363C" fill-opacity=".35"></rect><rect x="7" y="3" width="7" height="26" rx="1" fill="#138A96"></rect><rect x="11.5" y="3" width="2.5" height="26" fill="#0B6470"></rect><rect x="18" y="3" width="7" height="26" rx="1" fill="#138A96"></rect><rect x="22.5" y="3" width="2.5" height="26" fill="#0B6470"></rect><rect x="18" y="5.5" width="7" height="1.5" fill="#04363C" fill-opacity=".35"></rect><rect x="18" y="14" width="7" height="1.5" fill="#04363C" fill-opacity=".35"></rect><rect x="7" y="16.5" width="7" height="1.5" fill="#04363C" fill-opacity=".35"></rect><rect x="7" y="25" width="7" height="1.5" fill="#04363C" fill-opacity=".35"></rect><rect x="18" y="7" width="7" height="7" fill="#4CC3CB"></rect><rect x="18" y="11.5" width="7" height="2.5" fill="#2A9AA4"></rect><rect x="7" y="18" width="7" height="7" fill="#4CC3CB"></rect><rect x="7" y="22.5" width="7" height="2.5" fill="#2A9AA4"></rect></svg>
+    <span style="font-size: 19px; font-weight: 600; letter-spacing: -0.02em">kasuri</span>
+    <span style="margin-left: auto; font-size: 11px; color: var(--text-2); background: var(--surface-2); border: 1px solid var(--line); border-radius: 4px; padding: 1px 6px">alpha</span>
+  </div>
+
+  <button onClick="{{ toggleWs }}" aria-expanded="{{ wsExpanded }}" aria-haspopup="menu" style="{{ wsButton }}">
+    <span style="width: 28px; height: 28px; border-radius: 6px; background: var(--c-trigger-bg); color: var(--c-trigger); display: flex; align-items: center; justify-content: center; font-size: 12px; font-weight: 600; flex: none">P</span>
+    <span style="flex: 1; min-width: 0"><span style="display: block; font-size: 13px; font-weight: 500">Personal workspace</span><span style="display: block; font-size: 12px; color: var(--text-3)">Owner · 7 workflows</span></span>
+    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true" style="color: var(--text-3)"><path d="m7 15 5 5 5-5M7 9l5-5 5 5"></path></svg>
+  </button>
+
+  <sc-if value="{{ wsOpen }}" hint-placeholder-val="{{ false }}">
+    <div role="menu" aria-label="Switch workspace" style="position: absolute; left: 12px; right: 12px; top: 120px; z-index: 5; border: 1px solid var(--line-strong); border-radius: 10px; background: var(--surface); box-shadow: 0 12px 32px rgba(12,16,24,.16); padding: 6px">
+      <div style="font-size: 11px; letter-spacing: .1em; color: var(--text-3); padding: 8px 8px 6px">WORKSPACES</div>
+      <sc-for list="{{ workspaces }}" as="w" hint-placeholder-count="3">
+        <button role="menuitemradio" aria-checked="{{ w.current }}" style="display: flex; align-items: center; gap: 10px; width: 100%; padding: 8px; border: 0; border-radius: 6px; background: transparent; color: var(--text); font: inherit; text-align: left; cursor: pointer">
+          <span style="{{ w.tile }}">{{ w.letter }}</span>
+          <span style="flex: 1; min-width: 0"><span style="display: block; font-size: 13px; font-weight: 500">{{ w.name }}</span><span style="display: block; font-size: 11px; color: var(--text-3)">{{ w.sub }}</span></span>
+          <span style="{{ w.checkStyle }}">✓</span>
+        </button>
+      </sc-for>
+      <div style="height: 1px; background: var(--line); margin: 6px 4px"></div>
+      <button role="menuitem" style="display: flex; align-items: center; gap: 10px; width: 100%; padding: 8px; border: 0; border-radius: 6px; background: transparent; color: var(--text); font: inherit; font-size: 13px; text-align: left; cursor: pointer"><span style="width: 24px; text-align: center; color: var(--text-3); font-size: 16px">+</span>Create workspace</button>
+      <a role="menuitem" href="{{ links.settings }}" style="display: flex; align-items: center; gap: 10px; padding: 8px; border-radius: 6px; color: var(--text); font-size: 13px; text-decoration: none"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" aria-hidden="true" style="margin: 0 5px; color: var(--text-3)"><path d="M4 21v-7M4 10V3M12 21v-9M12 8V3M20 21v-5M20 12V3M1 14h6M9 8h6M17 16h6"></path></svg>Manage workspaces</a>
+    </div>
+  </sc-if>
+
+  <nav aria-label="Main" style="display: flex; flex-direction: column; gap: 2px">
+    <sc-for list="{{ nav }}" as="n" hint-placeholder-count="7">
+      <a href="{{ n.href }}" aria-current="{{ n.current }}" style="{{ n.style }}">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="{{ n.icon }}"></path></svg>
+        <span style="flex: 1">{{ n.label }}</span>
+        <span style="{{ n.countStyle }}">{{ n.count }}</span>
+      </a>
+    </sc-for>
+  </nav>
+  <div style="flex: 1"></div>
+
+  <sc-if value="{{ userOpen }}" hint-placeholder-val="{{ false }}">
+    <div role="menu" aria-label="Account" style="position: absolute; left: 12px; right: 12px; bottom: 76px; z-index: 5; border: 1px solid var(--line-strong); border-radius: 10px; background: var(--surface); box-shadow: 0 12px 32px rgba(12,16,24,.16); padding: 6px">
+      <div style="padding: 10px 8px 10px; border-bottom: 1px solid var(--line); margin-bottom: 6px">
+        <div style="font-size: 13px; font-weight: 500">Admin</div>
+        <div style="font-size: 12px; color: var(--text-3)">admin@example.com · Owner</div>
+      </div>
+      <sc-for list="{{ userItems }}" as="u" hint-placeholder-count="4">
+        <a role="menuitem" href="{{ u.href }}" style="display: flex; align-items: center; gap: 10px; padding: 8px; border-radius: 6px; color: var(--text); font-size: 13px; text-decoration: none">
+          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" style="color: var(--text-3)"><path d="{{ u.icon }}"></path></svg>
+          <span style="flex: 1">{{ u.label }}</span>
+          <span style="font-size: 11px; color: var(--text-3); font-family: 'JetBrains Mono', monospace">{{ u.hint }}</span>
+        </a>
+      </sc-for>
+      <div style="height: 1px; background: var(--line); margin: 6px 4px"></div>
+      <a role="menuitem" href="{{ links.signout }}" style="display: flex; align-items: center; gap: 10px; padding: 8px; border-radius: 6px; color: var(--fail); font-size: 13px; text-decoration: none">
+        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4M16 17l5-5-5-5M21 12H9"></path></svg>
+        Sign out
+      </a>
+    </div>
+  </sc-if>
+
+  <button onClick="{{ toggleUser }}" aria-expanded="{{ userExpanded }}" aria-haspopup="menu" aria-label="Account and settings" style="{{ userButton }}">
+    <span style="width: 28px; height: 28px; border-radius: 50%; background: var(--surface-2); border: 1px solid var(--line); display: flex; align-items: center; justify-content: center; font-size: 11px; font-weight: 600; color: var(--text-2); flex: none">AD</span>
+    <span style="flex: 1; min-width: 0"><span style="display: block; font-size: 13px">Admin</span><span style="display: block; font-size: 11px; color: var(--text-3); white-space: nowrap; overflow: hidden; text-overflow: ellipsis">admin@example.com</span></span>
+    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true" style="color: var(--text-3)"><path d="m7 15 5 5 5-5M7 9l5-5 5 5"></path></svg>
+  </button>
+</aside>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"active":{"editor":"enum","options":["workflows","runs","connectors","connections","mcp","settings"],"default":"workflows"},"theme":{"editor":"enum","options":["light","dark"],"default":"light"},"$preview":{"width":240,"height":900}}'>
+class Component extends DCLogic {
+  constructor(props) {
+    super(props);
+    this.state = { ws: false, user: false };
+  }
+  themeVars(name) {
+    var L = { bg: '#F7F8FA', surface: '#FFFFFF', 'surface-2': '#F2F3F6', canvas: '#F4F5F8', dot: '#D3D7DF', line: '#E5E7EB', 'line-strong': '#D0D4DC', text: '#181B21', 'text-2': '#525967', 'text-3': '#6B7280', accent: '#0B6E79', 'accent-fg': '#FFFFFF', 'accent-soft': '#E4F2F3', ok: '#1A7F37', 'ok-soft': '#E9F5EC', run: '#0969DA', 'run-soft': '#E4EFFC', warn: '#9A6700', 'warn-soft': '#FBF2DD', fail: '#CF222E', 'fail-soft': '#FCECED', wait: '#8250DF', 'wait-soft': '#F3EEFD', skip: '#6E7781', 'c-trigger': '#7C5CD6', 'c-trigger-bg': '#F1EDFB', 'c-http': '#2563EB', 'c-http-bg': '#E8EFFD', 'c-logic': '#475467', 'c-logic-bg': '#EEF0F3', 'c-cf': '#B4590F', 'c-cf-bg': '#FCEFE3', 'c-app': '#A8436A', 'c-app-bg': '#F9ECF1', 'c-error': '#CF222E', 'c-error-bg': '#FCECED', shadow: '0 1px 2px rgba(16,24,40,.04)' };
+    var D = { bg: '#0B0D11', surface: '#111419', 'surface-2': '#181C23', canvas: '#0D1015', dot: '#22272F', line: '#1F242C', 'line-strong': '#2E343E', text: '#E6E8EC', 'text-2': '#A3ABB9', 'text-3': '#8B93A3', accent: '#4CC3CB', 'accent-fg': '#061A1C', 'accent-soft': 'rgba(76,195,203,.14)', ok: '#3FB950', 'ok-soft': 'rgba(63,185,80,.13)', run: '#58A6FF', 'run-soft': 'rgba(88,166,255,.16)', warn: '#D29922', 'warn-soft': 'rgba(210,153,34,.14)', fail: '#F85149', 'fail-soft': 'rgba(248,81,73,.13)', wait: '#A78BFA', 'wait-soft': 'rgba(167,139,250,.14)', skip: '#768390', 'c-trigger': '#A78BFA', 'c-trigger-bg': 'rgba(167,139,250,.13)', 'c-http': '#7DA6FF', 'c-http-bg': 'rgba(125,166,255,.13)', 'c-logic': '#B4BCC8', 'c-logic-bg': 'rgba(180,188,200,.12)', 'c-cf': '#FB923C', 'c-cf-bg': 'rgba(251,146,60,.12)', 'c-app': '#F472B6', 'c-app-bg': 'rgba(244,114,182,.12)', 'c-error': '#F85149', 'c-error-bg': 'rgba(248,81,73,.12)', shadow: 'none' };
+    var t = name === 'dark' ? D : L;
+    return Object.keys(t).map(function (k) { return '--' + k + ': ' + t[k]; }).join('; ');
+  }
+  renderVals() {
+    var self = this;
+    var theme = this.props.theme === 'dark' ? 'dark' : 'light';
+    var sfx = theme === 'dark' ? 'Dark' : '';
+    var other = theme === 'dark' ? '' : 'Dark';
+    var active = this.props.active || 'workflows';
+    var pages = { workflows: 'Dashboard', runs: 'RunHistory', connectors: 'Connectors', connections: 'Connections', mcp: 'MCP', settings: 'Settings' };
+    var links = {
+      settings: 'Settings' + sfx + '.dc.html',
+      signout: 'Main' + sfx + '.dc.html',
+      otherTheme: (pages[active] || 'Dashboard') + other + '.dc.html'
+    };
+    var nav = [
+      ['workflows', 'Workflows', 'M12 2.5 21.5 12 12 21.5 2.5 12z', '7'],
+      ['runs', 'Runs', 'M7 17 17 7M8 7h9v9', ''],
+      ['connectors', 'Connectors', 'M3 3h18v18H3zM3 12h18M12 3v18', ''],
+      ['connections', 'Connections', 'M21 2l-2 2m-7.61 7.61a5.5 5.5 0 1 1-7.78 7.78 5.5 5.5 0 0 1 7.78-7.78zm0 0L15.5 7.5m0 0l3 3L22 7l-3-3m-3.5 3.5L19 4', '2'],
+      ['mcp', 'MCP server', 'M9 2v6M15 2v6M6 8h12v4a6 6 0 0 1-12 0zM12 18v4', ''],
+      ['audit', 'Audit log', 'M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8zM14 2v6h6M16 13H8M16 17H8', '']
+    ].map(function (n) {
+      var on = n[0] === active;
+      return {
+        label: n[1], icon: n[2], count: n[3], current: on ? 'page' : 'false',
+        href: pages[n[0]] ? pages[n[0]] + sfx + '.dc.html' : '#',
+        style: 'display: flex; align-items: center; gap: 12px; height: 36px; padding: 0 10px; border-radius: 7px; text-decoration: none; font-size: 14px; ' + (on ? 'background: var(--accent-soft); color: var(--accent); font-weight: 500' : 'color: var(--text-2)'),
+        countStyle: !n[3] ? 'display: none' : n[0] === 'connections'
+          ? 'font-size: 11px; font-weight: 500; color: var(--fail); background: var(--fail-soft); border-radius: 4px; padding: 0 6px'
+          : 'font-size: 11px; font-weight: 500; color: var(--text-2); background: var(--surface); border: 1px solid var(--line); border-radius: 4px; padding: 0 6px'
+      };
+    });
+    var tileOf = function (bg, fg) {
+      return 'width: 24px; height: 24px; border-radius: 6px; flex: none; display: flex; align-items: center; justify-content: center; font-size: 11px; font-weight: 600; background: ' + bg + '; color: ' + fg;
+    };
+    var workspaces = [
+      ['P', 'Personal workspace', 'Owner · 7 workflows', true, 'var(--c-trigger-bg)', 'var(--c-trigger)'],
+      ['M', 'Marketing', 'Editor · 12 workflows', false, 'var(--c-app-bg)', 'var(--c-app)'],
+      ['S', 'Sandbox', 'Owner · test data only', false, 'var(--c-cf-bg)', 'var(--c-cf)']
+    ].map(function (w) {
+      return {
+        letter: w[0], name: w[1], sub: w[2], current: w[3] ? 'true' : 'false',
+        tile: tileOf(w[4], w[5]),
+        checkStyle: w[3] ? 'color: var(--accent); font-size: 13px' : 'visibility: hidden'
+      };
+    });
+    var userItems = [
+      ['Settings', 'M4 21v-7M4 10V3M12 21v-9M12 8V3M20 21v-5M20 12V3M1 14h6M9 8h6M17 16h6', links.settings, ''],
+      ['Members & roles', 'M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2M9 11a4 4 0 1 0 0-8 4 4 0 0 0 0 8zM23 21v-2a4 4 0 0 0-3-3.87M16 3.13a4 4 0 0 1 0 7.75', links.settings, ''],
+      [theme === 'dark' ? 'Light theme' : 'Dark theme', theme === 'dark' ? 'M12 17a5 5 0 1 0 0-10 5 5 0 0 0 0 10zM12 1v2M12 21v2M4.2 4.2l1.4 1.4M18.4 18.4l1.4 1.4M1 12h2M21 12h2M4.2 19.8l1.4-1.4M18.4 5.6l1.4-1.4' : 'M21 12.8A9 9 0 1 1 11.2 3a7 7 0 0 0 9.8 9.8z', links.otherTheme, ''],
+      ['Keyboard shortcuts', 'M2 6h20v12H2zM6 10h.01M10 10h.01M14 10h.01M18 10h.01M7 14h10', '#', '?'],
+      ['Documentation', 'M4 19.5A2.5 2.5 0 0 1 6.5 17H20V2H6.5A2.5 2.5 0 0 0 4 4.5zM4 19.5V22h16', '#', '']
+    ].map(function (u) { return { label: u[0], icon: u[1], href: u[2], hint: u[3] }; });
+    var onSettings = active === 'settings';
+    var btn = function (open) {
+      return 'display: flex; align-items: center; gap: 10px; padding: 10px; border-radius: 8px; color: var(--text); font: inherit; text-align: left; cursor: pointer; width: 100%; box-sizing: border-box; border: 1px solid ' + (open ? 'var(--line-strong)' : 'var(--line)') + '; background: ' + (open ? 'var(--surface-2)' : 'var(--surface)');
+    };
+    return {
+      root: this.themeVars(theme) + '; position: relative; width: 240px; height: 900px; flex: none; box-sizing: border-box; border-right: 1px solid var(--line); background: var(--surface); color: var(--text); display: flex; flex-direction: column; gap: 20px; padding: 20px 12px; font-family: Inter, system-ui, sans-serif; color-scheme: ' + theme,
+      links: links, nav: nav, workspaces: workspaces, userItems: userItems,
+      wsOpen: this.state.ws, userOpen: this.state.user,
+      wsExpanded: this.state.ws ? 'true' : 'false', userExpanded: this.state.user ? 'true' : 'false',
+      wsButton: btn(this.state.ws), userButton: btn(this.state.user || onSettings) + (onSettings && !this.state.user ? '; border-color: var(--accent)' : ''),
+      toggleWs: function () { self.setState({ ws: !self.state.ws, user: false }); },
+      toggleUser: function () { self.setState({ user: !self.state.user, ws: false }); }
+    };
+  }
+}
+</script>
+</body>
+</html>

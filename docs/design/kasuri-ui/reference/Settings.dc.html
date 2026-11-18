@@ -1,0 +1,300 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Kasuri · Settings</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+body{margin:0}
+a{color:inherit}a:hover{color:var(--accent)}
+input::placeholder{color:var(--text-3)}
+@keyframes flow{to{stroke-dashoffset:-20}}
+@keyframes pulse{50%{opacity:.35}}
+</style>
+</helmet>
+<div style="{{ root }}">
+  <dc-import name="Sidebar" active="settings" theme="{{ theme }}" hint-size="240px,900px"></dc-import>
+
+  <div style="flex: 1; min-width: 0; display: flex; flex-direction: column">
+    <header style="height: 56px; flex: none; box-sizing: border-box; display: flex; align-items: center; gap: 10px; padding: 0 40px; border-bottom: 1px solid var(--line); background: var(--surface); font-size: 14px">
+      <span style="color: var(--text-2)">Personal workspace</span>
+      <span style="color: var(--text-3)">/</span>
+      <span>Settings</span>
+    </header>
+
+    <main style="flex: 1; min-height: 0; box-sizing: border-box; padding: 28px 40px; display: flex; flex-direction: column; gap: 22px">
+      <div>
+        <div style="font-size: 11px; letter-spacing: .14em; color: var(--text-3); margin-bottom: 8px">SETTINGS</div>
+        <h1 style="margin: 0; font-size: 28px; font-weight: 600; letter-spacing: -0.025em">{{ title }}</h1>
+      </div>
+
+      <div style="flex: 1; min-height: 0; display: flex; gap: 32px">
+        <nav aria-label="Settings sections" style="width: 210px; flex: none; display: flex; flex-direction: column; gap: 2px">
+          <sc-for list="{{ sections }}" as="g" hint-placeholder-count="3">
+            <div style="font-size: 11px; letter-spacing: .1em; color: var(--text-3); padding: 14px 10px 6px">{{ g.name }}</div>
+            <sc-for list="{{ g.items }}" as="i" hint-placeholder-count="2">
+              <button onClick="{{ i.pick }}" aria-current="{{ i.current }}" style="{{ i.style }}">{{ i.label }}</button>
+            </sc-for>
+          </sc-for>
+        </nav>
+
+        <div style="flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 18px">
+
+          <sc-if value="{{ is.profile }}" hint-placeholder-val="{{ true }}">
+            <section style="border: 1px solid var(--line); border-radius: 10px; background: var(--surface); box-shadow: var(--shadow)">
+              <div style="padding: 14px 20px; border-bottom: 1px solid var(--line); font-size: 14px; font-weight: 600">Profile</div>
+              <div style="padding: 18px 20px; display: grid; grid-template-columns: 64px minmax(0, 1fr) minmax(0, 1fr); gap: 18px; align-items: end">
+                <span style="width: 56px; height: 56px; border-radius: 50%; background: var(--surface-2); border: 1px solid var(--line); display: flex; align-items: center; justify-content: center; font-size: 18px; font-weight: 600; color: var(--text-2)">AD</span>
+                <div style="display: flex; flex-direction: column; gap: 6px"><label for="s-name" style="font-size: 13px; color: var(--text-2)">Name</label><input id="s-name" value="Admin" style="height: 36px; box-sizing: border-box; padding: 0 12px; border-radius: 7px; border: 1px solid var(--line-strong); background: var(--surface); color: var(--text); font: inherit; font-size: 13px"></div>
+                <div style="display: flex; flex-direction: column; gap: 6px"><label for="s-email" style="font-size: 13px; color: var(--text-2)">Email</label><input id="s-email" value="admin@example.com" style="height: 36px; box-sizing: border-box; padding: 0 12px; border-radius: 7px; border: 1px solid var(--line-strong); background: var(--surface); color: var(--text); font: inherit; font-size: 13px"></div>
+              </div>
+              <div style="padding: 0 20px 18px; display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 18px; margin-left: 82px">
+                <div style="display: flex; flex-direction: column; gap: 6px"><span style="font-size: 13px; color: var(--text-2)">Theme</span>
+                  <div role="group" aria-label="Theme" style="display: flex; padding: 2px; border-radius: 7px; border: 1px solid var(--line); background: var(--surface-2); align-self: flex-start">
+                    <sc-for list="{{ themes }}" as="t" hint-placeholder-count="3"><button onClick="{{ t.pick }}" aria-pressed="{{ t.on }}" style="{{ t.style }}">{{ t.label }}</button></sc-for>
+                  </div>
+                </div>
+                <div style="display: flex; flex-direction: column; gap: 6px"><label for="s-tz" style="font-size: 13px; color: var(--text-2)">Time zone</label><select id="s-tz" style="height: 36px; border-radius: 7px; border: 1px solid var(--line-strong); background: var(--surface); color: var(--text); font: inherit; font-size: 13px; padding: 0 8px"><option>Europe/London (GMT)</option></select></div>
+              </div>
+            </section>
+            <section style="border: 1px solid var(--line); border-radius: 10px; background: var(--surface); box-shadow: var(--shadow)">
+              <div style="padding: 14px 20px; border-bottom: 1px solid var(--line); font-size: 14px; font-weight: 600">Security</div>
+              <sc-for list="{{ security }}" as="r" hint-placeholder-count="3">
+                <div style="display: flex; align-items: center; gap: 16px; padding: 14px 20px; border-bottom: 1px solid var(--line)">
+                  <div style="flex: 1"><div style="font-size: 13px; font-weight: 500">{{ r.label }}</div><div style="font-size: 12px; color: var(--text-3); margin-top: 2px">{{ r.hint }}</div></div>
+                  <span style="{{ r.badgeStyle }}">{{ r.badge }}</span>
+                  <button style="height: 30px; padding: 0 12px; border-radius: 7px; border: 1px solid var(--line-strong); background: var(--surface); color: var(--text); font: inherit; font-size: 13px; cursor: pointer">{{ r.action }}</button>
+                </div>
+              </sc-for>
+              <div style="padding: 12px 20px 6px; font-size: 11px; letter-spacing: .1em; color: var(--text-3)">ACTIVE SESSIONS</div>
+              <sc-for list="{{ sessions }}" as="r" hint-placeholder-count="3">
+                <div style="display: flex; align-items: center; gap: 16px; padding: 10px 20px; font-size: 13px">
+                  <span style="flex: 1">{{ r.device }} <span style="color: var(--text-3)">· {{ r.where }}</span></span>
+                  <span style="color: var(--text-2)">{{ r.when }}</span>
+                  <button style="{{ r.btnStyle }}">{{ r.btn }}</button>
+                </div>
+              </sc-for>
+              <div style="height: 8px"></div>
+            </section>
+          </sc-if>
+
+          <sc-if value="{{ is.tokens }}" hint-placeholder-val="{{ false }}">
+            <section style="border: 1px solid var(--line); border-radius: 10px; background: var(--surface); box-shadow: var(--shadow)">
+              <div style="display: flex; align-items: center; justify-content: space-between; padding: 12px 20px; border-bottom: 1px solid var(--line)">
+                <div><div style="font-size: 14px; font-weight: 600">API tokens</div><div style="font-size: 12px; color: var(--text-3); margin-top: 2px">For the REST API, CLI deploys and TypeScript workflow sync. Tokens are shown once.</div></div>
+                <button style="height: 32px; padding: 0 12px; border-radius: 7px; border: 0; background: var(--accent); color: var(--accent-fg); font: inherit; font-size: 13px; font-weight: 500; cursor: pointer">Create token</button>
+              </div>
+              <table style="width: 100%; border-collapse: collapse; font-size: 13px">
+                <thead><tr style="text-align: left; color: var(--text-3); font-size: 12px; background: var(--surface-2)"><th style="padding: 9px 20px; font-weight: 500; border-bottom: 1px solid var(--line)">Name</th><th style="padding: 9px 12px; font-weight: 500; border-bottom: 1px solid var(--line)">Scopes</th><th style="padding: 9px 12px; font-weight: 500; border-bottom: 1px solid var(--line)">Last used</th><th style="padding: 9px 12px; font-weight: 500; border-bottom: 1px solid var(--line)">Expires</th><th style="padding: 9px 20px; border-bottom: 1px solid var(--line)"></th></tr></thead>
+                <tbody>
+                  <sc-for list="{{ tokens }}" as="t" hint-placeholder-count="3">
+                    <tr><td style="padding: 12px 20px; border-bottom: 1px solid var(--line)"><span style="display: block; font-weight: 500">{{ t.name }}</span><span style="font-family: 'JetBrains Mono', monospace; font-size: 11.5px; color: var(--text-3)">{{ t.prefix }}</span></td><td style="padding: 12px; border-bottom: 1px solid var(--line); font-family: 'JetBrains Mono', monospace; font-size: 12px; color: var(--text-2)">{{ t.scopes }}</td><td style="padding: 12px; border-bottom: 1px solid var(--line); color: var(--text-2)">{{ t.used }}</td><td style="padding: 12px; border-bottom: 1px solid var(--line); color: var(--text-2)">{{ t.expires }}</td><td style="padding: 12px 20px; border-bottom: 1px solid var(--line); text-align: right"><button style="padding: 0; border: 0; background: transparent; color: var(--fail); font: inherit; font-size: 13px; cursor: pointer">Revoke</button></td></tr>
+                  </sc-for>
+                </tbody>
+              </table>
+            </section>
+          </sc-if>
+
+          <sc-if value="{{ is.workspaces }}" hint-placeholder-val="{{ false }}">
+            <section style="border: 1px solid var(--line); border-radius: 10px; background: var(--surface); box-shadow: var(--shadow)">
+              <div style="display: flex; align-items: center; justify-content: space-between; padding: 12px 20px; border-bottom: 1px solid var(--line)">
+                <div><div style="font-size: 14px; font-weight: 600">Workspaces on this deployment</div><div style="font-size: 12px; color: var(--text-3); margin-top: 2px">Each workspace has its own workflows, connections, runs and members. Credentials are never shared between workspaces.</div></div>
+                <button style="height: 32px; padding: 0 12px; border-radius: 7px; border: 0; background: var(--accent); color: var(--accent-fg); font: inherit; font-size: 13px; font-weight: 500; cursor: pointer; white-space: nowrap">Create workspace</button>
+              </div>
+              <table style="width: 100%; border-collapse: collapse; font-size: 13px">
+                <thead><tr style="text-align: left; color: var(--text-3); font-size: 12px; background: var(--surface-2)"><th style="padding: 9px 20px; font-weight: 500; border-bottom: 1px solid var(--line)">Workspace</th><th style="padding: 9px 12px; font-weight: 500; border-bottom: 1px solid var(--line)">Your role</th><th style="padding: 9px 12px; font-weight: 500; border-bottom: 1px solid var(--line); text-align: right">Members</th><th style="padding: 9px 12px; font-weight: 500; border-bottom: 1px solid var(--line); text-align: right">Workflows</th><th style="padding: 9px 12px; font-weight: 500; border-bottom: 1px solid var(--line)">Run retention</th><th style="padding: 9px 20px; border-bottom: 1px solid var(--line)"></th></tr></thead>
+                <tbody>
+                  <sc-for list="{{ workspaces }}" as="w" hint-placeholder-count="3">
+                    <tr>
+                      <td style="padding: 12px 20px; border-bottom: 1px solid var(--line)"><span style="display: flex; align-items: center; gap: 10px"><span style="{{ w.tile }}">{{ w.letter }}</span><span><span style="display: block; font-weight: 500">{{ w.name }}</span><span style="display: block; font-size: 12px; color: var(--text-3)">{{ w.sub }}</span></span></span></td>
+                      <td style="padding: 12px; border-bottom: 1px solid var(--line); color: var(--text-2)">{{ w.role }}</td>
+                      <td style="padding: 12px; border-bottom: 1px solid var(--line); text-align: right">{{ w.members }}</td>
+                      <td style="padding: 12px; border-bottom: 1px solid var(--line); text-align: right">{{ w.workflows }}</td>
+                      <td style="padding: 12px; border-bottom: 1px solid var(--line); color: var(--text-2)">{{ w.retention }}</td>
+                      <td style="padding: 12px 20px; border-bottom: 1px solid var(--line); text-align: right; white-space: nowrap"><button style="padding: 0; border: 0; background: transparent; color: var(--accent); font: inherit; font-size: 13px; cursor: pointer">{{ w.action }}</button></td>
+                    </tr>
+                  </sc-for>
+                </tbody>
+              </table>
+            </section>
+            <div style="display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 14px">
+              <sc-for list="{{ wsNotes }}" as="n" hint-placeholder-count="3">
+                <div style="border: 1px solid var(--line); border-radius: 10px; padding: 14px 16px; background: var(--surface)"><div style="font-size: 13px; font-weight: 500">{{ n.title }}</div><div style="font-size: 12.5px; line-height: 1.55; color: var(--text-2); margin-top: 4px">{{ n.body }}</div></div>
+              </sc-for>
+            </div>
+          </sc-if>
+
+          <sc-if value="{{ is.members }}" hint-placeholder-val="{{ false }}">
+            <section style="border: 1px solid var(--line); border-radius: 10px; background: var(--surface); box-shadow: var(--shadow)">
+              <div style="display: flex; align-items: center; gap: 10px; padding: 12px 20px; border-bottom: 1px solid var(--line)">
+                <div style="flex: 1"><div style="font-size: 14px; font-weight: 600">Members of Personal workspace</div><div style="font-size: 12px; color: var(--text-3); margin-top: 2px">Roles apply to this workspace only.</div></div>
+                <label for="invite" style="position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0)">Invite by email</label>
+                <input id="invite" placeholder="name@company.com" style="width: 220px; height: 32px; box-sizing: border-box; padding: 0 10px; border-radius: 7px; border: 1px solid var(--line-strong); background: var(--surface); color: var(--text); font: inherit; font-size: 13px">
+                <select aria-label="Role for invite" style="height: 32px; border-radius: 7px; border: 1px solid var(--line-strong); background: var(--surface); color: var(--text); font: inherit; font-size: 13px; padding: 0 8px"><option>Editor</option></select>
+                <button style="height: 32px; padding: 0 12px; border-radius: 7px; border: 0; background: var(--accent); color: var(--accent-fg); font: inherit; font-size: 13px; font-weight: 500; cursor: pointer">Invite</button>
+              </div>
+              <sc-for list="{{ members }}" as="m" hint-placeholder-count="4">
+                <div style="display: flex; align-items: center; gap: 14px; padding: 12px 20px; border-bottom: 1px solid var(--line); font-size: 13px">
+                  <span style="width: 30px; height: 30px; border-radius: 50%; background: var(--surface-2); border: 1px solid var(--line); display: flex; align-items: center; justify-content: center; font-size: 11px; font-weight: 600; color: var(--text-2)">{{ m.initials }}</span>
+                  <span style="flex: 1"><span style="display: block; font-weight: 500">{{ m.name }}</span><span style="display: block; font-size: 12px; color: var(--text-3)">{{ m.email }}</span></span>
+                  <span style="color: var(--text-3); width: 140px">{{ m.active }}</span>
+                  <select aria-label="{{ m.roleLabel }}" style="width: 110px; height: 30px; border-radius: 7px; border: 1px solid var(--line-strong); background: var(--surface); color: var(--text); font: inherit; font-size: 13px; padding: 0 8px"><option>{{ m.role }}</option></select>
+                </div>
+              </sc-for>
+            </section>
+            <div style="display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 12px">
+              <sc-for list="{{ roles }}" as="r" hint-placeholder-count="4">
+                <div style="border: 1px solid var(--line); border-radius: 10px; padding: 12px 14px; background: var(--surface)"><div style="font-size: 13px; font-weight: 500">{{ r.name }}</div><div style="font-size: 12px; line-height: 1.5; color: var(--text-2); margin-top: 4px">{{ r.body }}</div></div>
+              </sc-for>
+            </div>
+          </sc-if>
+
+          <sc-if value="{{ is.deploy }}" hint-placeholder-val="{{ false }}">
+            <section style="border: 1px solid var(--line); border-radius: 10px; background: var(--surface); box-shadow: var(--shadow)">
+              <div style="display: flex; align-items: center; justify-content: space-between; padding: 12px 20px; border-bottom: 1px solid var(--line)">
+                <div><div style="font-size: 14px; font-weight: 600">Cloudflare resources</div><div style="font-size: 12px; color: var(--text-3); margin-top: 2px">Account <span style="font-family: 'JetBrains Mono', monospace">8f3…a21</span> · provisioned by <span style="font-family: 'JetBrains Mono', monospace">kasuri deploy</span></div></div>
+                <span style="display: inline-flex; align-items: center; gap: 6px; font-size: 12px; color: var(--ok); background: var(--ok-soft); border-radius: 5px; padding: 3px 8px"><span style="width: 6px; height: 6px; border-radius: 50%; background: currentColor"></span>All health checks passing</span>
+              </div>
+              <sc-for list="{{ resources }}" as="r" hint-placeholder-count="6">
+                <div style="display: grid; grid-template-columns: 160px minmax(0, 1fr) 160px; gap: 12px; padding: 10px 20px; border-bottom: 1px solid var(--line); font-size: 13px; align-items: center">
+                  <span style="color: var(--text-3)">{{ r.kind }}</span>
+                  <span style="font-family: 'JetBrains Mono', monospace; font-size: 12px">{{ r.name }}</span>
+                  <span style="color: var(--text-2); text-align: right">{{ r.meta }}</span>
+                </div>
+              </sc-for>
+            </section>
+            <section style="border: 1px solid var(--line); border-radius: 10px; background: var(--surface); box-shadow: var(--shadow)">
+              <div style="display: flex; align-items: center; justify-content: space-between; padding: 12px 20px; border-bottom: 1px solid var(--line)">
+                <div><div style="font-size: 14px; font-weight: 600">Credential encryption keys</div><div style="font-size: 12px; color: var(--text-3); margin-top: 2px">Keys live in Workers Secrets, never in D1. Rotation re-wraps every credential in the background.</div></div>
+                <div style="display: flex; gap: 8px"><button style="height: 32px; padding: 0 12px; border-radius: 7px; border: 1px solid var(--line-strong); background: var(--surface); color: var(--text); font: inherit; font-size: 13px; cursor: pointer">Export backup</button><button style="height: 32px; padding: 0 12px; border-radius: 7px; border: 0; background: var(--accent); color: var(--accent-fg); font: inherit; font-size: 13px; font-weight: 500; cursor: pointer">Rotate key</button></div>
+              </div>
+              <sc-for list="{{ keys }}" as="k" hint-placeholder-count="2">
+                <div style="display: flex; align-items: center; gap: 14px; padding: 10px 20px; border-bottom: 1px solid var(--line); font-size: 13px">
+                  <span style="font-family: 'JetBrains Mono', monospace; width: 40px">{{ k.id }}</span>
+                  <span style="{{ k.pill }}">{{ k.state }}</span>
+                  <span style="flex: 1; color: var(--text-2)">{{ k.note }}</span>
+                  <span style="color: var(--text-3)">{{ k.date }}</span>
+                </div>
+              </sc-for>
+            </section>
+          </sc-if>
+        </div>
+      </div>
+    </main>
+  </div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"theme":{"editor":"enum","options":["light","dark"],"default":"light"},"tab":{"editor":"enum","options":["profile","tokens","workspaces","members","deploy"],"default":"profile"},"$preview":{"width":1440,"height":900}}'>
+class Component extends DCLogic {
+  constructor(props) {
+    super(props);
+    this.state = { tab: props.tab || 'profile', pref: 'system' };
+  }
+  themeVars(name) {
+    var L = { bg: '#F7F8FA', surface: '#FFFFFF', 'surface-2': '#F2F3F6', canvas: '#F4F5F8', dot: '#D3D7DF', line: '#E5E7EB', 'line-strong': '#D0D4DC', text: '#181B21', 'text-2': '#525967', 'text-3': '#6B7280', accent: '#0B6E79', 'accent-fg': '#FFFFFF', 'accent-soft': '#E4F2F3', ok: '#1A7F37', 'ok-soft': '#E9F5EC', run: '#0969DA', 'run-soft': '#E4EFFC', warn: '#9A6700', 'warn-soft': '#FBF2DD', fail: '#CF222E', 'fail-soft': '#FCECED', wait: '#8250DF', 'wait-soft': '#F3EEFD', skip: '#6E7781', 'c-trigger': '#7C5CD6', 'c-trigger-bg': '#F1EDFB', 'c-http': '#2563EB', 'c-http-bg': '#E8EFFD', 'c-logic': '#475467', 'c-logic-bg': '#EEF0F3', 'c-cf': '#B4590F', 'c-cf-bg': '#FCEFE3', 'c-app': '#A8436A', 'c-app-bg': '#F9ECF1', 'c-error': '#CF222E', 'c-error-bg': '#FCECED', shadow: '0 1px 2px rgba(16,24,40,.04)' };
+    var D = { bg: '#0B0D11', surface: '#111419', 'surface-2': '#181C23', canvas: '#0D1015', dot: '#22272F', line: '#1F242C', 'line-strong': '#2E343E', text: '#E6E8EC', 'text-2': '#A3ABB9', 'text-3': '#8B93A3', accent: '#4CC3CB', 'accent-fg': '#061A1C', 'accent-soft': 'rgba(76,195,203,.14)', ok: '#3FB950', 'ok-soft': 'rgba(63,185,80,.13)', run: '#58A6FF', 'run-soft': 'rgba(88,166,255,.16)', warn: '#D29922', 'warn-soft': 'rgba(210,153,34,.14)', fail: '#F85149', 'fail-soft': 'rgba(248,81,73,.13)', wait: '#A78BFA', 'wait-soft': 'rgba(167,139,250,.14)', skip: '#768390', 'c-trigger': '#A78BFA', 'c-trigger-bg': 'rgba(167,139,250,.13)', 'c-http': '#7DA6FF', 'c-http-bg': 'rgba(125,166,255,.13)', 'c-logic': '#B4BCC8', 'c-logic-bg': 'rgba(180,188,200,.12)', 'c-cf': '#FB923C', 'c-cf-bg': 'rgba(251,146,60,.12)', 'c-app': '#F472B6', 'c-app-bg': 'rgba(244,114,182,.12)', 'c-error': '#F85149', 'c-error-bg': 'rgba(248,81,73,.12)', shadow: 'none' };
+    var t = name === 'dark' ? D : L;
+    return Object.keys(t).map(function (k) { return '--' + k + ': ' + t[k]; }).join('; ');
+  }
+  renderVals() {
+    var self = this;
+    var theme = this.props.theme === 'dark' ? 'dark' : 'light';
+    var tab = this.state.tab;
+    var groups = [
+      ['ACCOUNT', [['profile', 'Profile & security'], ['tokens', 'API tokens']]],
+      ['WORKSPACE', [['workspaces', 'Workspaces'], ['members', 'Members & roles']]],
+      ['DEPLOYMENT', [['deploy', 'Cloudflare & keys']]]
+    ];
+    var titles = { profile: 'Profile & security', tokens: 'API tokens', workspaces: 'Workspaces', members: 'Members & roles', deploy: 'Cloudflare & keys' };
+    var sections = groups.map(function (g) {
+      return {
+        name: g[0],
+        items: g[1].map(function (i) {
+          var on = tab === i[0];
+          return {
+            label: i[1], current: on ? 'page' : 'false',
+            style: 'height: 34px; padding: 0 10px; border: 0; border-radius: 7px; font: inherit; font-size: 14px; text-align: left; cursor: pointer; ' + (on ? 'background: var(--accent-soft); color: var(--accent); font-weight: 500' : 'background: transparent; color: var(--text-2)'),
+            pick: function () { self.setState({ tab: i[0] }); }
+          };
+        })
+      };
+    });
+    var seg = function (on) {
+      return 'height: 28px; padding: 0 12px; border-radius: 5px; font: inherit; font-size: 13px; cursor: pointer; ' + (on ? 'border: 1px solid var(--line); background: var(--surface); color: var(--text); font-weight: 500' : 'border: 1px solid transparent; background: transparent; color: var(--text-2)');
+    };
+    var themes = [['light', 'Light'], ['dark', 'Dark'], ['system', 'System']].map(function (t) {
+      var on = self.state.pref === t[0];
+      return { label: t[1], on: on ? 'true' : 'false', style: seg(on), pick: function () { self.setState({ pref: t[0] }); } };
+    });
+    var pill = function (fg, bg) { return 'font-size: 12px; color: ' + fg + '; background: ' + bg + '; border-radius: 5px; padding: 3px 8px; white-space: nowrap'; };
+    var security = [
+      ['Password', 'Last changed 2 Oct 2026', 'Set', ['var(--text-2)', 'var(--surface-2)'], 'Change'],
+      ['Two-step verification', 'Authenticator app · 8 recovery codes left', 'On', ['var(--ok)', 'var(--ok-soft)'], 'Manage'],
+      ['Single sign-on (OIDC)', 'Configured by the owner for this deployment', 'Available', ['var(--accent)', 'var(--accent-soft)'], 'Link account']
+    ].map(function (r) { return { label: r[0], hint: r[1], badge: r[2], badgeStyle: pill(r[3][0], r[3][1]), action: r[4] }; });
+    var sessions = [
+      ['Chrome on macOS', 'London, UK', 'This session', true],
+      ['Safari on iPhone', 'London, UK', '2 hours ago', false],
+      ['kasuri CLI', '192.0.2.14', '3 days ago', false]
+    ].map(function (s) {
+      return { device: s[0], where: s[1], when: s[2], btn: s[3] ? 'Current' : 'Sign out', btnStyle: 'padding: 0; border: 0; background: transparent; font: inherit; font-size: 13px; width: 64px; text-align: right; ' + (s[3] ? 'color: var(--text-3); cursor: default' : 'color: var(--fail); cursor: pointer') };
+    });
+    var tokens = [
+      ['CI deploys', 'ksr_live_7Fq…', 'workflows:write, deploy', '41 min ago', '12 Feb 2027'],
+      ['Local CLI', 'ksr_live_2Mb…', 'workflows:read, runs:read', '3 days ago', 'Never'],
+      ['Grafana scrape', 'ksr_live_9Pz…', 'metrics:read', '1 min ago', '30 Nov 2026']
+    ].map(function (t) { return { name: t[0], prefix: t[1], scopes: t[2], used: t[3], expires: t[4] }; });
+    var tileOf = function (bg, fg) { return 'width: 30px; height: 30px; border-radius: 7px; flex: none; display: flex; align-items: center; justify-content: center; font-size: 12px; font-weight: 600; background: ' + bg + '; color: ' + fg; };
+    var workspaces = [
+      ['P', 'Personal workspace', 'Current · created 28 Aug 2026', 'Owner', 2, 7, '30 days', 'Open', 'var(--c-trigger-bg)', 'var(--c-trigger)'],
+      ['M', 'Marketing', 'Created 2 Oct 2026', 'Editor', 5, 12, '30 days', 'Switch', 'var(--c-app-bg)', 'var(--c-app)'],
+      ['S', 'Sandbox', 'Test data only · side effects disabled', 'Owner', 2, 4, '7 days', 'Switch', 'var(--c-cf-bg)', 'var(--c-cf)']
+    ].map(function (w) { return { letter: w[0], name: w[1], sub: w[2], role: w[3], members: w[4], workflows: w[5], retention: w[6], action: w[7], tile: tileOf(w[8], w[9]) }; });
+    var wsNotes = [
+      { title: 'Switching', body: 'Use the workspace switcher at the top of the sidebar. Everything you see — workflows, runs, connections — belongs to the current workspace.' },
+      { title: 'Isolation', body: 'Credentials, run data and R2 artifacts are scoped per workspace. Moving a workflow exports it without its secrets.' },
+      { title: 'Sandbox workspaces', body: 'Mark a workspace as Sandbox to record external calls instead of sending them — useful for training and testing.' }
+    ];
+    var members = [
+      ['AD', 'Admin', 'admin@example.com', 'Active now', 'Owner'],
+      ['JS', 'Jo Smith', 'jo@example.com', 'Active 2 h ago', 'Admin'],
+      ['RP', 'Ravi Patel', 'ravi@example.com', 'Active yesterday', 'Editor'],
+      ['FN', 'Finance team', 'finance@example.com', 'Approvals only', 'Viewer']
+    ].map(function (m) { return { initials: m[0], name: m[1], email: m[2], active: m[3], role: m[4], roleLabel: 'Role for ' + m[1] }; });
+    var roles = [
+      { name: 'Owner', body: 'Everything, including deleting the workspace and rotating keys.' },
+      { name: 'Admin', body: 'Manage members, connections and publish any workflow.' },
+      { name: 'Editor', body: 'Build, simulate and publish workflows; use existing connections.' },
+      { name: 'Viewer', body: 'Read workflows and runs; respond to approval requests.' }
+    ];
+    var resources = [
+      ['Workers', 'kasuri-web · kasuri-api · kasuri-executor', 'v0.4.0 · deployed 16 Nov'],
+      ['Workflows', 'kasuri-run', '1,284 instances · 24 h'],
+      ['D1', 'kasuri-meta', '41.2 MB'],
+      ['R2', 'kasuri-artifacts', '3.8 GB · 12,904 objects'],
+      ['Queues', 'kasuri-events · kasuri-dlq', '2 in dead-letter'],
+      ['Durable Objects', 'RateLimiter · RunCoordinator', '18 active']
+    ].map(function (r) { return { kind: r[0], name: r[1], meta: r[2] }; });
+    var keys = [
+      ['k3', 'Active', ['var(--ok)', 'var(--ok-soft)'], 'Encrypts all new credentials · 8 credentials', 'since 1 Nov 2026'],
+      ['k2', 'Retired', ['var(--text-2)', 'var(--surface-2)'], 'Decrypt-only until 2 remaining credentials are re-wrapped', '1 Sep – 1 Nov 2026']
+    ].map(function (k) { return { id: k[0], state: k[1], pill: pill(k[2][0], k[2][1]), note: k[3], date: k[4] }; });
+
+    return {
+      root: this.themeVars(theme) + '; position: relative; width: 1440px; height: 900px; box-sizing: border-box; display: flex; overflow: hidden; font-family: Inter, system-ui, sans-serif; color: var(--text); background: var(--bg); color-scheme: ' + theme,
+      theme: theme, title: titles[tab], sections: sections,
+      is: { profile: tab === 'profile', tokens: tab === 'tokens', workspaces: tab === 'workspaces', members: tab === 'members', deploy: tab === 'deploy' },
+      themes: themes, security: security, sessions: sessions, tokens: tokens,
+      workspaces: workspaces, wsNotes: wsNotes, members: members, roles: roles, resources: resources, keys: keys
+    };
+  }
+}
+</script>
+</body>
+</html>

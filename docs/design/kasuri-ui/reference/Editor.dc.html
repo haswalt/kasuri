@@ -1,0 +1,535 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Kasuri · Workflow editor</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+body{margin:0}
+a{color:inherit}a:hover{color:var(--accent)}
+input::placeholder{color:var(--text-3)}
+@keyframes flow{to{stroke-dashoffset:-20}}
+@keyframes pulse{50%{opacity:.35}}
+</style>
+</helmet>
+<div style="{{ root }}">
+
+  <header style="height: 56px; flex: none; box-sizing: border-box; display: flex; align-items: center; gap: 14px; padding: 0 20px; border-bottom: 1px solid var(--line); background: var(--surface)">
+    <a href="{{ links.dash }}" aria-label="Kasuri home" style="display: flex; flex: none"><svg width="28" height="28" viewBox="0 0 32 32" aria-hidden="true"><rect x="3" y="7" width="26" height="7" rx="1" fill="#4CC3CB"></rect><rect x="3" y="11.5" width="26" height="2.5" fill="#2A9AA4"></rect><rect x="3" y="18" width="26" height="7" rx="1" fill="#4CC3CB"></rect><rect x="3" y="22.5" width="26" height="2.5" fill="#2A9AA4"></rect><rect x="5.5" y="7" width="1.5" height="7" fill="#04363C" fill-opacity=".35"></rect><rect x="14" y="7" width="1.5" height="7" fill="#04363C" fill-opacity=".35"></rect><rect x="16.5" y="18" width="1.5" height="7" fill="#04363C" fill-opacity=".35"></rect><rect x="25" y="18" width="1.5" height="7" fill="#04363C" fill-opacity=".35"></rect><rect x="7" y="3" width="7" height="26" rx="1" fill="#138A96"></rect><rect x="11.5" y="3" width="2.5" height="26" fill="#0B6470"></rect><rect x="18" y="3" width="7" height="26" rx="1" fill="#138A96"></rect><rect x="22.5" y="3" width="2.5" height="26" fill="#0B6470"></rect><rect x="18" y="5.5" width="7" height="1.5" fill="#04363C" fill-opacity=".35"></rect><rect x="18" y="14" width="7" height="1.5" fill="#04363C" fill-opacity=".35"></rect><rect x="7" y="16.5" width="7" height="1.5" fill="#04363C" fill-opacity=".35"></rect><rect x="7" y="25" width="7" height="1.5" fill="#04363C" fill-opacity=".35"></rect><rect x="18" y="7" width="7" height="7" fill="#4CC3CB"></rect><rect x="18" y="11.5" width="7" height="2.5" fill="#2A9AA4"></rect><rect x="7" y="18" width="7" height="7" fill="#4CC3CB"></rect><rect x="7" y="22.5" width="7" height="2.5" fill="#2A9AA4"></rect></svg></a>
+    <a href="{{ links.dash }}" style="font-size: 13px; color: var(--text-2); text-decoration: none">← All workflows</a>
+    <span style="width: 1px; height: 20px; background: var(--line)"></span>
+    <span style="font-size: 15px; font-weight: 600; letter-spacing: -0.01em">Inbound lead triage</span>
+    <span style="font-size: 12px; color: var(--text-2); background: var(--surface-2); border: 1px solid var(--line); border-radius: 5px; padding: 2px 7px">Draft v13</span>
+    <span style="font-size: 12px; color: var(--text-3)">Saved 12 s ago</span>
+    <span style="flex: 1"></span>
+    <div role="group" aria-label="Editor mode" style="display: flex; padding: 2px; border-radius: 8px; border: 1px solid var(--line); background: var(--surface-2)">
+      <button onClick="{{ toBuild }}" aria-pressed="{{ buildPressed }}" style="{{ buildTab }}">
+        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 20h9M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4z"></path></svg>Build
+      </button>
+      <button onClick="{{ toSim }}" aria-pressed="{{ simPressed }}" style="{{ simTab }}">
+        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round" aria-hidden="true"><path d="M6 3l14 9-14 9V3z"></path></svg>Simulate
+      </button>
+    </div>
+    <span style="width: 1px; height: 20px; background: var(--line)"></span>
+    <button role="switch" aria-checked="true" aria-label="Live version v12 is active" style="display: flex; align-items: center; gap: 8px; padding: 0; border: 0; background: transparent; color: var(--text-2); font: inherit; font-size: 13px; cursor: pointer">
+      <span style="width: 30px; height: 18px; border-radius: 9px; background: var(--ok); position: relative; display: inline-block"><span style="position: absolute; top: 2px; left: 14px; width: 14px; height: 14px; border-radius: 50%; background: #FFFFFF"></span></span>
+      Live v12 active
+    </button>
+    <button style="height: 34px; padding: 0 12px; border-radius: 7px; border: 1px solid var(--line-strong); background: var(--surface); color: var(--text); font: inherit; font-size: 13px; cursor: pointer">Export</button>
+    <button style="height: 34px; padding: 0 14px; border-radius: 7px; border: 0; background: var(--accent); color: var(--accent-fg); font: inherit; font-size: 13px; font-weight: 500; cursor: pointer">Publish v13</button>
+  </header>
+
+  <sc-if value="{{ sim }}" hint-placeholder-val="{{ false }}">
+    <div role="toolbar" aria-label="Simulation controls" style="height: 48px; flex: none; box-sizing: border-box; display: flex; align-items: center; gap: 10px; padding: 0 20px; border-bottom: 1px solid var(--line); background: var(--accent-soft)">
+      <span style="font-size: 11px; letter-spacing: .1em; color: var(--accent); font-weight: 600">SIMULATION</span>
+      <span style="font-size: 12px; color: var(--text-2)">Draft v13 runs in a sandbox · external calls are recorded, not sent</span>
+      <span style="width: 1px; height: 20px; background: var(--line-strong); margin: 0 4px"></span>
+      <button onClick="{{ toggle }}" style="height: 30px; min-width: 84px; padding: 0 12px; border-radius: 7px; border: 0; background: var(--accent); color: var(--accent-fg); font: inherit; font-size: 13px; font-weight: 500; display: flex; align-items: center; justify-content: center; gap: 7px; cursor: pointer">
+        <svg width="11" height="11" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="{{ playIcon }}"></path></svg>{{ playLabel }}
+      </button>
+      <button onClick="{{ stepFwd }}" style="height: 30px; padding: 0 10px; border-radius: 7px; border: 1px solid var(--line-strong); background: var(--surface); color: var(--text); font: inherit; font-size: 13px; display: flex; align-items: center; gap: 6px; cursor: pointer">
+        <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 4l10 8-10 8V4zM19 5v14"></path></svg>Step
+      </button>
+      <button onClick="{{ reset }}" style="height: 30px; padding: 0 10px; border-radius: 7px; border: 1px solid var(--line-strong); background: var(--surface); color: var(--text); font: inherit; font-size: 13px; display: flex; align-items: center; gap: 6px; cursor: pointer">
+        <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 12a9 9 0 1 0 3-6.7L3 8M3 3v5h5"></path></svg>Reset
+      </button>
+      <div style="display: flex; padding: 2px; border-radius: 7px; border: 1px solid var(--line); background: var(--surface)">
+        <sc-for list="{{ speeds }}" as="s" hint-placeholder-count="3">
+          <button onClick="{{ s.pick }}" aria-pressed="{{ s.on }}" style="{{ s.style }}">{{ s.label }}</button>
+        </sc-for>
+      </div>
+      <span style="flex: 1"></span>
+      <div style="display: flex; flex-direction: column; gap: 4px; width: 170px">
+        <div style="display: flex; justify-content: space-between; font-size: 12px; color: var(--text-2)"><span>{{ progressText }}</span><span style="font-family: 'JetBrains Mono', monospace; color: var(--text-3)">{{ elapsed }}</span></div>
+        <div style="height: 3px; border-radius: 2px; background: var(--line-strong); overflow: hidden"><div style="{{ progressBar }}"></div></div>
+      </div>
+      <span style="{{ summaryStyle }}"><span style="width: 6px; height: 6px; border-radius: 50%; background: currentColor"></span>{{ summary }}</span>
+    </div>
+  </sc-if>
+
+  <div style="flex: 1; min-height: 0; display: flex">
+    <aside aria-label="{{ leftLabel }}" style="width: 240px; flex: none; box-sizing: border-box; border-right: 1px solid var(--line); background: var(--surface); display: flex; flex-direction: column; overflow: hidden">
+      <sc-if value="{{ build }}" hint-placeholder-val="{{ true }}">
+        <div style="padding: 14px 14px 8px">
+          <label style="display: flex; align-items: center; gap: 8px; height: 32px; box-sizing: border-box; padding: 0 10px; border: 1px solid var(--line-strong); border-radius: 7px">
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true" style="color: var(--text-3)"><circle cx="11" cy="11" r="7"></circle><path d="m20 20-3.5-3.5"></path></svg>
+            <span style="position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0)">Search nodes</span>
+            <input placeholder="Search nodes" style="flex: 1; min-width: 0; border: 0; background: transparent; color: var(--text); font: inherit; font-size: 13px; outline: none">
+            <span style="font-family: 'JetBrains Mono', monospace; font-size: 11px; color: var(--text-3); border: 1px solid var(--line); border-radius: 4px; padding: 0 5px">/</span>
+          </label>
+        </div>
+        <div style="flex: 1; overflow: hidden; padding: 4px 8px 12px; display: flex; flex-direction: column; gap: 10px">
+          <sc-for list="{{ palette }}" as="sec" hint-placeholder-count="5">
+            <div>
+              <div style="display: flex; align-items: center; justify-content: space-between; padding: 6px 8px; font-size: 11px; letter-spacing: .1em; color: var(--text-3)"><span>{{ sec.name }}</span><span>{{ sec.count }}</span></div>
+              <sc-for list="{{ sec.items }}" as="it" hint-placeholder-count="3">
+                <button style="width: 100%; height: 30px; display: flex; align-items: center; gap: 10px; padding: 0 8px; border: 0; border-radius: 6px; background: transparent; color: var(--text); font: inherit; font-size: 13px; cursor: grab; text-align: left">
+                  <span style="{{ it.tile }}"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="{{ it.icon }}"></path></svg></span>
+                  {{ it.name }}
+                </button>
+              </sc-for>
+            </div>
+          </sc-for>
+        </div>
+      </sc-if>
+      <sc-if value="{{ sim }}" hint-placeholder-val="{{ false }}">
+        <div style="padding: 16px 14px; display: flex; flex-direction: column; gap: 10px; overflow: auto">
+          <div style="font-size: 11px; letter-spacing: .1em; color: var(--text-3); padding: 0 2px">TEST INPUTS</div>
+          <p style="margin: 0 2px 4px; font-size: 12px; line-height: 1.5; color: var(--text-2)">Pinned payloads to run the draft against. Pick one, then play or step through.</p>
+          <sc-for list="{{ fixtures }}" as="f" hint-placeholder-count="3">
+            <button onClick="{{ f.pick }}" aria-pressed="{{ f.on }}" style="{{ f.style }}">
+              <span style="display: flex; justify-content: space-between; align-items: center; gap: 8px"><span style="font-size: 13px; font-weight: 500">{{ f.label }}</span><span style="{{ f.tagStyle }}">{{ f.tag }}</span></span>
+              <span style="display: block; font-family: 'JetBrains Mono', monospace; font-size: 11px; line-height: 1.5; color: var(--text-3); margin-top: 6px; white-space: pre-wrap">{{ f.preview }}</span>
+            </button>
+          </sc-for>
+          <a href="{{ links.history }}" style="font-size: 12px; color: var(--accent); text-decoration: none; padding: 4px 2px">+ Pin an input from a past run</a>
+        </div>
+      </sc-if>
+    </aside>
+
+    <section aria-label="Workflow canvas" style="flex: 1; min-width: 0; position: relative; overflow: hidden; background-color: var(--canvas); background-image: radial-gradient(var(--dot) 1px, transparent 1px); background-size: 20px 20px">
+      <div style="position: absolute; left: 20px; top: 16px; right: 20px; display: flex; justify-content: space-between; font-size: 11px; letter-spacing: .1em; color: var(--text-3)"><span>{{ canvasLabel }}</span><span>8 NODES · 7 EDGES</span></div>
+      <sc-for list="{{ edges }}" as="e" hint-placeholder-count="7">
+        <svg width="880" height="816" viewBox="0 0 880 816" fill="none" aria-hidden="true" style="position: absolute; left: 0; top: 0; pointer-events: none"><path d="{{ e.d }}" style="{{ e.line }}"></path><path d="{{ e.head }}" style="{{ e.headStyle }}"></path></svg>
+      </sc-for>
+      <sc-for list="{{ labels }}" as="l" hint-placeholder-count="3">
+        <span style="{{ l.style }}">{{ l.text }}</span>
+      </sc-for>
+      <sc-for list="{{ nodes }}" as="n" hint-placeholder-count="8">
+        <button onClick="{{ n.pick }}" aria-label="{{ n.aria }}" style="{{ n.box }}">
+          <span style="{{ n.tile }}"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="{{ n.icon }}"></path></svg></span>
+          <span style="display: flex; flex-direction: column; min-width: 0; flex: 1">
+            <span style="{{ n.kindStyle }}">{{ n.kind }}</span>
+            <span style="font-size: 13px; font-weight: 500; color: var(--text); white-space: nowrap; overflow: hidden; text-overflow: ellipsis">{{ n.title }}</span>
+          </span>
+          <span aria-hidden="true" style="{{ n.moreStyle }}">···</span>
+        </button>
+      </sc-for>
+
+      <sc-if value="{{ build }}" hint-placeholder-val="{{ true }}">
+        <div style="position: absolute; left: 20px; bottom: 16px; display: flex; align-items: center; border-radius: 7px; background: var(--surface); border: 1px solid var(--line); box-shadow: var(--shadow)">
+          <button aria-label="Zoom out" style="width: 30px; height: 28px; border: 0; background: transparent; color: var(--text-2); font: inherit; font-size: 15px; cursor: pointer">−</button>
+          <span style="font-size: 12px; color: var(--text-2); width: 42px; text-align: center; border-left: 1px solid var(--line); border-right: 1px solid var(--line); line-height: 28px">100%</span>
+          <button aria-label="Zoom in" style="width: 30px; height: 28px; border: 0; background: transparent; color: var(--text-2); font: inherit; font-size: 15px; cursor: pointer">+</button>
+        </div>
+        <div style="position: absolute; right: 20px; bottom: 16px; font-size: 12px; color: var(--text-3)">Drag from the palette, or press <span style="font-family: 'JetBrains Mono', monospace; border: 1px solid var(--line); border-radius: 4px; padding: 0 5px; background: var(--surface)">/</span> to search</div>
+      </sc-if>
+      <sc-if value="{{ showHint }}" hint-placeholder-val="{{ false }}">
+        <div style="position: absolute; left: 20px; top: 40px; width: 230px; font-size: 13px; line-height: 1.55; color: var(--text-2); border: 1px solid var(--line); background: var(--surface); border-radius: 8px; padding: 12px 14px; box-shadow: var(--shadow)">Press <strong style="color: var(--text); font-weight: 500">Play</strong> to watch the run move through the graph, or <strong style="color: var(--text); font-weight: 500">Step</strong> one node at a time. Click a node to see its data.</div>
+      </sc-if>
+    </section>
+
+    <aside aria-label="{{ rightLabel }}" style="width: 320px; flex: none; box-sizing: border-box; border-left: 1px solid var(--line); background: var(--surface); display: flex; flex-direction: column; overflow: hidden">
+      <sc-if value="{{ build }}" hint-placeholder-val="{{ true }}">
+        <div style="padding: 20px 20px 0">
+          <div style="display: flex; justify-content: space-between; align-items: center">
+            <h2 style="margin: 0; font-size: 15px; font-weight: 600">Node configuration</h2>
+            <span style="font-family: 'JetBrains Mono', monospace; font-size: 11px; color: var(--text-3)">n_if_01</span>
+          </div>
+          <div style="font-size: 13px; color: var(--accent); margin-top: 8px">IF / Condition · v2</div>
+        </div>
+        <div role="tablist" aria-label="Configuration" style="display: flex; gap: 18px; padding: 0 20px; margin-top: 14px; border-bottom: 1px solid var(--line); font-size: 13px">
+          <button role="tab" aria-selected="true" style="height: 36px; border: 0; border-bottom: 1.5px solid var(--accent); background: transparent; color: var(--text); font: inherit; font-weight: 500; padding: 0">Parameters</button>
+          <button role="tab" aria-selected="false" style="height: 36px; border: 0; border-bottom: 1.5px solid transparent; background: transparent; color: var(--text-2); font: inherit; padding: 0">Settings</button>
+          <button role="tab" aria-selected="false" style="height: 36px; border: 0; border-bottom: 1.5px solid transparent; background: transparent; color: var(--text-2); font: inherit; padding: 0">Output</button>
+        </div>
+        <div style="flex: 1; overflow: hidden; padding: 18px 20px; display: flex; flex-direction: column; gap: 16px; font-size: 13px">
+          <div style="display: flex; flex-direction: column; gap: 6px">
+            <label for="nodename" style="color: var(--text-2)">Node name</label>
+            <input id="nodename" value="Score ≥ 70?" style="height: 36px; box-sizing: border-box; padding: 0 12px; border-radius: 7px; border: 1px solid var(--line-strong); background: var(--surface); color: var(--text); font: inherit; font-size: 13px">
+          </div>
+          <div style="display: flex; flex-direction: column; gap: 6px">
+            <span style="color: var(--text-2)">Value</span>
+            <div style="font-family: 'JetBrains Mono', monospace; font-size: 12px; border: 1px solid var(--line-strong); border-radius: 7px; padding: 9px 12px; background: var(--surface-2); line-height: 1.5"><span style="color: var(--text-3)">{{ ob }}</span> <span style="color: var(--accent)">$node</span>["Enrich company"]<span style="color: var(--c-http)">.json.score</span> <span style="color: var(--text-3)">{{ cb }}</span></div>
+            <span style="font-size: 12px; color: var(--text-3)">Resolves to <span style="font-family: 'JetBrains Mono', monospace; color: var(--text-2)">82</span> with the pinned “Hot lead” input</span>
+          </div>
+          <div style="display: grid; grid-template-columns: minmax(0, 1.4fr) minmax(0, 1fr); gap: 10px">
+            <div style="display: flex; flex-direction: column; gap: 6px">
+              <label for="op" style="color: var(--text-2)">Operator</label>
+              <select id="op" style="height: 36px; border-radius: 7px; border: 1px solid var(--line-strong); background: var(--surface); color: var(--text); font: inherit; font-size: 13px; padding: 0 8px"><option>≥ greater or equal</option></select>
+            </div>
+            <div style="display: flex; flex-direction: column; gap: 6px">
+              <label for="cmp" style="color: var(--text-2)">Compare to</label>
+              <input id="cmp" value="70" style="height: 36px; box-sizing: border-box; border-radius: 7px; border: 1px solid var(--line-strong); background: var(--surface); color: var(--text); font-family: 'JetBrains Mono', monospace; font-size: 13px; padding: 0 12px">
+            </div>
+          </div>
+          <button style="align-self: flex-start; padding: 0; border: 0; background: transparent; color: var(--accent); font: inherit; font-size: 13px; cursor: pointer">+ Add condition</button>
+          <div style="display: flex; flex-direction: column; gap: 6px">
+            <label for="missing" style="color: var(--text-2)">If the value is missing</label>
+            <select id="missing" style="height: 36px; border-radius: 7px; border: 1px solid var(--line-strong); background: var(--surface); color: var(--text); font: inherit; font-size: 13px; padding: 0 8px"><option>Route to false</option></select>
+          </div>
+          <div style="border-top: 1px solid var(--line); padding-top: 14px; display: flex; flex-direction: column; gap: 8px">
+            <span style="font-size: 11px; letter-spacing: .1em; color: var(--text-3)">OUTPUTS</span>
+            <div style="display: flex; justify-content: space-between"><span style="font-family: 'JetBrains Mono', monospace; color: var(--ok)">true</span><span style="color: var(--text-2)">Insert lead · 1 item</span></div>
+            <div style="display: flex; justify-content: space-between"><span style="font-family: 'JetBrains Mono', monospace; color: var(--text-2)">false</span><span style="color: var(--text-3)">Nurture queue · 0 items</span></div>
+          </div>
+          <div style="font-size: 12px; line-height: 1.55; color: var(--text-2); background: var(--surface-2); border: 1px solid var(--line); border-radius: 7px; padding: 10px 12px">This form is generated from the node's schema. Retry, timeout and error routing are under Settings.</div>
+          <button style="align-self: flex-start; padding: 0; border: 0; background: transparent; color: var(--fail); font: inherit; font-size: 13px; cursor: pointer">Remove node</button>
+        </div>
+      </sc-if>
+      <sc-if value="{{ sim }}" hint-placeholder-val="{{ false }}">
+        <div style="padding: 18px 20px 10px; display: flex; justify-content: space-between; align-items: baseline">
+          <h2 style="margin: 0; font-size: 15px; font-weight: 600">Execution log</h2>
+          <span style="font-family: 'JetBrains Mono', monospace; font-size: 11px; color: var(--text-3)">sim_{{ fixtureId }}</span>
+        </div>
+        <ol style="list-style: none; margin: 0; padding: 0 20px; flex: 1; min-height: 0; overflow: auto">
+          <sc-if value="{{ logEmpty }}" hint-placeholder-val="{{ false }}">
+            <li style="font-size: 13px; color: var(--text-3); padding: 10px 0">No steps yet.</li>
+          </sc-if>
+          <sc-for list="{{ log }}" as="g" hint-placeholder-count="4">
+            <li style="display: grid; grid-template-columns: 12px minmax(0, 1fr) auto; gap: 10px; padding: 9px 0; border-bottom: 1px solid var(--line)">
+              <span style="{{ g.dot }}"></span>
+              <span style="min-width: 0">
+                <span style="display: block; font-size: 13px; font-weight: 500">{{ g.title }}</span>
+                <span style="display: block; font-size: 12px; color: var(--text-2); line-height: 1.45; margin-top: 1px">{{ g.msg }}</span>
+              </span>
+              <span style="font-family: 'JetBrains Mono', monospace; font-size: 11px; color: var(--text-3)">{{ g.t }}</span>
+            </li>
+          </sc-for>
+        </ol>
+        <div style="border-top: 1px solid var(--line); padding: 14px 20px 18px; display: flex; flex-direction: column; gap: 8px">
+          <div style="display: flex; justify-content: space-between; align-items: baseline">
+            <h2 style="margin: 0; font-size: 14px; font-weight: 600">{{ ioTitle }}</h2>
+            <span style="font-size: 12px; color: var(--text-3)">{{ ioNote }}</span>
+          </div>
+          <span style="font-size: 11px; letter-spacing: .1em; color: var(--text-3)">INPUT</span>
+          <pre style="margin: 0; height: 96px; overflow: auto; box-sizing: border-box; padding: 8px 10px; border-radius: 7px; border: 1px solid var(--line); background: var(--surface-2); font-family: 'JetBrains Mono', monospace; font-size: 11.5px; line-height: 1.5; color: var(--text-2)">{{ ioIn }}</pre>
+          <span style="font-size: 11px; letter-spacing: .1em; color: var(--text-3)">OUTPUT</span>
+          <pre style="margin: 0; height: 96px; overflow: auto; box-sizing: border-box; padding: 8px 10px; border-radius: 7px; border: 1px solid var(--line); background: var(--surface-2); font-family: 'JetBrains Mono', monospace; font-size: 11.5px; line-height: 1.5; color: var(--text)">{{ ioOut }}</pre>
+        </div>
+      </sc-if>
+    </aside>
+  </div>
+
+  <footer style="height: 28px; flex: none; box-sizing: border-box; display: flex; align-items: center; gap: 18px; padding: 0 20px; border-top: 1px solid var(--line); background: var(--surface); font-size: 12px; color: var(--text-3)">
+    <span style="display: inline-flex; align-items: center; gap: 6px; color: var(--ok)"><span style="width: 6px; height: 6px; border-radius: 50%; background: currentColor"></span>Graph valid</span>
+    <span>{{ footerA }}</span>
+    <span style="flex: 1"></span>
+    <span>{{ footerB }}</span>
+  </footer>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"theme":{"editor":"enum","options":["light","dark"],"default":"light"},"mode":{"editor":"enum","options":["build","simulate"],"default":"build"},"$preview":{"width":1440,"height":900}}'>
+class Component extends DCLogic {
+  constructor(props) {
+    super(props);
+    this.state = { mode: props.mode === 'simulate' ? 'simulate' : 'build', fixture: 'hot', step: 0, playing: false, speed: 1, selected: null };
+    this.timer = null;
+  }
+
+  componentWillUnmount() { clearTimeout(this.timer); }
+
+  themeVars(name) {
+    var L = { bg: '#F7F8FA', surface: '#FFFFFF', 'surface-2': '#F2F3F6', canvas: '#F4F5F8', dot: '#D3D7DF', line: '#E5E7EB', 'line-strong': '#D0D4DC', text: '#181B21', 'text-2': '#525967', 'text-3': '#6B7280', accent: '#0B6E79', 'accent-fg': '#FFFFFF', 'accent-soft': '#E4F2F3', ok: '#1A7F37', 'ok-soft': '#E9F5EC', run: '#0969DA', 'run-soft': '#E4EFFC', warn: '#9A6700', 'warn-soft': '#FBF2DD', fail: '#CF222E', 'fail-soft': '#FCECED', wait: '#8250DF', 'wait-soft': '#F3EEFD', skip: '#6E7781', 'c-trigger': '#7C5CD6', 'c-trigger-bg': '#F1EDFB', 'c-http': '#2563EB', 'c-http-bg': '#E8EFFD', 'c-logic': '#475467', 'c-logic-bg': '#EEF0F3', 'c-cf': '#B4590F', 'c-cf-bg': '#FCEFE3', 'c-app': '#A8436A', 'c-app-bg': '#F9ECF1', 'c-error': '#CF222E', 'c-error-bg': '#FCECED', shadow: '0 1px 2px rgba(16,24,40,.04)' };
+    var D = { bg: '#0B0D11', surface: '#111419', 'surface-2': '#181C23', canvas: '#0D1015', dot: '#22272F', line: '#1F242C', 'line-strong': '#2E343E', text: '#E6E8EC', 'text-2': '#A3ABB9', 'text-3': '#8B93A3', accent: '#4CC3CB', 'accent-fg': '#061A1C', 'accent-soft': 'rgba(76,195,203,.14)', ok: '#3FB950', 'ok-soft': 'rgba(63,185,80,.13)', run: '#58A6FF', 'run-soft': 'rgba(88,166,255,.16)', warn: '#D29922', 'warn-soft': 'rgba(210,153,34,.14)', fail: '#F85149', 'fail-soft': 'rgba(248,81,73,.13)', wait: '#A78BFA', 'wait-soft': 'rgba(167,139,250,.14)', skip: '#768390', 'c-trigger': '#A78BFA', 'c-trigger-bg': 'rgba(167,139,250,.13)', 'c-http': '#7DA6FF', 'c-http-bg': 'rgba(125,166,255,.13)', 'c-logic': '#B4BCC8', 'c-logic-bg': 'rgba(180,188,200,.12)', 'c-cf': '#FB923C', 'c-cf-bg': 'rgba(251,146,60,.12)', 'c-app': '#F472B6', 'c-app-bg': 'rgba(244,114,182,.12)', 'c-error': '#F85149', 'c-error-bg': 'rgba(248,81,73,.12)', shadow: 'none' };
+    var t = name === 'dark' ? D : L;
+    return Object.keys(t).map(function (k) { return '--' + k + ': ' + t[k]; }).join('; ');
+  }
+
+  events(fixture) {
+    var f = fixture || this.state.fixture;
+    var head = [
+      { node: 'hook', status: 'success', msg: 'POST received · signature check simulated', t: 0 },
+      { node: 'map', status: 'success', via: 'e1', msg: 'Schema valid · 6 fields mapped', t: 4 }
+    ];
+    if (f === 'hot') return head.concat([
+      { node: 'http', status: 'retrying', via: 'e2', msg: '429 Too Many Requests · retry in 400 ms (1/3)', t: 212 },
+      { node: 'http', status: 'success', msg: '200 OK · employees 420 · score 82', t: 655, skip: ['err', 'e7'] },
+      { node: 'if', status: 'success', via: 'e3', msg: '82 ≥ 70 → true branch', t: 657, skip: ['queue', 'e6'] },
+      { node: 'd1', status: 'success', via: 'e4', msg: 'INSERT leads · 1 row (scratch DB)', t: 671 },
+      { node: 'slack', status: 'success', via: 'e5', msg: 'Message to #sales recorded · not sent', t: 702 }
+    ]);
+    if (f === 'cold') return head.concat([
+      { node: 'http', status: 'success', via: 'e2', msg: '200 OK · employees 6 · score 34', t: 188, skip: ['err', 'e7'] },
+      { node: 'if', status: 'success', via: 'e3', msg: '34 < 70 → false branch', t: 190, skip: ['d1', 'slack', 'e4', 'e5'] },
+      { node: 'queue', status: 'success', via: 'e6', msg: 'Send to nurture-leads recorded · not sent', t: 203 }
+    ]);
+    return head.concat([
+      { node: 'http', status: 'retrying', via: 'e2', msg: '503 Service Unavailable · retry in 400 ms (1/3)', t: 180 },
+      { node: 'http', status: 'retrying', msg: '503 Service Unavailable · retry in 800 ms (2/3)', t: 590 },
+      { node: 'http', status: 'failed', msg: '503 after 3 attempts · routed to error branch', t: 1402, skip: ['if', 'd1', 'slack', 'queue', 'e3', 'e4', 'e5', 'e6'] },
+      { node: 'err', status: 'success', via: 'e7', msg: 'PagerDuty incident recorded · not sent', t: 1406 }
+    ]);
+  }
+
+  schedule() {
+    var self = this;
+    clearTimeout(this.timer);
+    this.timer = setTimeout(function () { self.tick(); }, 1000 / this.state.speed);
+  }
+
+  tick() {
+    var len = this.events().length;
+    var self = this;
+    if (this.state.step >= len) { this.setState({ playing: false }); return; }
+    var next = this.state.step + 1;
+    this.setState({ step: next, playing: next < len }, function () {
+      if (self.state.playing) self.schedule();
+    });
+  }
+
+  renderVals() {
+    var self = this;
+    var st = this.state;
+    var theme = this.props.theme === 'dark' ? 'dark' : 'light';
+    var sfx = theme === 'dark' ? 'Dark' : '';
+    var links = { dash: 'Dashboard' + sfx + '.dc.html', history: 'RunHistory' + sfx + '.dc.html' };
+    var sim = st.mode === 'simulate';
+
+    var I = {
+      zap: 'M13 2 3 14h9l-1 8 10-12h-9l1-8z',
+      branch: 'M6 3v12M18 9a3 3 0 1 0 0-6 3 3 0 0 0 0 6zM6 21a3 3 0 1 0 0-6 3 3 0 0 0 0 6zM18 9a9 9 0 0 1-9 9',
+      arrow: 'M7 17 17 7M8 7h9v9',
+      cmd: 'M18 3a3 3 0 0 0-3 3v12a3 3 0 0 0 3 3 3 3 0 0 0 3-3 3 3 0 0 0-3-3H6a3 3 0 0 0-3 3 3 3 0 0 0 3 3 3 3 0 0 0 3-3V6a3 3 0 0 0-3-3 3 3 0 0 0-3 3 3 3 0 0 0 3 3h12a3 3 0 0 0 3-3 3 3 0 0 0-3-3z',
+      db: 'M3 5c0 1.66 4 3 9 3s9-1.34 9-3-4-3-9-3-9 1.34-9 3zM3 5v14c0 1.66 4 3 9 3s9-1.34 9-3V5M3 12c0 1.66 4 3 9 3s9-1.34 9-3',
+      layers: 'M12 2 2 7l10 5 10-5-10-5zM2 17l10 5 10-5M2 12l10 5 10-5',
+      hash: 'M4 9h16M4 15h16M10 3 8 21M16 3l-2 18',
+      alert: 'M10.29 3.86 1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0zM12 9v4M12 17h.01',
+      play: 'M6 3l14 9-14 9V3z',
+      clock: 'M12 22a10 10 0 1 0 0-20 10 10 0 0 0 0 20zM12 6v6l4 2',
+      mail: 'M4 4h16a2 2 0 0 1 2 2v12a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2zM22 6l-10 7L2 6',
+      merge: 'M18 21a3 3 0 1 0 0-6 3 3 0 0 0 0 6zM6 9a3 3 0 1 0 0-6 3 3 0 0 0 0 6zM6 21V9a9 9 0 0 0 9 9',
+      filter: 'M22 3H2l8 9.46V19l4 2v-8.54L22 3z',
+      loop: 'M17 1l4 4-4 4M3 11V9a4 4 0 0 1 4-4h14M7 23l-4-4 4-4M21 13v2a4 4 0 0 1-4 4H3',
+      box: 'M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z',
+      key: 'M21 2l-2 2m-7.61 7.61a5.5 5.5 0 1 1-7.78 7.78 5.5 5.5 0 0 1 7.78-7.78zm0 0L15.5 7.5m0 0l3 3L22 7l-3-3m-3.5 3.5L19 4'
+    };
+    var tile = function (cat, size, r) {
+      return 'width: ' + size + 'px; height: ' + size + 'px; border-radius: ' + r + 'px; flex: none; display: flex; align-items: center; justify-content: center; background: var(--c-' + cat + '-bg); color: var(--c-' + cat + ')';
+    };
+
+    // Palette (build mode)
+    var sections = [
+      ['TRIGGERS', 4, [['Manual', 'play', 'trigger'], ['Webhook', 'zap', 'trigger'], ['Schedule', 'clock', 'trigger'], ['Cloudflare Email', 'mail', 'trigger']]],
+      ['LOGIC', 9, [['IF / Condition', 'branch', 'logic'], ['Switch / Router', 'branch', 'logic'], ['Merge', 'merge', 'logic'], ['Filter', 'filter', 'logic'], ['Loop', 'loop', 'logic'], ['Error Handler', 'alert', 'error']]],
+      ['CLOUDFLARE', 5, [['D1', 'db', 'cf'], ['R2', 'box', 'cf'], ['KV', 'key', 'cf'], ['Queues', 'layers', 'cf']]],
+      ['DATA & UTILITIES', 14, [['Map / Transform', 'cmd', 'logic'], ['HTTP Request', 'arrow', 'http']]],
+      ['APPS', 9, [['Slack', 'hash', 'app'], ['GitHub', 'branch', 'app']]]
+    ];
+    var palette = sections.map(function (s) {
+      return { name: s[0], count: s[1], items: s[2].map(function (i) { return { name: i[0], icon: I[i[1]], tile: tile(i[2], 22, 5) }; }) };
+    });
+
+    // Graph
+    var NODES = [
+      { id: 'hook', kind: 'WEBHOOK', title: 'Receive lead', icon: 'zap', cat: 'trigger', x: 340, y: 48 },
+      { id: 'map', kind: 'MAP / TRANSFORM', title: 'Validate & map', icon: 'cmd', cat: 'logic', x: 340, y: 160 },
+      { id: 'http', kind: 'HTTP REQUEST', title: 'Enrich company', icon: 'arrow', cat: 'http', x: 340, y: 272 },
+      { id: 'err', kind: 'ERROR HANDLER', title: 'Page on-call', icon: 'alert', cat: 'error', x: 620, y: 272 },
+      { id: 'if', kind: 'IF / CONDITION', title: 'Score ≥ 70?', icon: 'branch', cat: 'logic', x: 340, y: 384 },
+      { id: 'd1', kind: 'CLOUDFLARE D1', title: 'Insert lead', icon: 'db', cat: 'cf', x: 180, y: 512 },
+      { id: 'queue', kind: 'CLOUDFLARE QUEUES', title: 'Nurture queue', icon: 'layers', cat: 'cf', x: 500, y: 512 },
+      { id: 'slack', kind: 'SLACK', title: 'Notify #sales', icon: 'hash', cat: 'app', x: 180, y: 624 }
+    ];
+    var V = function (x, y) { return 'M' + (x - 4) + ' ' + (y - 6) + ' L' + x + ' ' + y + ' L' + (x + 4) + ' ' + (y - 6); };
+    var EDGES = [
+      { id: 'e1', d: 'M440 104 L440 159', head: V(440, 159) },
+      { id: 'e2', d: 'M440 216 L440 271', head: V(440, 271) },
+      { id: 'e3', d: 'M440 328 L440 383', head: V(440, 383) },
+      { id: 'e4', d: 'M440 440 C440 476 280 476 280 511', head: V(280, 511), label: 'true', lx: 360, ly: 476 },
+      { id: 'e6', d: 'M440 440 C440 476 600 476 600 511', head: V(600, 511), label: 'false', lx: 520, ly: 476 },
+      { id: 'e5', d: 'M280 568 L280 623', head: V(280, 623) },
+      { id: 'e7', d: 'M540 300 L619 300', head: 'M613 296 L619 300 L613 304', label: 'error', lx: 580, ly: 300, err: true }
+    ];
+    var titleOf = {};
+    NODES.forEach(function (n) { titleOf[n.id] = n.title; });
+
+    // Simulation state
+    var evs = this.events();
+    var len = evs.length;
+    var done = st.step >= len;
+    var S = { success: 'var(--ok)', running: 'var(--run)', retrying: 'var(--warn)', failed: 'var(--fail)', skipped: 'var(--skip)' };
+    var SS = { running: 'var(--run-soft)', retrying: 'var(--warn-soft)' };
+    var status = {}, edgeState = {}, skipped = {};
+    var applied = sim ? evs.slice(0, st.step) : [];
+    applied.forEach(function (ev) {
+      status[ev.node] = ev.status;
+      if (ev.via) edgeState[ev.via] = 'done';
+      (ev.skip || []).forEach(function (k) { skipped[k] = true; });
+    });
+    var next = (!sim || done) ? null : evs[st.step];
+    var showActive = !!next && (st.playing || st.step > 0);
+    var nodeStatus = function (id) {
+      if (!sim) return 'idle';
+      if (showActive && next.node === id) return status[id] === 'retrying' ? 'retrying' : 'running';
+      if (status[id]) return status[id];
+      return skipped[id] ? 'skipped' : 'idle';
+    };
+    var selected = sim ? (st.selected || (applied.length ? applied[applied.length - 1].node : 'hook')) : 'if';
+    var word = { running: 'Running', retrying: 'Retrying', success: 'Succeeded', failed: 'Failed', skipped: 'Skipped', idle: 'Not run' };
+
+    var nodes = NODES.map(function (n) {
+      var s = nodeStatus(n.id);
+      var isSel = n.id === selected;
+      var border, ring, extra = '';
+      if (!sim) {
+        border = isSel ? '1px solid var(--accent)' : '1px solid var(--line-strong)';
+        ring = isSel ? '0 0 0 3px var(--accent-soft)' : 'var(--shadow)';
+      } else {
+        border = s === 'idle' ? '1px solid var(--line-strong)' : s === 'skipped' ? '1px dashed var(--line-strong)' : '1px solid ' + S[s];
+        ring = (s === 'running' || s === 'retrying') ? '0 0 0 3px ' + SS[s] : 'var(--shadow)';
+        if (s === 'skipped') extra += '; opacity: .45';
+        if (isSel) extra += '; outline: 1.5px solid var(--accent); outline-offset: 4px';
+      }
+      var labelText = sim && s !== 'idle' ? word[s].toUpperCase() : n.kind;
+      return {
+        kind: labelText,
+        kindStyle: 'font-size: 10px; letter-spacing: .08em; white-space: nowrap; color: ' + (sim && s !== 'idle' && s !== 'skipped' ? S[s] : 'var(--text-3)'),
+        title: n.title, icon: I[n.icon], tile: tile(n.cat, 30, 7),
+        aria: n.title + (sim ? ', ' + word[s] : ''),
+        moreStyle: sim ? 'display: none' : 'color: var(--text-3); font-size: 14px; letter-spacing: 1px',
+        box: 'position: absolute; left: ' + n.x + 'px; top: ' + n.y + 'px; width: 200px; height: 56px; box-sizing: border-box; padding: 0 12px; border-radius: 8px; background: var(--surface); display: flex; align-items: center; gap: 10px; text-align: left; font: inherit; color: inherit; cursor: pointer; transition: border-color .25s, box-shadow .25s, opacity .25s; border: ' + border + '; box-shadow: ' + ring + extra,
+        pick: function () { if (self.state.mode === 'simulate') self.setState({ selected: n.id }); }
+      };
+    });
+
+    var es = EDGES.map(function (e) {
+      var s = !sim ? 'idle' : (showActive && next.via === e.id ? 'active' : edgeState[e.id] ? 'done' : skipped[e.id] ? 'skipped' : 'idle');
+      var c = s === 'active' ? 'var(--run)' : s === 'done' ? (e.err ? 'var(--fail)' : 'var(--ok)') : s === 'skipped' ? 'var(--line)' : (e.err ? 'var(--fail)' : 'var(--line-strong)');
+      var dash = s === 'active' ? '; stroke-dasharray: 5 5; animation: flow .7s linear infinite' : (s === 'skipped' || (e.err && s === 'idle')) ? '; stroke-dasharray: 4 4' : '';
+      return {
+        e: e, s: s, d: e.d, head: e.head,
+        line: 'stroke: ' + c + '; stroke-width: ' + (s === 'idle' || s === 'skipped' ? '1.25' : '1.75') + dash + ((e.err && s === 'idle') ? '; opacity: .7' : ''),
+        headStyle: 'stroke: ' + c + '; stroke-width: 1.4; stroke-linecap: round; stroke-linejoin: round'
+      };
+    });
+    var labels = es.filter(function (x) { return x.e.label; }).map(function (x) {
+      var c = x.s === 'done' ? (x.e.err ? 'var(--fail)' : 'var(--ok)') : x.s === 'active' ? 'var(--run)' : x.s === 'skipped' ? 'var(--text-3)' : (x.e.err ? 'var(--fail)' : x.e.label === 'true' ? 'var(--ok)' : 'var(--text-2)');
+      return { text: x.e.label, style: 'position: absolute; left: ' + x.e.lx + 'px; top: ' + x.e.ly + 'px; transform: translate(-50%, -50%); font-family: \'JetBrains Mono\', monospace; font-size: 10.5px; line-height: 1.5; padding: 0 6px; border-radius: 4px; background: var(--surface); border: 1px solid var(--line); color: ' + c + (x.s === 'skipped' ? '; opacity: .6' : '') };
+    });
+
+    // Mode toggle
+    var modeTab = function (on) {
+      return 'height: 28px; padding: 0 11px; border-radius: 6px; font: inherit; font-size: 13px; display: flex; align-items: center; gap: 6px; cursor: pointer; ' + (on ? 'border: 1px solid var(--line); background: var(--surface); color: var(--text); font-weight: 500' : 'border: 1px solid transparent; background: transparent; color: var(--text-2)');
+    };
+    var toBuild = function () { clearTimeout(self.timer); self.setState({ mode: 'build', playing: false }); };
+    var toSim = function () { self.setState({ mode: 'simulate', step: 0, playing: false, selected: null }); };
+
+    // Simulation controls
+    var seg = function (on) {
+      return 'height: 24px; padding: 0 8px; border-radius: 5px; border: 0; font: inherit; font-size: 12px; cursor: pointer; ' + (on ? 'background: var(--surface-2); color: var(--text); font-weight: 500' : 'background: transparent; color: var(--text-2)');
+    };
+    var speeds = [0.5, 1, 2].map(function (v) {
+      var on = st.speed === v;
+      return { label: v + '×', on: on ? 'true' : 'false', style: seg(on), pick: function () { self.setState({ speed: v }, function () { if (self.state.playing) self.schedule(); }); } };
+    });
+    var fixtureDefs = [
+      ['hot', 'Hot lead', 'score 82', '{ "email": "sam@northwind…",\n  "source": "pricing-page" }', 'var(--ok)', 'var(--ok-soft)'],
+      ['cold', 'Cold lead', 'score 34', '{ "email": "jo@tinyshop…",\n  "source": "newsletter" }', 'var(--text-2)', 'var(--surface-2)'],
+      ['fail', 'Enrich API down', 'mock 503', '{ "email": "sam@northwind…",\n  "mock": { "enrich": 503 } }', 'var(--fail)', 'var(--fail-soft)']
+    ];
+    var fixtures = fixtureDefs.map(function (f) {
+      var on = st.fixture === f[0];
+      return {
+        label: f[1], tag: f[2], preview: f[3], on: on ? 'true' : 'false',
+        tagStyle: 'font-size: 11px; color: ' + f[4] + '; background: ' + f[5] + '; border-radius: 4px; padding: 1px 6px; white-space: nowrap',
+        style: 'display: block; width: 100%; padding: 10px 12px; border-radius: 8px; font: inherit; color: var(--text); text-align: left; cursor: pointer; background: var(--surface); ' + (on ? 'border: 1px solid var(--accent); box-shadow: 0 0 0 3px var(--accent-soft)' : 'border: 1px solid var(--line)'),
+        pick: function () { clearTimeout(self.timer); self.setState({ fixture: f[0], step: 0, playing: false, selected: null }); }
+      };
+    });
+    var toggle = function () {
+      if (self.state.playing) { clearTimeout(self.timer); self.setState({ playing: false }); return; }
+      var restart = self.state.step >= self.events().length;
+      self.setState({ playing: true, step: restart ? 0 : self.state.step, selected: restart ? null : self.state.selected }, function () { self.schedule(); });
+    };
+    var stepFwd = function () { clearTimeout(self.timer); self.setState({ playing: false, step: Math.min(self.state.step + 1, self.events().length) }); };
+    var reset = function () { clearTimeout(self.timer); self.setState({ playing: false, step: 0, selected: null }); };
+
+    var failed = st.fixture === 'fail';
+    var summary, sFg, sBg;
+    if (st.step === 0 && !st.playing) { summary = 'Ready'; sFg = 'var(--text-2)'; sBg = 'var(--surface)'; }
+    else if (!done) { summary = 'Running'; sFg = 'var(--run)'; sBg = 'var(--run-soft)'; }
+    else if (failed) { summary = 'Failed · handled'; sFg = 'var(--fail)'; sBg = 'var(--fail-soft)'; }
+    else { summary = 'Succeeded'; sFg = 'var(--ok)'; sBg = 'var(--ok-soft)'; }
+
+    var lastT = applied.length ? applied[applied.length - 1].t : 0;
+    var log = applied.map(function (ev) {
+      return { title: titleOf[ev.node], msg: ev.msg, t: '+' + ev.t + ' ms', dot: 'width: 7px; height: 7px; border-radius: 50%; margin-top: 6px; background: ' + S[ev.status] };
+    });
+    if (sim && done) log.push({ title: 'Run finished', msg: failed ? 'The failed step was handled by the error branch. Nothing was sent.' : 'All reachable nodes succeeded. Nothing was sent.', t: lastT + ' ms', dot: 'width: 7px; height: 7px; border-radius: 2px; margin-top: 6px; background: ' + sFg });
+
+    // Node data for the selected node
+    var body = st.fixture === 'cold'
+      ? { email: 'jo@tinyshop.example', company: 'Tiny Shop', source: 'newsletter' }
+      : { email: 'sam@northwind.example', company: 'Northwind', source: 'pricing-page' };
+    var score = st.fixture === 'cold' ? 34 : 82;
+    var out = {
+      hook: { body: body, headers: { 'x-signature': '••••••••' } },
+      map: { email: body.email, domain: body.email.split('@')[1], company: body.company, source: body.source },
+      http: failed
+        ? (status.http === 'failed' ? { status: 503, error: 'Service Unavailable', attempts: 3 } : { status: 503, retryInMs: 400 })
+        : (status.http === 'retrying' ? { status: 429, retryInMs: 400 } : { status: 200, json: { employees: st.fixture === 'cold' ? 6 : 420, industry: st.fixture === 'cold' ? 'Retail' : 'Logistics', score: score } }),
+      err: { recorded: true, pagerduty: { severity: 'warning', summary: 'Enrich company failed: 503' } },
+      if: { branch: score >= 70 ? 'true' : 'false', items: 1 },
+      d1: { recorded: true, db: 'scratch', sql: 'INSERT INTO leads (email, company, score) …', changes: 1 },
+      queue: { recorded: true, queue: 'nurture-leads', messageId: 'msg_sim_01' },
+      slack: { recorded: true, channel: '#sales', text: 'New hot lead: ' + body.company + ' (score ' + score + ')' }
+    };
+    var pred = { map: 'hook', http: 'map', err: 'http', if: 'http', d1: 'map', queue: 'map', slack: 'd1' };
+    var j = function (o) { return JSON.stringify(o, null, 2); };
+    var selStatus = nodeStatus(selected);
+    var ran = !!status[selected];
+    var ioIn, ioOut, ioNote;
+    if (selStatus === 'skipped') { ioIn = '—'; ioOut = '// Skipped: this branch was not taken'; ioNote = 'Skipped'; }
+    else if (!ran) { ioIn = '—'; ioOut = '// Not reached yet'; ioNote = selStatus === 'running' || selStatus === 'retrying' ? word[selStatus] : 'Pending'; }
+    else {
+      ioIn = selected === 'hook' ? j({ method: 'POST', path: '/hooks/leads', bytes: 1842 }) : j(out[pred[selected]]);
+      ioOut = j(out[selected]);
+      ioNote = word[status[selected]];
+    }
+    var mocked = { hot: '2 side effects recorded: D1 insert, Slack post', cold: '1 side effect recorded: queue send', fail: '1 side effect recorded: PagerDuty incident' };
+
+    return {
+      root: this.themeVars(theme) + '; width: 1440px; height: 900px; box-sizing: border-box; display: flex; flex-direction: column; overflow: hidden; font-family: Inter, system-ui, sans-serif; color: var(--text); background: var(--bg); color-scheme: ' + theme,
+      links: links, ob: '{{', cb: '}}',
+      sim: sim, build: !sim,
+      buildTab: modeTab(!sim), simTab: modeTab(sim), buildPressed: sim ? 'false' : 'true', simPressed: sim ? 'true' : 'false',
+      toBuild: toBuild, toSim: toSim,
+      leftLabel: sim ? 'Test inputs' : 'Node palette', rightLabel: sim ? 'Execution' : 'Node configuration',
+      canvasLabel: sim ? 'SIMULATING DRAFT V13' : 'CANVAS',
+      palette: palette, nodes: nodes, edges: es, labels: labels,
+      fixtures: fixtures, speeds: speeds, toggle: toggle, stepFwd: stepFwd, reset: reset,
+      playLabel: st.playing ? 'Pause' : (done ? 'Replay' : 'Play'),
+      playIcon: st.playing ? 'M6 4h4v16H6zM14 4h4v16h-4z' : 'M6 3l14 9-14 9V3z',
+      progressText: 'Step ' + st.step + ' of ' + len,
+      elapsed: lastT + ' ms',
+      progressBar: 'height: 100%; transition: width .3s; width: ' + (st.step / len * 100) + '%; background: ' + (summary === 'Ready' ? 'var(--accent)' : sFg),
+      summary: summary,
+      summaryStyle: 'display: inline-flex; align-items: center; gap: 6px; font-size: 12px; font-weight: 500; white-space: nowrap; border-radius: 5px; padding: 4px 9px; border: 1px solid var(--line); color: ' + sFg + '; background: ' + sBg,
+      showHint: sim && st.step === 0 && !st.playing,
+      log: log, logEmpty: log.length === 0, fixtureId: st.fixture,
+      ioTitle: titleOf[selected], ioNote: ioNote, ioIn: ioIn, ioOut: ioOut,
+      footerA: sim ? 'D1 writes go to a scratch database · Slack, Queues and PagerDuty calls are recorded' : '3 credentials connected · last test succeeded in 0.7 s',
+      footerB: sim ? mocked[st.fixture] : 'Test webhook URL is isolated from production'
+    };
+  }
+}
+</script>
+</body>
+</html>

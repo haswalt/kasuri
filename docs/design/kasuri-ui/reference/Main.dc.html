@@ -1,0 +1,122 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Kasuri · Sign in</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+body{margin:0}
+a{color:inherit}a:hover{color:var(--accent)}
+input::placeholder{color:var(--text-3)}
+@keyframes flow{to{stroke-dashoffset:-20}}
+@keyframes pulse{50%{opacity:.35}}
+</style>
+</helmet>
+<div style="{{ root }}">
+
+  <section style="width: 800px; flex: none; box-sizing: border-box; padding: 44px 64px; display: flex; flex-direction: column; justify-content: space-between; background-color: var(--canvas); background-image: radial-gradient(var(--dot) 1px, transparent 1px); background-size: 20px 20px; border-right: 1px solid var(--line)">
+    <div style="display: flex; align-items: center; gap: 10px">
+      <svg width="34" height="34" viewBox="0 0 32 32" aria-hidden="true"><rect x="3" y="7" width="26" height="7" rx="1" fill="#4CC3CB"></rect><rect x="3" y="11.5" width="26" height="2.5" fill="#2A9AA4"></rect><rect x="3" y="18" width="26" height="7" rx="1" fill="#4CC3CB"></rect><rect x="3" y="22.5" width="26" height="2.5" fill="#2A9AA4"></rect><rect x="5.5" y="7" width="1.5" height="7" fill="#04363C" fill-opacity=".35"></rect><rect x="14" y="7" width="1.5" height="7" fill="#04363C" fill-opacity=".35"></rect><rect x="16.5" y="18" width="1.5" height="7" fill="#04363C" fill-opacity=".35"></rect><rect x="25" y="18" width="1.5" height="7" fill="#04363C" fill-opacity=".35"></rect><rect x="7" y="3" width="7" height="26" rx="1" fill="#138A96"></rect><rect x="11.5" y="3" width="2.5" height="26" fill="#0B6470"></rect><rect x="18" y="3" width="7" height="26" rx="1" fill="#138A96"></rect><rect x="22.5" y="3" width="2.5" height="26" fill="#0B6470"></rect><rect x="18" y="5.5" width="7" height="1.5" fill="#04363C" fill-opacity=".35"></rect><rect x="18" y="14" width="7" height="1.5" fill="#04363C" fill-opacity=".35"></rect><rect x="7" y="16.5" width="7" height="1.5" fill="#04363C" fill-opacity=".35"></rect><rect x="7" y="25" width="7" height="1.5" fill="#04363C" fill-opacity=".35"></rect><rect x="18" y="7" width="7" height="7" fill="#4CC3CB"></rect><rect x="18" y="11.5" width="7" height="2.5" fill="#2A9AA4"></rect><rect x="7" y="18" width="7" height="7" fill="#4CC3CB"></rect><rect x="7" y="22.5" width="7" height="2.5" fill="#2A9AA4"></rect></svg>
+      <span style="font-size: 21px; font-weight: 600; letter-spacing: -0.02em">kasuri</span>
+      <span style="font-size: 11px; color: var(--text-2); background: var(--surface-2); border: 1px solid var(--line); border-radius: 4px; padding: 1px 6px">alpha</span>
+    </div>
+
+    <div style="position: relative; width: 600px; height: 240px" aria-hidden="true">
+      <svg width="600" height="240" viewBox="0 0 600 240" fill="none" style="position: absolute; left: 0; top: 0">
+        <path d="M180 128 L214 128" style="stroke: var(--run); stroke-width: 1.5; stroke-dasharray: 5 5; animation: flow 1s linear infinite"></path>
+        <path d="M394 128 C410 128 410 52 426 52" style="stroke: var(--run); stroke-width: 1.5; stroke-dasharray: 5 5; animation: flow 1s linear infinite"></path>
+        <path d="M394 128 C410 128 410 204 426 204" style="stroke: var(--line-strong); stroke-width: 1.5"></path>
+      </svg>
+      <div style="position: absolute; left: 0; top: 100px; width: 180px; height: 56px; box-sizing: border-box; border-radius: 8px; background: var(--surface); border: 1px solid var(--ok); display: flex; align-items: center; gap: 10px; padding: 0 12px; box-shadow: var(--shadow)">
+        <span style="width: 30px; height: 30px; border-radius: 7px; background: var(--c-trigger-bg); color: var(--c-trigger); display: flex; align-items: center; justify-content: center"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"><path d="M13 2 3 14h9l-1 8 10-12h-9l1-8z"></path></svg></span>
+        <span><span style="display: block; font-size: 10px; letter-spacing: .08em; color: var(--text-3)">WEBHOOK</span><span style="display: block; font-size: 13px; font-weight: 500">Receive lead</span></span>
+      </div>
+      <div style="position: absolute; left: 214px; top: 100px; width: 180px; height: 56px; box-sizing: border-box; border-radius: 8px; background: var(--surface); border: 1px solid var(--ok); display: flex; align-items: center; gap: 10px; padding: 0 12px; box-shadow: var(--shadow)">
+        <span style="width: 30px; height: 30px; border-radius: 7px; background: var(--c-logic-bg); color: var(--c-logic); display: flex; align-items: center; justify-content: center"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M6 3v12M18 9a3 3 0 1 0 0-6 3 3 0 0 0 0 6zM6 21a3 3 0 1 0 0-6 3 3 0 0 0 0 6zM18 9a9 9 0 0 1-9 9"></path></svg></span>
+        <span><span style="display: block; font-size: 10px; letter-spacing: .08em; color: var(--text-3)">IF / CONDITION</span><span style="display: block; font-size: 13px; font-weight: 500">Score ≥ 70?</span></span>
+      </div>
+      <div style="position: absolute; left: 426px; top: 24px; width: 174px; height: 56px; box-sizing: border-box; border-radius: 8px; background: var(--surface); border: 1px solid var(--run); box-shadow: 0 0 0 3px var(--run-soft); display: flex; align-items: center; gap: 10px; padding: 0 12px">
+        <span style="width: 30px; height: 30px; border-radius: 7px; background: var(--c-app-bg); color: var(--c-app); display: flex; align-items: center; justify-content: center; font-size: 16px; font-weight: 500">#</span>
+        <span><span style="display: block; font-size: 10px; letter-spacing: .08em; color: var(--run)">RUNNING</span><span style="display: block; font-size: 13px; font-weight: 500">Notify #sales</span></span>
+      </div>
+      <div style="position: absolute; left: 426px; top: 176px; width: 174px; height: 56px; box-sizing: border-box; border-radius: 8px; background: var(--surface); border: 1px dashed var(--line-strong); opacity: .6; display: flex; align-items: center; gap: 10px; padding: 0 12px">
+        <span style="width: 30px; height: 30px; border-radius: 7px; background: var(--c-cf-bg); color: var(--c-cf); display: flex; align-items: center; justify-content: center"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"><path d="M12 2 2 7l10 5 10-5-10-5zM2 17l10 5 10-5M2 12l10 5 10-5"></path></svg></span>
+        <span><span style="display: block; font-size: 10px; letter-spacing: .08em; color: var(--text-3)">SKIPPED</span><span style="display: block; font-size: 13px; font-weight: 500">Nurture queue</span></span>
+      </div>
+    </div>
+
+    <div style="display: flex; flex-direction: column; gap: 22px">
+      <h1 style="margin: 0; font-size: 42px; line-height: 1.12; font-weight: 600; letter-spacing: -0.03em; max-width: 600px">Durable workflows, on your own Cloudflare account.</h1>
+      <ul style="margin: 0; padding: 0; list-style: none; display: flex; flex-direction: column; gap: 10px; font-size: 15px; color: var(--text-2)">
+        <li style="display: flex; align-items: center; gap: 10px"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" style="color: var(--ok)"><polyline points="20 6 9 17 4 12"></polyline></svg>Checkpointed runs that survive redeploys and long waits</li>
+        <li style="display: flex; align-items: center; gap: 10px"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" style="color: var(--ok)"><polyline points="20 6 9 17 4 12"></polyline></svg>Encrypted credentials that never leave your account</li>
+        <li style="display: flex; align-items: center; gap: 10px"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" style="color: var(--ok)"><polyline points="20 6 9 17 4 12"></polyline></svg>Visual and TypeScript authoring on one versioned graph</li>
+      </ul>
+    </div>
+  </section>
+
+  <section style="flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center; padding: 48px; box-sizing: border-box; background: var(--surface)">
+    <div style="width: 380px; display: flex; flex-direction: column; gap: 24px">
+      <div>
+        <h2 style="margin: 0 0 6px; font-size: 26px; font-weight: 600; letter-spacing: -0.02em">Sign in</h2>
+        <p style="margin: 0; font-size: 14px; color: var(--text-2)">to <span style="font-family: 'JetBrains Mono', monospace; font-size: 13px">flows.example.com</span></p>
+      </div>
+
+      <form style="display: flex; flex-direction: column; gap: 16px">
+        <div style="display: flex; flex-direction: column; gap: 6px">
+          <label for="email" style="font-size: 13px; color: var(--text-2)">Email</label>
+          <input id="email" type="email" placeholder="you@company.com" style="height: 42px; box-sizing: border-box; padding: 0 14px; border-radius: 8px; border: 1px solid var(--line-strong); background: var(--surface); color: var(--text); font: inherit; font-size: 14px">
+        </div>
+        <div style="display: flex; flex-direction: column; gap: 6px">
+          <div style="display: flex; justify-content: space-between; align-items: baseline">
+            <label for="pw" style="font-size: 13px; color: var(--text-2)">Password</label>
+            <a href="#" style="font-size: 13px; text-decoration: none; color: var(--accent)">Forgot password?</a>
+          </div>
+          <input id="pw" type="password" placeholder="••••••••••" style="height: 42px; box-sizing: border-box; padding: 0 14px; border-radius: 8px; border: 1px solid var(--line-strong); background: var(--surface); color: var(--text); font: inherit; font-size: 14px">
+        </div>
+        <label style="display: flex; align-items: center; gap: 10px; font-size: 13px; color: var(--text-2)"><input type="checkbox" style="width: 15px; height: 15px; margin: 0; accent-color: #0B6E79">Keep me signed in on this device</label>
+        <a href="{{ links.dash }}" style="height: 42px; border-radius: 8px; background: var(--accent); color: var(--accent-fg); font-weight: 500; font-size: 14px; display: flex; align-items: center; justify-content: center; text-decoration: none">Sign in</a>
+      </form>
+
+      <div style="display: flex; align-items: center; gap: 12px; font-size: 12px; color: var(--text-3)"><span style="flex: 1; height: 1px; background: var(--line)"></span>or<span style="flex: 1; height: 1px; background: var(--line)"></span></div>
+
+      <a href="{{ links.dash }}" style="height: 42px; border-radius: 8px; border: 1px solid var(--line-strong); background: var(--surface); font-size: 14px; display: flex; align-items: center; justify-content: center; gap: 10px; text-decoration: none">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round" aria-hidden="true"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"></path></svg>
+        Continue with SSO (OIDC)
+      </a>
+
+      <div style="border: 1px solid var(--line); border-radius: 8px; padding: 14px 16px; display: flex; gap: 12px; background: var(--surface-2)">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" style="flex: none; margin-top: 2px; color: var(--accent)"><path d="M21 2l-2 2m-7.61 7.61a5.5 5.5 0 1 1-7.78 7.78 5.5 5.5 0 0 1 7.78-7.78zm0 0L15.5 7.5m0 0l3 3L22 7l-3-3m-3.5 3.5L19 4"></path></svg>
+        <p style="margin: 0; font-size: 13px; line-height: 1.55; color: var(--text-2)">First deployment? Create the owner account with the bootstrap token printed by the deploy command. <a href="#" style="text-decoration: none; color: var(--accent)">Set up owner</a></p>
+      </div>
+    </div>
+    <p style="margin: 40px 0 0; font-size: 12px; color: var(--text-3); display: flex; gap: 14px; align-items: center"><span style="display: inline-flex; align-items: center; gap: 6px"><span style="width: 7px; height: 7px; border-radius: 50%; background: var(--ok)"></span>All services healthy</span><span>v0.4.0</span><span>Open source</span></p>
+  </section>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"theme":{"editor":"enum","options":["light","dark"],"default":"light"},"$preview":{"width":1440,"height":900}}'>
+class Component extends DCLogic {
+  themeVars(name) {
+    var L = { bg: '#F7F8FA', surface: '#FFFFFF', 'surface-2': '#F2F3F6', canvas: '#F4F5F8', dot: '#D3D7DF', line: '#E5E7EB', 'line-strong': '#D0D4DC', text: '#181B21', 'text-2': '#525967', 'text-3': '#6B7280', accent: '#0B6E79', 'accent-fg': '#FFFFFF', 'accent-soft': '#E4F2F3', ok: '#1A7F37', 'ok-soft': '#E9F5EC', run: '#0969DA', 'run-soft': '#E4EFFC', warn: '#9A6700', 'warn-soft': '#FBF2DD', fail: '#CF222E', 'fail-soft': '#FCECED', wait: '#8250DF', 'wait-soft': '#F3EEFD', skip: '#6E7781', 'c-trigger': '#7C5CD6', 'c-trigger-bg': '#F1EDFB', 'c-http': '#2563EB', 'c-http-bg': '#E8EFFD', 'c-logic': '#475467', 'c-logic-bg': '#EEF0F3', 'c-cf': '#B4590F', 'c-cf-bg': '#FCEFE3', 'c-app': '#A8436A', 'c-app-bg': '#F9ECF1', 'c-error': '#CF222E', 'c-error-bg': '#FCECED', shadow: '0 1px 2px rgba(16,24,40,.04)' };
+    var D = { bg: '#0B0D11', surface: '#111419', 'surface-2': '#181C23', canvas: '#0D1015', dot: '#22272F', line: '#1F242C', 'line-strong': '#2E343E', text: '#E6E8EC', 'text-2': '#A3ABB9', 'text-3': '#8B93A3', accent: '#4CC3CB', 'accent-fg': '#061A1C', 'accent-soft': 'rgba(76,195,203,.14)', ok: '#3FB950', 'ok-soft': 'rgba(63,185,80,.13)', run: '#58A6FF', 'run-soft': 'rgba(88,166,255,.16)', warn: '#D29922', 'warn-soft': 'rgba(210,153,34,.14)', fail: '#F85149', 'fail-soft': 'rgba(248,81,73,.13)', wait: '#A78BFA', 'wait-soft': 'rgba(167,139,250,.14)', skip: '#768390', 'c-trigger': '#A78BFA', 'c-trigger-bg': 'rgba(167,139,250,.13)', 'c-http': '#7DA6FF', 'c-http-bg': 'rgba(125,166,255,.13)', 'c-logic': '#B4BCC8', 'c-logic-bg': 'rgba(180,188,200,.12)', 'c-cf': '#FB923C', 'c-cf-bg': 'rgba(251,146,60,.12)', 'c-app': '#F472B6', 'c-app-bg': 'rgba(244,114,182,.12)', 'c-error': '#F85149', 'c-error-bg': 'rgba(248,81,73,.12)', shadow: 'none' };
+    var t = name === 'dark' ? D : L;
+    return Object.keys(t).map(function (k) { return '--' + k + ': ' + t[k]; }).join('; ');
+  }
+  renderVals() {
+    var theme = this.props.theme === 'dark' ? 'dark' : 'light';
+    var sfx = theme === 'dark' ? 'Dark' : '';
+    return {
+      root: this.themeVars(theme) + '; width: 1440px; height: 900px; box-sizing: border-box; display: flex; overflow: hidden; font-family: Inter, system-ui, sans-serif; color: var(--text); background: var(--bg); color-scheme: ' + theme,
+      links: { dash: 'Dashboard' + sfx + '.dc.html' }
+    };
+  }
+}
+</script>
+</body>
+</html>

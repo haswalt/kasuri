@@ -1,0 +1,291 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Kasuri · Workflows</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+body{margin:0}
+a{color:inherit}a:hover{color:var(--accent)}
+input::placeholder{color:var(--text-3)}
+@keyframes flow{to{stroke-dashoffset:-20}}
+@keyframes pulse{50%{opacity:.35}}
+</style>
+</helmet>
+<div style="{{ root }}">
+
+  <dc-import name="Sidebar" active="workflows" theme="{{ theme }}" hint-size="240px,900px"></dc-import>
+
+  <div style="flex: 1; min-width: 0; display: flex; flex-direction: column">
+    <header style="height: 56px; flex: none; box-sizing: border-box; display: flex; align-items: center; gap: 10px; padding: 0 40px; border-bottom: 1px solid var(--line); background: var(--surface); font-size: 14px">
+      <span style="color: var(--text-2)">Personal workspace</span>
+      <span style="color: var(--text-3)">/</span>
+      <span>Workflows</span>
+      <span style="flex: 1"></span>
+      <span style="display: inline-flex; align-items: center; gap: 6px; font-size: 12px; color: var(--text-2); border: 1px solid var(--line); border-radius: 6px; padding: 4px 10px"><span style="width: 6px; height: 6px; border-radius: 50%; background: var(--ok)"></span>flows.example.com</span>
+    </header>
+
+    <main style="flex: 1; min-height: 0; box-sizing: border-box; padding: 32px 40px; display: flex; flex-direction: column; gap: 24px">
+      <div style="display: flex; align-items: flex-end; justify-content: space-between">
+        <div>
+          <div style="font-size: 11px; letter-spacing: .14em; color: var(--text-3); margin-bottom: 8px">BUILD &amp; AUTOMATE</div>
+          <h1 style="margin: 0 0 6px; font-size: 28px; font-weight: 600; letter-spacing: -0.025em">Workflows</h1>
+          <p style="margin: 0; font-size: 14px; color: var(--text-2)">7 workflows · 5 active · run states for the last 24 hours</p>
+        </div>
+        <div style="display: flex; gap: 8px">
+          <button style="height: 36px; padding: 0 14px; border-radius: 8px; border: 1px solid var(--line-strong); background: var(--surface); color: var(--text); font: inherit; font-size: 14px; cursor: pointer">Import JSON</button>
+          <a href="{{ links.editor }}" style="height: 36px; padding: 0 14px; border-radius: 8px; background: var(--accent); color: var(--accent-fg); font-size: 14px; font-weight: 500; display: flex; align-items: center; gap: 6px; text-decoration: none"><span style="font-size: 17px; line-height: 1">+</span> New workflow</a>
+        </div>
+      </div>
+
+      <section aria-label="Last 24 hours" style="border: 1px solid var(--line); border-radius: 10px; background: var(--surface); box-shadow: var(--shadow)">
+        <div style="display: grid; grid-template-columns: repeat(4, minmax(0, 1fr))">
+          <sc-for list="{{ stats }}" as="s" hint-placeholder-count="4">
+            <div style="{{ s.cell }}">
+              <div style="font-size: 13px; color: var(--text-2)">{{ s.label }}</div>
+              <div style="display: flex; align-items: baseline; gap: 10px; margin-top: 8px"><span style="font-size: 26px; font-weight: 600; letter-spacing: -0.02em; font-variant-numeric: tabular-nums">{{ s.value }}</span><span style="font-size: 12px; color: var(--text-3)">{{ s.sub }}</span></div>
+            </div>
+          </sc-for>
+        </div>
+        <div style="border-top: 1px solid var(--line); padding: 14px 24px; display: flex; flex-direction: column; gap: 10px">
+          <div style="display: flex; height: 6px; border-radius: 3px; overflow: hidden; gap: 2px">
+            <sc-for list="{{ states }}" as="r" hint-placeholder-count="7">
+              <span style="{{ r.seg }}"></span>
+            </sc-for>
+          </div>
+          <div style="display: flex; gap: 22px; font-size: 12px; color: var(--text-2)">
+            <sc-for list="{{ states }}" as="r" hint-placeholder-count="7">
+              <span style="display: inline-flex; align-items: center; gap: 6px"><span style="{{ r.dot }}"></span>{{ r.label }}<span style="color: var(--text); font-variant-numeric: tabular-nums">{{ r.count }}</span></span>
+            </sc-for>
+          </div>
+        </div>
+      </section>
+
+      <section aria-label="Workflow list" style="border: 1px solid var(--line); border-radius: 10px; background: var(--surface); box-shadow: var(--shadow)">
+        <div style="display: flex; align-items: center; gap: 4px; padding: 12px 16px">
+          <button style="height: 30px; padding: 0 12px; border-radius: 6px; border: 0; background: var(--accent-soft); color: var(--accent); font: inherit; font-size: 13px; font-weight: 500">All workflows</button>
+          <button style="height: 30px; padding: 0 12px; border-radius: 6px; border: 0; background: transparent; color: var(--text-2); font: inherit; font-size: 13px">Active</button>
+          <button style="height: 30px; padding: 0 12px; border-radius: 6px; border: 0; background: transparent; color: var(--text-2); font: inherit; font-size: 13px">Draft</button>
+          <button style="height: 30px; padding: 0 12px; border-radius: 6px; border: 0; background: transparent; color: var(--text-2); font: inherit; font-size: 13px">Paused</button>
+          <span style="flex: 1"></span>
+          <label style="display: flex; align-items: center; gap: 8px; width: 260px; height: 32px; box-sizing: border-box; padding: 0 10px; border: 1px solid var(--line-strong); border-radius: 7px">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true" style="color: var(--text-3)"><circle cx="11" cy="11" r="7"></circle><path d="m20 20-3.5-3.5"></path></svg>
+            <span style="position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0)">Search workflows</span>
+            <input placeholder="Search workflows…" style="flex: 1; min-width: 0; border: 0; background: transparent; color: var(--text); font: inherit; font-size: 13px; outline: none">
+          </label>
+        </div>
+        <table style="width: 100%; border-collapse: collapse; font-size: 13px">
+          <thead>
+            <tr style="text-align: left; color: var(--text-3); font-size: 12px; background: var(--surface-2)">
+              <th style="padding: 9px 16px; font-weight: 500; border-top: 1px solid var(--line); border-bottom: 1px solid var(--line)">Workflow</th>
+              <th style="padding: 9px 12px; font-weight: 500; border-top: 1px solid var(--line); border-bottom: 1px solid var(--line)">Status</th>
+              <th style="padding: 9px 12px; font-weight: 500; border-top: 1px solid var(--line); border-bottom: 1px solid var(--line)">Last run</th>
+              <th style="padding: 9px 12px; font-weight: 500; border-top: 1px solid var(--line); border-bottom: 1px solid var(--line); text-align: right">Runs 24h</th>
+              <th style="padding: 9px 12px; font-weight: 500; border-top: 1px solid var(--line); border-bottom: 1px solid var(--line)">Trigger</th>
+              <th style="padding: 9px 12px; font-weight: 500; border-top: 1px solid var(--line); border-bottom: 1px solid var(--line)">Updated</th>
+              <th style="padding: 9px 16px; font-weight: 500; border-top: 1px solid var(--line); border-bottom: 1px solid var(--line); width: 32px"><span style="position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0)">Actions</span></th>
+            </tr>
+          </thead>
+          <tbody>
+            <sc-for list="{{ workflows }}" as="w" hint-placeholder-count="6">
+              <tr>
+                <td style="padding: 11px 16px; border-bottom: 1px solid var(--line)">
+                  <a href="{{ links.editor }}" style="display: flex; align-items: center; gap: 12px; text-decoration: none">
+                    <span style="width: 32px; height: 32px; border-radius: 7px; border: 1px solid var(--line); background: var(--surface-2); color: var(--accent); display: flex; align-items: center; justify-content: center; flex: none"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round" aria-hidden="true"><path d="M12 2.5 21.5 12 12 21.5 2.5 12z"></path></svg></span>
+                    <span><span style="display: block; font-weight: 500">{{ w.name }}</span><span style="display: block; font-size: 12px; color: var(--text-3); margin-top: 2px">{{ w.desc }}</span></span>
+                  </a>
+                </td>
+                <td style="padding: 11px 12px; border-bottom: 1px solid var(--line)"><span style="{{ w.statusStyle }}"><span style="{{ w.statusDot }}"></span>{{ w.status }}</span></td>
+                <td style="padding: 11px 12px; border-bottom: 1px solid var(--line)">
+                  <a href="{{ w.runHref }}" style="display: inline-flex; align-items: center; gap: 7px; text-decoration: none"><span style="{{ w.runDot }}"></span><span style="{{ w.runText }}">{{ w.run }}</span></a>
+                  <div style="font-size: 12px; color: var(--text-3); margin-top: 2px">{{ w.when }}</div>
+                </td>
+                <td style="padding: 11px 12px; border-bottom: 1px solid var(--line); text-align: right; font-variant-numeric: tabular-nums">{{ w.runs }}</td>
+                <td style="padding: 11px 12px; border-bottom: 1px solid var(--line); font-family: 'JetBrains Mono', monospace; font-size: 12px; color: var(--text-2)">{{ w.trigger }}</td>
+                <td style="padding: 11px 12px; border-bottom: 1px solid var(--line); color: var(--text-2)">{{ w.updated }}</td>
+                <td style="padding: 11px 16px; border-bottom: 1px solid var(--line); position: relative">
+                  <button onClick="{{ w.toggleMenu }}" aria-label="{{ w.menuLabel }}" aria-expanded="{{ w.menuExpanded }}" aria-haspopup="menu" style="{{ w.kebab }}">···</button>
+                  <sc-if value="{{ w.menuOpen }}" hint-placeholder-val="{{ false }}">
+                    <div role="menu" aria-label="{{ w.menuLabel }}" style="{{ w.menuStyle }}">
+                      <sc-for list="{{ w.items }}" as="it" hint-placeholder-count="5">
+                        <button role="menuitem" onClick="{{ it.act }}" style="{{ it.style }}">
+                          <span style="display: block; font-size: 13px">{{ it.label }}</span>
+                          <span style="{{ it.hintStyle }}">{{ it.hint }}</span>
+                        </button>
+                      </sc-for>
+                    </div>
+                  </sc-if>
+                </td>
+              </tr>
+            </sc-for>
+          </tbody>
+        </table>
+        <div style="display: flex; justify-content: space-between; padding: 12px 16px; font-size: 12px; color: var(--text-3)"><span>{{ footer }}</span><a href="{{ links.history }}" style="color: var(--accent); text-decoration: none">View run history</a></div>
+      </section>
+    </main>
+  </div>
+
+  <sc-if value="{{ toastShow }}" hint-placeholder-val="{{ false }}">
+    <div role="status" style="position: absolute; left: 50%; bottom: 28px; transform: translateX(-50%); z-index: 20; display: flex; align-items: center; gap: 14px; padding: 10px 14px; border-radius: 8px; background: var(--text); color: var(--bg); font-size: 13px; box-shadow: 0 12px 32px rgba(12,16,24,.24)">
+      <span>{{ toast }}</span>
+      <button onClick="{{ undo }}" style="padding: 0; border: 0; background: transparent; color: var(--bg); font: inherit; font-weight: 600; text-decoration: underline; cursor: pointer">Undo</button>
+    </div>
+  </sc-if>
+
+  <sc-if value="{{ confirmShow }}" hint-placeholder-val="{{ false }}">
+    <div style="position: absolute; inset: 0; z-index: 30; display: flex; align-items: center; justify-content: center">
+      <button onClick="{{ cancelDelete }}" aria-label="Cancel" style="position: absolute; inset: 0; padding: 0; border: 0; background: rgba(12,16,24,.45); cursor: default"></button>
+      <div role="alertdialog" aria-modal="true" aria-label="Delete workflow" style="position: relative; width: 460px; box-sizing: border-box; padding: 22px 24px; border-radius: 12px; border: 1px solid var(--line); background: var(--surface); box-shadow: 0 24px 64px rgba(12,16,24,.28); display: flex; flex-direction: column; gap: 14px">
+        <h2 style="margin: 0; font-size: 17px; font-weight: 600">Delete “{{ confirmName }}”?</h2>
+        <ul style="margin: 0; padding-left: 18px; font-size: 13px; line-height: 1.6; color: var(--text-2)">
+          <li>Its triggers are removed and webhook URLs stop accepting events.</li>
+          <li>Runs in progress are cancelled at their next checkpoint.</li>
+          <li>Run history stays for 30 days; revisions can be restored for 30 days from Settings.</li>
+        </ul>
+        <label for="confirm-name" style="font-size: 13px; color: var(--text-2)">Type the workflow name to confirm</label>
+        <input id="confirm-name" placeholder="{{ confirmName }}" style="height: 36px; box-sizing: border-box; padding: 0 12px; border-radius: 7px; border: 1px solid var(--line-strong); background: var(--surface); color: var(--text); font: inherit; font-size: 13px">
+        <div style="display: flex; justify-content: flex-end; gap: 8px; margin-top: 4px">
+          <button onClick="{{ cancelDelete }}" style="height: 34px; padding: 0 14px; border-radius: 7px; border: 1px solid var(--line-strong); background: var(--surface); color: var(--text); font: inherit; font-size: 13px; cursor: pointer">Cancel</button>
+          <button onClick="{{ confirmDelete }}" style="height: 34px; padding: 0 14px; border-radius: 7px; border: 0; background: var(--fail); color: #FFFFFF; font: inherit; font-size: 13px; font-weight: 500; cursor: pointer">Delete workflow</button>
+        </div>
+      </div>
+    </div>
+  </sc-if>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"theme":{"editor":"enum","options":["light","dark"],"default":"light"},"$preview":{"width":1440,"height":900}}'>
+class Component extends DCLogic {
+  constructor(props) {
+    super(props);
+    this.state = { menu: null, status: {}, deleted: {}, confirm: null, toast: null, last: null };
+  }
+  themeVars(name) {
+    var L = { bg: '#F7F8FA', surface: '#FFFFFF', 'surface-2': '#F2F3F6', canvas: '#F4F5F8', dot: '#D3D7DF', line: '#E5E7EB', 'line-strong': '#D0D4DC', text: '#181B21', 'text-2': '#525967', 'text-3': '#6B7280', accent: '#0B6E79', 'accent-fg': '#FFFFFF', 'accent-soft': '#E4F2F3', ok: '#1A7F37', 'ok-soft': '#E9F5EC', run: '#0969DA', 'run-soft': '#E4EFFC', warn: '#9A6700', 'warn-soft': '#FBF2DD', fail: '#CF222E', 'fail-soft': '#FCECED', wait: '#8250DF', 'wait-soft': '#F3EEFD', skip: '#6E7781', 'c-trigger': '#7C5CD6', 'c-trigger-bg': '#F1EDFB', 'c-http': '#2563EB', 'c-http-bg': '#E8EFFD', 'c-logic': '#475467', 'c-logic-bg': '#EEF0F3', 'c-cf': '#B4590F', 'c-cf-bg': '#FCEFE3', 'c-app': '#A8436A', 'c-app-bg': '#F9ECF1', 'c-error': '#CF222E', 'c-error-bg': '#FCECED', shadow: '0 1px 2px rgba(16,24,40,.04)' };
+    var D = { bg: '#0B0D11', surface: '#111419', 'surface-2': '#181C23', canvas: '#0D1015', dot: '#22272F', line: '#1F242C', 'line-strong': '#2E343E', text: '#E6E8EC', 'text-2': '#A3ABB9', 'text-3': '#8B93A3', accent: '#4CC3CB', 'accent-fg': '#061A1C', 'accent-soft': 'rgba(76,195,203,.14)', ok: '#3FB950', 'ok-soft': 'rgba(63,185,80,.13)', run: '#58A6FF', 'run-soft': 'rgba(88,166,255,.16)', warn: '#D29922', 'warn-soft': 'rgba(210,153,34,.14)', fail: '#F85149', 'fail-soft': 'rgba(248,81,73,.13)', wait: '#A78BFA', 'wait-soft': 'rgba(167,139,250,.14)', skip: '#768390', 'c-trigger': '#A78BFA', 'c-trigger-bg': 'rgba(167,139,250,.13)', 'c-http': '#7DA6FF', 'c-http-bg': 'rgba(125,166,255,.13)', 'c-logic': '#B4BCC8', 'c-logic-bg': 'rgba(180,188,200,.12)', 'c-cf': '#FB923C', 'c-cf-bg': 'rgba(251,146,60,.12)', 'c-app': '#F472B6', 'c-app-bg': 'rgba(244,114,182,.12)', 'c-error': '#F85149', 'c-error-bg': 'rgba(248,81,73,.12)', shadow: 'none' };
+    var t = name === 'dark' ? D : L;
+    return Object.keys(t).map(function (k) { return '--' + k + ': ' + t[k]; }).join('; ');
+  }
+  renderVals() {
+    var self = this;
+    var st = this.state;
+    var theme = this.props.theme === 'dark' ? 'dark' : 'light';
+    var sfx = theme === 'dark' ? 'Dark' : '';
+    var links = { runs: 'RunDetail' + sfx + '.dc.html', editor: 'Editor' + sfx + '.dc.html', history: 'RunHistory' + sfx + '.dc.html' };
+
+    var stats = [
+      ['Runs', '1,284', 'last 24 h'], ['Success rate', '98.1%', '+0.4 vs. yesterday'], ['Failed', '17', '2 in dead-letter queue'], ['Awaiting approval', '3', 'oldest 2 h 14 m']
+    ].map(function (s, i) {
+      return { label: s[0], value: s[1], sub: s[2], cell: 'padding: 18px 24px' + (i ? '; border-left: 1px solid var(--line)' : '') };
+    });
+
+    var C = { queued: 'var(--skip)', running: 'var(--run)', waiting: 'var(--wait)', retrying: 'var(--warn)', succeeded: 'var(--ok)', failed: 'var(--fail)', cancelled: 'var(--line-strong)' };
+    var raw = [['Queued', 4, 'queued'], ['Running', 6, 'running'], ['Waiting', 3, 'waiting'], ['Retrying', 2, 'retrying'], ['Succeeded', 1248, 'succeeded'], ['Failed', 17, 'failed'], ['Cancelled', 4, 'cancelled']];
+    var total = raw.reduce(function (a, r) { return a + r[1]; }, 0);
+    var states = raw.map(function (r) {
+      var pct = Math.max(r[1] / total * 100, 0.8);
+      return {
+        label: r[0], count: r[1].toLocaleString('en-GB'),
+        seg: 'display: block; height: 100%; flex: ' + pct + ' 0 0; background: ' + C[r[2]],
+        dot: 'width: 7px; height: 7px; border-radius: 50%; display: inline-block; background: ' + C[r[2]] + (r[2] === 'running' ? '; animation: pulse 1.4s ease-in-out infinite' : '')
+      };
+    });
+
+    var pill = function (fg, bg) {
+      return 'display: inline-flex; align-items: center; gap: 6px; font-size: 12px; white-space: nowrap; color: ' + fg + '; background: ' + bg + '; border-radius: 5px; padding: 3px 8px';
+    };
+    var WS = { Active: ['var(--ok)', 'var(--ok-soft)'], Paused: ['var(--warn)', 'var(--warn-soft)'], Inactive: ['var(--text-2)', 'var(--surface-2)'], Draft: ['var(--text-2)', 'var(--surface-2)'] };
+    var wf = [
+      ['Inbound lead triage', 'Webhook → enrich → branch → D1 and Slack', 'Active', 'succeeded', 'Succeeded', '2 min ago · 0.7 s', '412', 'POST /hooks/leads', '18 Nov, 09:02'],
+      ['Nightly Sheets → GitHub sync', 'Paginate a sheet, batch-upsert issues', 'Active', 'failed', 'Failed', '6 h ago · 4 m 12 s', '1', 'cron 0 2 * * *', '12 Nov, 16:40'],
+      ['Drive → R2 archive', 'Copy new Drive files into R2', 'Active', 'running', 'Running', 'started 38 s ago', '24', 'every 1 h', '9 Nov, 11:15'],
+      ['Refund approval agent', 'AI agent with a human approval step', 'Active', 'waiting', 'Waiting for approval', '2 h 14 m', '31', 'POST /hooks/refunds', '17 Nov, 14:22'],
+      ['Square team roster sync', 'Sync team members into D1', 'Paused', 'cancelled', 'Cancelled', '3 days ago', '0', 'cron 30 6 * * 1-5', '4 Nov, 08:51'],
+      ['Support inbox triage', 'Cloudflare Email → classify → route', 'Draft', 'none', 'Never run', '—', '0', 'email support@', '18 Nov, 09:19']
+    ];
+    var RC = { succeeded: 'var(--ok)', failed: 'var(--fail)', running: 'var(--run)', waiting: 'var(--wait)', cancelled: 'var(--skip)', none: 'var(--line-strong)' };
+    var setStatus = function (name, from, to, msg) {
+      var s = {}; for (var k in self.state.status) s[k] = self.state.status[k];
+      s[name] = to;
+      self.setState({ status: s, menu: null, toast: msg, last: { name: name, status: from } });
+    };
+    var itemStyle = function (danger) {
+      return 'display: block; width: 100%; padding: 7px 10px; border: 0; border-radius: 6px; background: transparent; font: inherit; text-align: left; cursor: pointer; color: ' + (danger ? 'var(--fail)' : 'var(--text)');
+    };
+    var visible = wf.filter(function (w) { return !st.deleted[w[0]]; });
+    var workflows = visible.map(function (w, i) {
+      var name = w[0];
+      var status = st.status[name] || w[2];
+      var c = RC[w[3]];
+      var items = [];
+      if (status === 'Active') {
+        items.push(['Pause', 'Stop starting runs; events queue for up to 7 days', function () { setStatus(name, status, 'Paused', name + ' paused. New events will wait in the queue.'); }]);
+        items.push(['Deactivate', 'Remove triggers; new events are rejected', function () { setStatus(name, status, 'Inactive', name + ' deactivated. Its triggers were removed.'); }]);
+      } else if (status === 'Paused') {
+        items.push(['Resume', 'Start runs again, then drain queued events', function () { setStatus(name, status, 'Active', name + ' resumed. 0 queued events to replay.'); }]);
+        items.push(['Deactivate', 'Remove triggers and discard queued events', function () { setStatus(name, status, 'Inactive', name + ' deactivated. Its triggers were removed.'); }]);
+      } else if (status === 'Inactive') {
+        items.push(['Activate', 'Register triggers for the live version', function () { setStatus(name, status, 'Active', name + ' activated.'); }]);
+      } else {
+        items.push(['Publish & activate', 'Publish this draft as v1 and register triggers', function () { setStatus(name, status, 'Active', name + ' published as v1 and activated.'); }]);
+      }
+      items.push(['Run now', 'Start a manual run with a test input', function () { self.setState({ menu: null, toast: 'Started a manual run of ' + name + '.', last: null }); }]);
+      items.push(['Duplicate', '', function () { self.setState({ menu: null, toast: 'Duplicated as “' + name + ' (copy)” in Draft.', last: null }); }]);
+      items.push(['Export JSON', '', function () { self.setState({ menu: null, toast: 'Exported ' + name + '.json', last: null }); }]);
+      items.push(['Delete…', '', function () { self.setState({ menu: null, confirm: name }); }, true]);
+      var open = st.menu === name;
+      var up = i >= 3;
+      return {
+        name: name, desc: w[1], status: status,
+        statusStyle: pill(WS[status][0], WS[status][1]),
+        statusDot: 'width: 6px; height: 6px; border-radius: 50%; background: currentColor',
+        runDot: 'width: 7px; height: 7px; border-radius: 50%; flex: none; background: ' + c + (w[3] === 'running' ? '; animation: pulse 1.4s ease-in-out infinite' : ''),
+        runText: w[3] === 'none' ? 'color: var(--text-3)' : 'color: ' + (w[3] === 'cancelled' ? 'var(--text-2)' : c) + '; font-weight: 500',
+        run: w[4], when: w[5], runs: w[6], trigger: w[7], updated: w[8],
+        runHref: w[3] === 'failed' ? links.runs : links.editor,
+        menuOpen: open, menuExpanded: open ? 'true' : 'false', menuLabel: 'Actions for ' + name,
+        kebab: 'width: 28px; height: 28px; border-radius: 6px; font: inherit; font-size: 14px; letter-spacing: 1px; cursor: pointer; color: var(--text-2); border: 1px solid ' + (open ? 'var(--line-strong)' : 'transparent') + '; background: ' + (open ? 'var(--surface-2)' : 'transparent'),
+        toggleMenu: function () { self.setState({ menu: open ? null : name }); },
+        menuStyle: 'position: absolute; right: 12px; ' + (up ? 'bottom: 44px' : 'top: 44px') + '; z-index: 10; width: 280px; padding: 6px; border-radius: 10px; border: 1px solid var(--line-strong); background: var(--surface); box-shadow: 0 12px 32px rgba(12,16,24,.16); text-align: left',
+        items: items.map(function (it, k) {
+          return {
+            label: it[0], hint: it[1], act: it[2],
+            style: itemStyle(it[3]) + (it[3] ? '; border-top: 1px solid var(--line); border-radius: 0 0 6px 6px; margin-top: 4px' : ''),
+            hintStyle: it[1] ? 'display: block; font-size: 11.5px; color: var(--text-3); margin-top: 1px' : 'display: none'
+          };
+        })
+      };
+    });
+
+    return {
+      root: this.themeVars(theme) + '; position: relative; width: 1440px; height: 900px; box-sizing: border-box; display: flex; overflow: hidden; font-family: Inter, system-ui, sans-serif; color: var(--text); background: var(--bg); color-scheme: ' + theme,
+      theme: theme, links: links, stats: stats, states: states, workflows: workflows,
+      footer: 'Showing ' + workflows.length + ' of ' + (wf.length + 1 - Object.keys(st.deleted).length) + ' workflows',
+      toastShow: !!st.toast, toast: st.toast || '',
+      undo: function () {
+        var s = {}; for (var k in self.state.status) s[k] = self.state.status[k];
+        var d = {}; for (var m in self.state.deleted) d[m] = self.state.deleted[m];
+        if (self.state.last) {
+          if (self.state.last.deleted) delete d[self.state.last.name];
+          else s[self.state.last.name] = self.state.last.status;
+        }
+        self.setState({ status: s, deleted: d, toast: null, last: null });
+      },
+      confirmShow: !!st.confirm, confirmName: st.confirm || '',
+      cancelDelete: function () { self.setState({ confirm: null }); },
+      confirmDelete: function () {
+        var d = {}; for (var k in self.state.deleted) d[k] = self.state.deleted[k];
+        d[self.state.confirm] = true;
+        self.setState({ deleted: d, confirm: null, toast: self.state.confirm + ' deleted. It can be restored for 30 days.', last: { name: self.state.confirm, deleted: true } });
+      }
+    };
+  }
+}
+</script>
+</body>
+</html>

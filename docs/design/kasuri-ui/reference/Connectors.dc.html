@@ -1,0 +1,203 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Kasuri · Connectors</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+body{margin:0}
+a{color:inherit}a:hover{color:var(--accent)}
+input::placeholder{color:var(--text-3)}
+@keyframes flow{to{stroke-dashoffset:-20}}
+@keyframes pulse{50%{opacity:.35}}
+</style>
+</helmet>
+<div style="{{ root }}">
+
+  <dc-import name="Sidebar" active="connectors" theme="{{ theme }}" hint-size="240px,900px"></dc-import>
+
+  <div style="flex: 1; min-width: 0; display: flex; flex-direction: column">
+    <header style="height: 56px; flex: none; box-sizing: border-box; display: flex; align-items: center; gap: 10px; padding: 0 40px; border-bottom: 1px solid var(--line); background: var(--surface); font-size: 14px">
+      <span style="color: var(--text-2)">Personal workspace</span>
+      <span style="color: var(--text-3)">/</span>
+      <span>Connectors</span>
+    </header>
+
+    <main style="flex: 1; min-height: 0; box-sizing: border-box; padding: 28px 40px; display: flex; flex-direction: column; gap: 18px">
+      <div style="display: flex; align-items: flex-end; justify-content: space-between">
+        <div>
+          <div style="font-size: 11px; letter-spacing: .14em; color: var(--text-3); margin-bottom: 8px">LIBRARY</div>
+          <h1 style="margin: 0 0 6px; font-size: 28px; font-weight: 600; letter-spacing: -0.025em">Connectors</h1>
+          <p style="margin: 0; font-size: 14px; color: var(--text-2)">The nodes and integrations available to your workflows. Each is versioned and tested with Kasuri.</p>
+        </div>
+        <button style="height: 36px; padding: 0 14px; border-radius: 8px; border: 1px solid var(--line-strong); background: var(--surface); color: var(--text); font: inherit; font-size: 14px; cursor: pointer">New HTTP connector</button>
+      </div>
+
+      <div style="display: flex; align-items: center; gap: 4px">
+        <sc-for list="{{ tabs }}" as="t" hint-placeholder-count="7">
+          <button onClick="{{ t.pick }}" aria-pressed="{{ t.on }}" style="{{ t.style }}">{{ t.label }}<span style="{{ t.countStyle }}">{{ t.count }}</span></button>
+        </sc-for>
+        <span style="flex: 1"></span>
+        <label style="display: flex; align-items: center; gap: 8px; width: 240px; height: 32px; box-sizing: border-box; padding: 0 10px; border: 1px solid var(--line-strong); border-radius: 7px; background: var(--surface)">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true" style="color: var(--text-3)"><circle cx="11" cy="11" r="7"></circle><path d="m20 20-3.5-3.5"></path></svg>
+          <span style="position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0)">Search connectors</span>
+          <input placeholder="Search connectors" style="flex: 1; min-width: 0; border: 0; background: transparent; color: var(--text); font: inherit; font-size: 13px; outline: none">
+        </label>
+      </div>
+
+      <div style="display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 14px">
+        <sc-for list="{{ cards }}" as="c" hint-placeholder-count="12">
+          <a href="#" style="display: flex; flex-direction: column; gap: 10px; padding: 14px 16px; border: 1px solid var(--line); border-radius: 10px; background: var(--surface); box-shadow: var(--shadow); text-decoration: none; min-height: 148px; box-sizing: border-box">
+            <div style="display: flex; align-items: center; justify-content: space-between">
+              <span style="{{ c.tile }}"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="{{ c.icon }}"></path></svg></span>
+              <span style="{{ c.statusStyle }}"><span style="width: 6px; height: 6px; border-radius: 50%; background: currentColor"></span>{{ c.status }}</span>
+            </div>
+            <div>
+              <div style="font-size: 10px; letter-spacing: .08em; color: var(--text-3)">{{ c.kind }}</div>
+              <div style="font-size: 14px; font-weight: 500; margin-top: 2px">{{ c.name }}</div>
+              <div style="font-size: 12px; line-height: 1.45; color: var(--text-2); margin-top: 4px">{{ c.desc }}</div>
+            </div>
+            <div style="display: flex; gap: 6px; flex-wrap: wrap; margin-top: auto">
+              <sc-for list="{{ c.tags }}" as="g" hint-placeholder-count="2">
+                <span style="font-size: 11px; color: var(--text-2); border: 1px solid var(--line); border-radius: 4px; padding: 1px 6px">{{ g }}</span>
+              </sc-for>
+            </div>
+          </a>
+        </sc-for>
+      </div>
+      <sc-if value="{{ empty }}" hint-placeholder-val="{{ false }}">
+        <div style="padding: 32px; text-align: center; font-size: 13px; color: var(--text-3)">No connectors shown in this category yet.</div>
+      </sc-if>
+
+      <div style="display: flex; align-items: center; gap: 14px; padding: 12px 16px; border: 1px dashed var(--line-strong); border-radius: 10px; background: var(--accent-soft)">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" style="color: var(--accent); flex: none"><path d="M9 2v6M15 2v6M6 8h12v4a6 6 0 0 1-12 0zM12 18v4"></path></svg>
+        <span style="font-size: 13px; color: var(--text-2); flex: 1"><strong style="color: var(--text); font-weight: 500">Need a service that isn't listed?</strong> Describe it with an OpenAPI document. No server-side code runs.</span>
+        <span style="font-size: 12px; color: var(--text-3)">{{ shown }}</span>
+      </div>
+    </main>
+  </div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"theme":{"editor":"enum","options":["light","dark"],"default":"light"},"$preview":{"width":1440,"height":900}}'>
+class Component extends DCLogic {
+  constructor(props) {
+    super(props);
+    this.state = { cat: 'all' };
+  }
+  themeVars(name) {
+    var L = { bg: '#F7F8FA', surface: '#FFFFFF', 'surface-2': '#F2F3F6', canvas: '#F4F5F8', dot: '#D3D7DF', line: '#E5E7EB', 'line-strong': '#D0D4DC', text: '#181B21', 'text-2': '#525967', 'text-3': '#6B7280', accent: '#0B6E79', 'accent-fg': '#FFFFFF', 'accent-soft': '#E4F2F3', ok: '#1A7F37', 'ok-soft': '#E9F5EC', run: '#0969DA', 'run-soft': '#E4EFFC', warn: '#9A6700', 'warn-soft': '#FBF2DD', fail: '#CF222E', 'fail-soft': '#FCECED', wait: '#8250DF', 'wait-soft': '#F3EEFD', skip: '#6E7781', 'c-trigger': '#7C5CD6', 'c-trigger-bg': '#F1EDFB', 'c-http': '#2563EB', 'c-http-bg': '#E8EFFD', 'c-logic': '#475467', 'c-logic-bg': '#EEF0F3', 'c-cf': '#B4590F', 'c-cf-bg': '#FCEFE3', 'c-app': '#A8436A', 'c-app-bg': '#F9ECF1', 'c-error': '#CF222E', 'c-error-bg': '#FCECED', shadow: '0 1px 2px rgba(16,24,40,.04)' };
+    var D = { bg: '#0B0D11', surface: '#111419', 'surface-2': '#181C23', canvas: '#0D1015', dot: '#22272F', line: '#1F242C', 'line-strong': '#2E343E', text: '#E6E8EC', 'text-2': '#A3ABB9', 'text-3': '#8B93A3', accent: '#4CC3CB', 'accent-fg': '#061A1C', 'accent-soft': 'rgba(76,195,203,.14)', ok: '#3FB950', 'ok-soft': 'rgba(63,185,80,.13)', run: '#58A6FF', 'run-soft': 'rgba(88,166,255,.16)', warn: '#D29922', 'warn-soft': 'rgba(210,153,34,.14)', fail: '#F85149', 'fail-soft': 'rgba(248,81,73,.13)', wait: '#A78BFA', 'wait-soft': 'rgba(167,139,250,.14)', skip: '#768390', 'c-trigger': '#A78BFA', 'c-trigger-bg': 'rgba(167,139,250,.13)', 'c-http': '#7DA6FF', 'c-http-bg': 'rgba(125,166,255,.13)', 'c-logic': '#B4BCC8', 'c-logic-bg': 'rgba(180,188,200,.12)', 'c-cf': '#FB923C', 'c-cf-bg': 'rgba(251,146,60,.12)', 'c-app': '#F472B6', 'c-app-bg': 'rgba(244,114,182,.12)', 'c-error': '#F85149', 'c-error-bg': 'rgba(248,81,73,.12)', shadow: 'none' };
+    var t = name === 'dark' ? D : L;
+    return Object.keys(t).map(function (k) { return '--' + k + ': ' + t[k]; }).join('; ');
+  }
+  renderVals() {
+    var self = this;
+    var theme = this.props.theme === 'dark' ? 'dark' : 'light';
+    var sfx = theme === 'dark' ? 'Dark' : '';
+    var links = { dash: 'Dashboard' + sfx + '.dc.html', history: 'RunHistory' + sfx + '.dc.html', connectors: 'Connectors' + sfx + '.dc.html', connections: 'Connections' + sfx + '.dc.html' };
+    var nav = [
+      ['Workflows', 'M12 2.5 21.5 12 12 21.5 2.5 12z', links.dash, false],
+      ['Runs', 'M7 17 17 7M8 7h9v9', links.history, false],
+      ['Connectors', 'M3 3h18v18H3zM3 12h18M12 3v18', links.connectors, true],
+      ['Connections', 'M21 2l-2 2m-7.61 7.61a5.5 5.5 0 1 1-7.78 7.78 5.5 5.5 0 0 1 7.78-7.78zm0 0L15.5 7.5m0 0l3 3L22 7l-3-3m-3.5 3.5L19 4', links.connections, false],
+      ['Audit log', 'M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8zM14 2v6h6M16 13H8M16 17H8', '#', false],
+      ['Settings', 'M4 21v-7M4 10V3M12 21v-9M12 8V3M20 21v-5M20 12V3M1 14h6M9 8h6M17 16h6', '#', false]
+    ].map(function (n) {
+      return {
+        label: n[0], icon: n[1], href: n[2], current: n[3] ? 'page' : 'false',
+        style: 'display: flex; align-items: center; gap: 12px; height: 36px; padding: 0 10px; border-radius: 7px; text-decoration: none; font-size: 14px; ' + (n[3] ? 'background: var(--accent-soft); color: var(--accent); font-weight: 500' : 'color: var(--text-2)')
+      };
+    });
+
+    var I = {
+      hash: 'M4 9h16M4 15h16M10 3 8 21M16 3l-2 18',
+      branch: 'M6 3v12M18 9a3 3 0 1 0 0-6 3 3 0 0 0 0 6zM6 21a3 3 0 1 0 0-6 3 3 0 0 0 0 6zM18 9a9 9 0 0 1-9 9',
+      grid: 'M3 3h18v18H3zM3 9h18M3 15h18M9 3v18',
+      folder: 'M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z',
+      cal: 'M3 5h18v16H3zM3 10h18M8 3v4M16 3v4',
+      square: 'M5 3h14a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2zM9 9h6v6H9z',
+      users: 'M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2M9 11a4 4 0 1 0 0-8 4 4 0 0 0 0 8zM23 21v-2a4 4 0 0 0-3-3.87M16 3.13a4 4 0 0 1 0 7.75',
+      db: 'M3 5c0 1.66 4 3 9 3s9-1.34 9-3-4-3-9-3-9 1.34-9 3zM3 5v14c0 1.66 4 3 9 3s9-1.34 9-3V5M3 12c0 1.66 4 3 9 3s9-1.34 9-3',
+      mail: 'M4 4h16a2 2 0 0 1 2 2v12a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2zM22 6l-10 7L2 6',
+      sparkle: 'M12 3l1.9 5.8L20 11l-6.1 2.2L12 19l-1.9-5.8L4 11l6.1-2.2z',
+      plug: 'M9 2v6M15 2v6M6 8h12v4a6 6 0 0 1-12 0zM12 18v4',
+      alert: 'M10.29 3.86 1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0zM12 9v4M12 17h.01',
+      zap: 'M13 2 3 14h9l-1 8 10-12h-9l1-8z',
+      arrow: 'M7 17 17 7M8 7h9v9',
+      cmd: 'M18 3a3 3 0 0 0-3 3v12a3 3 0 0 0 3 3 3 3 0 0 0 3-3 3 3 0 0 0-3-3H6a3 3 0 0 0-3 3 3 3 0 0 0 3 3 3 3 0 0 0 3-3V6a3 3 0 0 0-3-3 3 3 0 0 0-3 3 3 3 0 0 0 3 3h12a3 3 0 0 0 3-3 3 3 0 0 0-3-3z',
+      clock: 'M12 22a10 10 0 1 0 0-20 10 10 0 0 0 0 20zM12 6v6l4 2',
+      layers: 'M12 2 2 7l10 5 10-5-10-5zM2 17l10 5 10-5M2 12l10 5 10-5',
+      box: 'M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z',
+      filter: 'M22 3H2l8 9.46V19l4 2v-8.54L22 3z'
+    };
+    var ST = {
+      connected: ['var(--ok)', 'var(--ok-soft)'],
+      attention: ['var(--warn)', 'var(--warn-soft)'],
+      builtin: ['var(--accent)', 'var(--accent-soft)'],
+      none: ['var(--text-2)', 'var(--surface-2)']
+    };
+    // [name, eyebrow, description, icon, colour, tags, status, statusLabel, category]
+    var all = [
+      ['HTTP Request', 'CORE', 'Call any REST or JSON API with OAuth 2.0, API key or basic auth.', 'arrow', 'http', ['Actions', 'Pagination'], 'builtin', 'Built in', 'core'],
+      ['Webhook', 'CORE', 'Start a workflow from a signed HTTP request.', 'zap', 'trigger', ['Trigger', 'Signature check'], 'builtin', 'Built in', 'core'],
+      ['Schedule', 'CORE', 'Cron schedules with time zones and catch-up rules.', 'clock', 'trigger', ['Trigger'], 'builtin', 'Built in', 'core'],
+      ['Map / Transform', 'LOGIC & DATA', 'Reshape items with typed field mappings.', 'cmd', 'logic', ['Actions'], 'builtin', 'Built in', 'logic'],
+      ['Filter', 'LOGIC & DATA', 'Keep the items that match a set of conditions.', 'filter', 'logic', ['Actions'], 'builtin', 'Built in', 'logic'],
+      ['Slack', 'MESSAGING', 'Post messages and react to workspace events.', 'hash', 'app', ['OAuth 2.0', 'Trigger', 'Actions'], 'connected', '1 connection', 'apps'],
+      ['GitHub', 'DEVELOPER', 'Issues, pull requests and repository events.', 'branch', 'app', ['GitHub App', 'Trigger', 'Actions'], 'connected', '1 connection', 'apps'],
+      ['Google Sheets', 'PRODUCTIVITY', 'Read, append and update rows; watch for new rows.', 'grid', 'app', ['OAuth 2.0', 'Trigger', 'Actions'], 'attention', 'Reconnect', 'apps'],
+      ['Google Drive', 'PRODUCTIVITY', 'List, download and upload files; watch folders.', 'folder', 'app', ['OAuth 2.0', 'Trigger', 'Actions'], 'attention', 'Reconnect', 'apps'],
+      ['Google Calendar', 'PRODUCTIVITY', 'Create events and react to calendar changes.', 'cal', 'app', ['OAuth 2.0', 'Trigger', 'Actions'], 'none', 'Not connected', 'apps'],
+      ['Square', 'COMMERCE', 'Payments, orders and catalogue, with webhook events.', 'square', 'app', ['OAuth 2.0', 'Trigger', 'Actions'], 'connected', '1 connection', 'apps'],
+      ['Square Teams', 'WORKFORCE', 'Read and update team members and their locations.', 'users', 'app', ['OAuth 2.0', 'Actions'], 'connected', 'Uses Square', 'apps'],
+      ['Cloudflare D1', 'CLOUDFLARE', 'Query and write SQLite databases bound to this deployment.', 'db', 'cf', ['Worker binding', 'Actions'], 'builtin', 'Built in', 'cf'],
+      ['Cloudflare R2', 'CLOUDFLARE', 'Store large files and run artifacts in object storage.', 'box', 'cf', ['Worker binding', 'Actions'], 'builtin', 'Built in', 'cf'],
+      ['Cloudflare Queues', 'CLOUDFLARE', 'Send messages and consume them as a trigger.', 'layers', 'cf', ['Worker binding', 'Trigger', 'Actions'], 'builtin', 'Built in', 'cf'],
+      ['Cloudflare Email', 'CLOUDFLARE', 'Receive routed email and send from verified domains.', 'mail', 'cf', ['Worker binding', 'Trigger', 'Send'], 'builtin', 'Built in', 'cf'],
+      ['OpenAI', 'AI', 'Chat, structured output and embeddings.', 'sparkle', 'http', ['API key', 'Actions'], 'connected', '1 connection', 'ai'],
+      ['MCP Client', 'AI', 'Discover and call tools on remote HTTP MCP servers.', 'plug', 'http', ['OAuth / bearer', 'Tools'], 'none', 'Not connected', 'ai'],
+      ['AI Agent', 'AI', 'Tool-calling agent loop with step and budget limits.', 'sparkle', 'http', ['Uses a model', 'Tools'], 'builtin', 'Built in', 'ai'],
+      ['PagerDuty', 'MONITORING', 'Open, update and resolve incidents.', 'alert', 'error', ['Events API v2', 'Actions'], 'connected', '1 connection', 'mon'],
+      ['Sentry', 'MONITORING', 'Create issues and react to new errors.', 'alert', 'error', ['Auth token', 'Trigger', 'Actions'], 'none', 'Not connected', 'mon']
+    ];
+    var tabDefs = [['all', 'All', 50], ['core', 'Core', 6], ['logic', 'Logic & data', 18], ['ai', 'AI', 9], ['cf', 'Cloudflare', 6], ['apps', 'Apps', 8], ['mon', 'Monitoring', 3]];
+    var cat = this.state.cat;
+    var featured = ['Slack', 'GitHub', 'Google Sheets', 'Google Drive', 'Google Calendar', 'Square', 'Square Teams', 'Cloudflare D1', 'Cloudflare Email', 'OpenAI', 'MCP Client', 'PagerDuty'];
+    var list = cat === 'all'
+      ? featured.map(function (n) { return all.filter(function (a) { return a[0] === n; })[0]; })
+      : all.filter(function (a) { return a[8] === cat; });
+    list = list.slice(0, 12);
+    var cards = list.map(function (a) {
+      var s = ST[a[6]];
+      return {
+        name: a[0], kind: a[1], desc: a[2], icon: I[a[3]], tags: a[5], status: a[7],
+        tile: 'width: 32px; height: 32px; border-radius: 8px; display: flex; align-items: center; justify-content: center; background: var(--c-' + a[4] + '-bg); color: var(--c-' + a[4] + ')',
+        statusStyle: 'display: inline-flex; align-items: center; gap: 5px; font-size: 11px; white-space: nowrap; color: ' + s[0] + '; background: ' + s[1] + '; border-radius: 4px; padding: 2px 7px'
+      };
+    });
+    var tabs = tabDefs.map(function (t) {
+      var on = cat === t[0];
+      return {
+        label: t[1], count: t[2], on: on ? 'true' : 'false',
+        style: 'height: 30px; padding: 0 10px; border-radius: 6px; border: 0; font: inherit; font-size: 13px; display: inline-flex; align-items: center; gap: 7px; cursor: pointer; ' + (on ? 'background: var(--accent-soft); color: var(--accent); font-weight: 500' : 'background: transparent; color: var(--text-2)'),
+        countStyle: 'font-size: 11px; color: ' + (on ? 'var(--accent)' : 'var(--text-3)'),
+        pick: function () { self.setState({ cat: t[0] }); }
+      };
+    });
+    var total = tabDefs.filter(function (t) { return t[0] === cat; })[0][2];
+    return {
+      root: this.themeVars(theme) + '; width: 1440px; height: 900px; box-sizing: border-box; display: flex; overflow: hidden; font-family: Inter, system-ui, sans-serif; color: var(--text); background: var(--bg); color-scheme: ' + theme,
+      theme: theme, nav: nav, tabs: tabs, cards: cards, empty: cards.length === 0,
+      shown: 'Showing ' + cards.length + ' of ' + total
+    };
+  }
+}
+</script>
+</body>
+</html>
