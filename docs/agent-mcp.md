@@ -2,7 +2,7 @@
 
 Status: required roadmap capability; not implemented yet.
 
-Kasuri must expose an MCP server so agents can discover, build, validate, manage and audit workflows and their runs. This is an inbound management interface for agents connecting to Kasuri. The planned MCP Client connector serves a separate purpose: allowing a workflow to call tools on another MCP server.
+Kasuri must expose an MCP server so agents can discover, build, validate, manage and audit workflows and their runs. This is an inbound management interface for agents connecting to Kasuri. The planned MCP Client connector serves a separate purpose: allowing a workflow to call tools on another MCP server. Cloudflare AI Gateway and Cloudflare MCP Portals are also selected [agentic connector options](agentic-connectors.md).
 
 ## Architecture and access
 

@@ -1,4 +1,6 @@
 export const catalogue = [
+  { "name": "Cloudflare AI Gateway", "category": "AI and LLM" },
+  { "name": "Cloudflare MCP Portals", "category": "AI and LLM" },
   { "name": "Sort", "category": "Core platform" },
   {
     "name": "HTTP Request",
