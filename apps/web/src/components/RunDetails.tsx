@@ -1,13 +1,50 @@
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useState } from 'react'
 import type { Run } from '../lib/workflows'
+import type { Json } from '../../../../packages/contracts/src/index'
+import type { KeyboardEvent } from 'react'
+import { tone, date, download } from '../design/ui-model'
 import { api } from '../lib/api'
-
-export function RunDetails({ run, onClose, onViewAll, onChanged }: { run: Run; onClose: () => void; onViewAll: () => void; onChanged: () => void }) {
-  const dialog = useRef<HTMLDialogElement>(null)
-  const [detail, setDetail] = useState(run)
-  const [error, setError] = useState('')
-  const [pending, setPending] = useState(false)
-  useEffect(() => { dialog.current?.showModal() }, [])
+import { Dialog, Icon, Pill, Tile } from '../design/ui'
+type Props = {
+  run: Run
+  onClose: () => void
+  onViewAll: () => void
+  onChanged: () => void
+  onOpenPage: () => void
+  fullPage?: boolean
+  initialStep: number
+  onStep: (index: number) => void
+  onPin: (value: Json) => void
+}
+export function RunDetails({
+  run,
+  onClose,
+  onViewAll,
+  onChanged,
+  onOpenPage,
+  fullPage,
+  initialStep,
+  onStep,
+  onPin
+}: Props) {
+  const [detail, setDetail] = useState(run),
+    [error, setError] = useState(''),
+    [pending, setPending] = useState(false)
+  const attention = Math.max(
+    0,
+    run.nodes.findIndex((n) =>
+      ['failed', 'running', 'retry', 'waiting', 'cancelled'].includes(n.status)
+    )
+  )
+  const [cursor, setCursor] = useState(
+    initialStep >= 0
+      ? Math.min(initialStep, Math.max(0, run.nodes.length - 1))
+      : attention
+  )
+  useEffect(() => {
+    if (initialStep >= 0 && initialStep < detail.nodes.length)
+      setCursor(initialStep)
+  }, [initialStep, detail.nodes.length])
   useEffect(() => {
     let active = true
     let timer: ReturnType<typeof setTimeout> | undefined
@@ -16,25 +53,281 @@ export function RunDetails({ run, onClose, onViewAll, onChanged }: { run: Run; o
         const result = await api.getRun(run.id)
         if (!active) return
         setDetail(result)
-        if (['running', 'paused'].includes(result.status)) timer = setTimeout(() => { void load() }, 1500)
-      } catch (e) { if (active) setError(String(e)) }
+        setError('')
+        if (['running', 'paused'].includes(result.status))
+          timer = setTimeout(() => void load(), 1500)
+      } catch (e) {
+        if (active)
+          setError(e instanceof Error ? e.message : 'Could not load run.')
+      }
     }
     void load()
-    return () => { active = false; clearTimeout(timer) }
+    return () => {
+      active = false
+      clearTimeout(timer)
+    }
   }, [run.id])
   async function action(name: string) {
-    setPending(true); setError('')
-    try { setDetail(await api.runAction(run.id, name)); onChanged() } catch (e) { setError(e instanceof Error ? e.message : 'Action failed.') }
-    finally { setPending(false) }
+    setPending(true)
+    setError('')
+    try {
+      setDetail(await api.runAction(run.id, name))
+      onChanged()
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Action failed.')
+    } finally {
+      setPending(false)
+    }
   }
-  return <dialog ref={dialog} className="run-modal" onClose={onClose} onClick={e => { if (e.target === dialog.current) onClose() }} aria-labelledby="run-title">
-    <div className="panel-heading"><h2 id="run-title">{detail.name}</h2><button autoFocus aria-label="Close run details" onClick={onClose}>×</button></div>
-    <span className={`badge ${detail.status}`}>{detail.mode} · {detail.status}</span>
-    <p className="muted">{new Date(detail.createdAt).toLocaleString('en-GB')} · Revision {detail.revision}</p>
-    <div className="info-box">{detail.mode === 'simulation' ? 'Core logic executed by the Rust backend with a virtual clock. Waits advance instantly.' : 'Core logic executed by the Rust backend. Waits persist and resume through durable alarms.'} No external services are called.</div>
-    {(error || detail.error) && <p role="alert" className="danger">{error || detail.error}</p>}
-    <details><summary>Run input</summary><pre>{JSON.stringify(detail.input, null, 2)}</pre></details>
-    <ol className="timeline">{detail.nodes.map((node, i) => <li key={node.id}><span>{i + 1}</span><div><strong>{node.label}</strong><small>{node.type} · {node.status} · {node.attempts} attempts</small>{node.error && <p className="danger">{node.error}</p>}{node.untilMs && <small>Wake: {new Date(node.untilMs).toLocaleString('en-GB')}</small>}{node.output !== undefined && <details><summary>Output</summary><pre>{JSON.stringify(node.output, null, 2)}</pre></details>}</div></li>)}</ol>
-    <div className="actions">{['running', 'paused'].includes(detail.status) && <><button disabled={pending} onClick={() => void action(detail.status === 'paused' ? 'resume' : 'pause')}>{detail.status === 'paused' ? 'Resume' : 'Pause'} run</button><button disabled={pending} onClick={() => void action('cancel')}>Cancel run</button></>}<button onClick={onViewAll}>View all runs →</button></div>
-  </dialog>
+  function select(index: number) {
+    setCursor(index)
+    onStep(index)
+  }
+  const node = detail.nodes[cursor]
+  const handleKey = (e: KeyboardEvent<HTMLElement>) => {
+    if (e.defaultPrevented) return
+    if ((e.target as HTMLElement).closest('input,textarea,select')) return
+    if (e.key === 'ArrowLeft' && cursor > 0) {
+      e.preventDefault()
+      select(cursor - 1)
+    }
+    if (e.key === 'ArrowRight' && cursor < detail.nodes.length - 1) {
+      e.preventDefault()
+      select(cursor + 1)
+    }
+  }
+  const content = (
+    <div className="debugger" onKeyDown={handleKey}>
+      <header className="debugger-header">
+        <div>
+          <div className="eyebrow mono">RUN · {detail.id}</div>
+          <div className="debugger-meta">
+            <Pill status={detail.status} />
+            <span>
+              Started {date(detail.createdAt)} · {detail.mode} trigger ·
+              Revision v{detail.revision}
+            </span>
+          </div>
+        </div>
+        <div className="actions">
+          <button onClick={() => download(detail.id + '.json', detail)}>
+            <Icon name="download" />
+            Export
+          </button>
+          {!fullPage && (
+            <button onClick={onOpenPage}>
+              Open run page <Icon name="external" />
+            </button>
+          )}
+        </div>
+      </header>
+      {error && (
+        <div className="error-panel" role="alert">
+          <p>{error}</p>
+          <button
+            onClick={() =>
+              void api
+                .getRun(run.id)
+                .then((value) => {
+                  setDetail(value)
+                  setError('')
+                })
+                .catch((e) => setError(String(e)))
+            }
+          >
+            Try again
+          </button>
+        </div>
+      )}
+      <div className="debugger-body">
+        <aside className="debugger-steps">
+          <div className="eyebrow">STEPS · {detail.nodes.length}</div>
+          {detail.nodes.map((n, i) => (
+            <button
+              key={n.id}
+              className={cursor === i ? 'selected' : ''}
+              aria-current={cursor === i ? 'step' : undefined}
+              onClick={() => select(i)}
+            >
+              <span className="mono">{String(i + 1).padStart(2, '0')}</span>
+              <span
+                className="step-dot"
+                style={{ background: tone(n.status).fg }}
+              />
+              <div>
+                <strong>{n.label}</strong>
+                <small>{n.type}</small>
+              </div>
+              <small>{n.attempts}×</small>
+            </button>
+          ))}
+        </aside>
+        <section className="step-inspector">
+          <div className="step-timeline" aria-label="Run step states">
+            {detail.nodes.map((n, i) => (
+              <button
+                key={n.id}
+                aria-label={
+                  'Step ' + (i + 1) + ': ' + n.label + ', ' + n.status
+                }
+                aria-pressed={i === cursor}
+                style={{
+                  background: ['pending', 'skipped'].includes(n.status)
+                    ? 'var(--line-strong)'
+                    : tone(n.status).fg
+                }}
+                onClick={() => select(i)}
+              />
+            ))}
+          </div>
+          {node ? (
+            <>
+              <div className="step-heading">
+                <div>
+                  <div className="eyebrow">
+                    STEP {cursor + 1} OF {detail.nodes.length} · {node.type}
+                  </div>
+                  <div className="step-title">
+                    <Tile kind={node.type} size={28} />
+                    <h2>{node.label}</h2>
+                    <Pill status={node.status} />
+                  </div>
+                  <p>
+                    {node.error
+                      ? 'Connector failed: ' + node.error
+                      : node.status === 'skipped'
+                        ? 'This branch was not taken.'
+                        : node.status === 'pending'
+                          ? 'This step has not run.'
+                          : 'Recorded result from the workflow engine.'}
+                  </p>
+                </div>
+                <div className="attempts">
+                  <span className="eyebrow">ATTEMPTS</span>
+                  <strong className="mono">{node.attempts}</strong>
+                </div>
+              </div>
+              <div className="io-grid">
+                <div>
+                  <div className="well-label">
+                    <span className="eyebrow">INPUT</span>
+                    <small>{cursor === 0 ? 'Run input' : 'Unavailable'}</small>
+                  </div>
+                  <pre>
+                    {cursor === 0
+                      ? JSON.stringify(detail.input, null, 2)
+                      : '// Step input is not available in this run record.\n// Use the run input or inspect preceding outputs.'}
+                  </pre>
+                </div>
+                <div>
+                  <div className="well-label">
+                    <span className="eyebrow">OUTPUT</span>
+                    <small>
+                      {node.output === undefined
+                        ? 'No data'
+                        : new Blob([JSON.stringify(node.output)]).size + ' B'}
+                    </small>
+                  </div>
+                  <pre
+                    className={node.status === 'failed' ? 'failed-well' : ''}
+                  >
+                    {node.output !== undefined
+                      ? JSON.stringify(node.output, null, 2)
+                      : node.error
+                        ? JSON.stringify({ error: node.error }, null, 2)
+                        : '// No data: this step did not produce an output.'}
+                  </pre>
+                </div>
+              </div>
+              <div className="well-label">
+                <span className="eyebrow">EXECUTION INFORMATION</span>
+                <small>Secret values are redacted by the host</small>
+              </div>
+              <pre className="execution-information">
+                {[
+                  node.type + ' · ' + node.status,
+                  'Attempts: ' + node.attempts,
+                  node.untilMs
+                    ? 'Wake / deadline: ' + new Date(node.untilMs).toISOString()
+                    : '',
+                  node.error ? 'Failure code: ' + node.error : '',
+                  detail.mode === 'simulation'
+                    ? 'Simulation: explicit fixtures; no external requests.'
+                    : 'Real execution: configured external connectors may call services.',
+                  'Detailed timings and execution logs are not available for this run.'
+                ]
+                  .filter(Boolean)
+                  .join('\n')}
+              </pre>
+            </>
+          ) : (
+            <p>This run contains no steps.</p>
+          )}
+        </section>
+      </div>
+      <footer className="debugger-footer">
+        <div className="actions">
+          <button disabled={!cursor} onClick={() => select(cursor - 1)}>
+            <Icon name="arrow" />
+            Previous step
+          </button>
+          <button
+            disabled={cursor >= detail.nodes.length - 1}
+            onClick={() => select(cursor + 1)}
+          >
+            Next step <Icon name="runs" />
+          </button>
+          <small>
+            Step {cursor + 1} of {detail.nodes.length}
+          </small>
+        </div>
+        <div className="actions">
+          {['running', 'paused'].includes(detail.status) && (
+            <>
+              <button
+                disabled={pending}
+                onClick={() =>
+                  void action(detail.status === 'paused' ? 'resume' : 'pause')
+                }
+              >
+                {detail.status === 'paused' ? 'Resume' : 'Pause'} run
+              </button>
+              <button
+                className="danger"
+                disabled={pending}
+                onClick={() => void action('cancel')}
+              >
+                Cancel run
+              </button>
+            </>
+          )}
+          <button onClick={() => onPin(detail.input)}>
+            Pin run input as fixture
+          </button>
+          <button disabled title="Checkpoint replay is not available yet">
+            Replay from this step
+          </button>
+        </div>
+      </footer>
+    </div>
+  )
+  return fullPage ? (
+    <article className="run-detail-page">
+      <button className="ghost" onClick={onViewAll}>
+        <Icon name="arrow" />
+        All runs
+      </button>
+      <h1>{detail.name}</h1>
+      {content}
+    </article>
+  ) : (
+    <Dialog
+      onKeyDown={handleKey}
+      title={detail.name}
+      className="run-modal"
+      onClose={onClose}
+    >
+      {content}
+    </Dialog>
+  )
 }

@@ -1,57 +1,865 @@
 import { useEffect, useState } from 'react'
 import type { Workflow } from '../lib/workflows'
-import { removeNode } from '../lib/workflows'
+import { removeNode, validateWorkflow } from '../lib/workflows'
 import { connect, connectionError, ports } from '../lib/canvas'
 import { WorkflowCanvas } from './WorkflowCanvas'
 import { fields } from '../lib/catalogue'
 import { api } from '../lib/api'
-import type { WebhookEndpoint } from '../../../../packages/contracts/src/index'
-import type { NodeManifest } from '../../../../packages/contracts/src/index'
-
-export function WorkflowEditor({ workflow, connectors, update }: { workflow: Workflow; connectors: NodeManifest[]; update: (workflow: Workflow) => void }) {
-  const [nodeId, setNodeId] = useState<string | undefined>(workflow.nodes[0]?.id)
-  const [palette, setPalette] = useState(true)
-  const [search, setSearch] = useState('')
-  const [dragging, setDragging] = useState(false)
-  const [addType, setAddType] = useState<string>()
-  const [error, setError] = useState('')
-  const node = workflow.nodes.find(n => n.id === nodeId)
-  const triggers = ['Manual Trigger', 'Webhook', 'Schedule']
-  const [webhook, setWebhook] = useState<WebhookEndpoint>()
-  const [webhookBusy, setWebhookBusy] = useState(false)
+import { Icon, Tile, Pill, Empty } from '../design/ui'
+import { category } from '../design/ui-model'
+import { go, path } from '../lib/navigation'
+import type {
+  NodeManifest,
+  Run,
+  WebhookEndpoint
+} from '../../../../packages/contracts/src/index'
+type Props = {
+  workflow: Workflow
+  connectors: NodeManifest[]
+  update: (w: Workflow) => void
+  mode: 'build' | 'simulate'
+  input: string
+  setInput: (v: string) => void
+  busy: boolean
+  runSimulation: () => Promise<Run>
+  runLive: () => void
+}
+export function WorkflowEditor({
+  workflow,
+  connectors,
+  update,
+  mode,
+  input,
+  setInput,
+  busy,
+  runSimulation,
+  runLive
+}: Props) {
+  const [nodeId, setNodeId] = useState<string | undefined>(
+      workflow.nodes[0]?.id
+    ),
+    [search, setSearch] = useState(''),
+    [dragging, setDragging] = useState(false),
+    [addType, setAddType] = useState<string>(),
+    [error, setError] = useState(''),
+    [tab, setTab] = useState('Parameters')
+  const [webhook, setWebhook] = useState<WebhookEndpoint>(),
+    [webhookBusy, setWebhookBusy] = useState(false)
+  const [result, setResult] = useState<Run | null>(null),
+    [cursor, setCursor] = useState(0),
+    [playing, setPlaying] = useState(false),
+    [speed, setSpeed] = useState(1),
+    [pending, setPending] = useState(false)
+  const node = workflow.nodes.find((n) => n.id === nodeId),
+    manifest = connectors.find((c) => c.kind === node?.type),
+    triggers = ['Manual Trigger', 'Webhook', 'Schedule']
+  const simulate = mode === 'simulate',
+    errors = validateWorkflow(workflow)
+  const graphKey = JSON.stringify({
+    nodes: workflow.nodes,
+    edges: workflow.edges,
+    input
+  })
+  useEffect(() => {
+    setResult(null)
+    setCursor(0)
+    setPlaying(false)
+  }, [graphKey])
+  useEffect(() => {
+    if (!playing || !result) return
+    if (cursor >= result.nodes.length) {
+      setPlaying(false)
+      return
+    }
+    const timer = setTimeout(() => {
+      setNodeId(result.nodes[cursor].id)
+      setCursor((v) => v + 1)
+    }, 1000 / speed)
+    return () => clearTimeout(timer)
+  }, [playing, cursor, result, speed])
   useEffect(() => {
     if (node?.type !== 'Webhook') return
     let cancelled = false
-    void api.webhook(workflow.id).then(value => { if (!cancelled) setWebhook(previous => ({ ...value, token: previous?.endpointId === value.endpointId && value.authentication === 'bearer' ? previous?.token : undefined })) }).catch(() => { if (!cancelled) setWebhook(undefined) })
-    return () => { cancelled = true }
+    void api
+      .webhook(workflow.id)
+      .then((value) => {
+        if (!cancelled)
+          setWebhook((previous) => ({
+            ...value,
+            token:
+              previous?.endpointId === value.endpointId &&
+              value.authentication === 'bearer'
+                ? previous?.token
+                : undefined
+          }))
+      })
+      .catch(() => {
+        if (!cancelled) setWebhook(undefined)
+      })
+    return () => {
+      cancelled = true
+    }
   }, [workflow.id, workflow.status, node?.type])
-  async function rotateWebhook() {
-    setWebhookBusy(true); setError('')
-    try { setWebhook(await api.rotateWebhook(workflow.id)) }
-    catch (e) { setError(e instanceof Error ? e.message : 'Could not configure webhook.') }
-    finally { setWebhookBusy(false) }
+  function editNode(patch: Partial<Workflow['nodes'][number]>) {
+    if (node)
+      update({
+        ...workflow,
+        status: 'draft',
+        nodes: workflow.nodes.map((n) =>
+          n.id === node.id ? { ...n, ...patch } : n
+        )
+      })
   }
-
-  function editNode(patch: Partial<Workflow['nodes'][number]>) { if (node) update({ ...workflow, status: 'draft', nodes: workflow.nodes.map(n => n.id === node.id ? { ...n, ...patch } : n) }) }
+  async function rotateWebhook() {
+    setWebhookBusy(true)
+    setError('')
+    try {
+      setWebhook(await api.rotateWebhook(workflow.id))
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Could not configure webhook.')
+    } finally {
+      setWebhookBusy(false)
+    }
+  }
   function changeEdge(id: string, target: string, port: string) {
-    try { update(connect(workflow, node!.id, target, port, id)); setError('') }
-    catch (e) { setError(e instanceof Error ? e.message : 'Invalid connection.') }
+    try {
+      update(connect(workflow, node!.id, target, port, id))
+      setError('')
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Invalid connection.')
+    }
   }
   function addConnection() {
     if (!node) return
-    for (const port of ports(node.type)) for (const target of workflow.nodes) {
-      if (!connectionError(workflow, node.id, target.id, port)) { update(connect(workflow, node.id, target.id, port)); setError(''); return }
-    }
-    setError('There are no additional valid targets for this node.')
+    for (const port of ports(node.type))
+      for (const target of workflow.nodes)
+        if (!connectionError(workflow, node.id, target.id, port)) {
+          update(connect(workflow, node.id, target.id, port))
+          return
+        }
+    setError('No valid connection is available.')
   }
-  return <>
-    <section className="workflow-settings"><label>Workflow name<input value={workflow.name} onChange={e => update({ ...workflow, name: e.target.value, status: 'draft' })} /></label><label>Description<input value={workflow.description} placeholder="What does this workflow do?" onChange={e => update({ ...workflow, description: e.target.value, status: 'draft' })} /></label><span>Revision {workflow.revision}</span></section>
-    {workflow.nextScheduledAt && <div className="info-box">Next scheduled run: {new Date(workflow.nextScheduledAt).toLocaleString('en-GB')}. Saving a draft pauses the schedule until you publish again.</div>}
-    <div className="editor-layout"><WorkflowCanvas workflow={workflow} selectedId={nodeId} select={id => { setNodeId(id); if (id) setPalette(false) }} update={update} showPalette={() => setPalette(true)} dragging={dragging} allowedTypes={connectors.map(c => c.kind)} addType={addType} onAdded={() => setAddType(undefined)} />
-    <aside className="inspector">{palette ? <><div className="panel-heading"><h2>Add a step</h2><button onClick={() => setPalette(false)} aria-label="Close node palette">×</button></div><input aria-label="Search nodes" placeholder="Search implemented nodes…" value={search} onChange={e => setSearch(e.target.value)} /><p className="muted">Drag a node onto the canvas, or click to add it. Drop on a line to insert between steps.</p><div className="node-palette">{connectors.filter(c => (!triggers.includes(c.kind) || !workflow.nodes.some(n => triggers.includes(n.type))) && c.kind.toLowerCase().includes(search.toLowerCase())).map(c => <button key={c.kind} draggable onDragStart={event => { setDragging(true); event.dataTransfer.setData('application/kasuri-node', c.kind); event.dataTransfer.setData('text/plain', c.kind); event.dataTransfer.effectAllowed = 'copy' }} onDragEnd={() => setDragging(false)} onClick={() => setAddType(c.kind)} title={`Drag ${c.kind} onto the canvas, or click to add`}><strong>{c.kind}</strong><small>Version {c.version}</small><span>＋</span></button>)}</div></> : node ? <><div className="panel-heading"><h2>Step configuration</h2><span className="badge">v{node.version ?? 1}</span></div><div className="inspector-type">{node.type}</div>{triggers.includes(node.type) && <label>Trigger type<select value={node.type} onChange={e => editNode({ type: e.target.value, label: e.target.value, config: e.target.value === 'Schedule' ? { cron: '* * * * *', timezone: 'UTC' } : {} })}>{triggers.map(t => <option key={t}>{t}</option>)}</select></label>}<label>Step name<input value={node.label} onChange={e => editNode({ label: e.target.value })} /></label>{(fields[node.type] || []).map(field => <label key={field.key}>{field.label}<input value={typeof node.config[field.key] === 'string' ? node.config[field.key] as string : node.config[field.key] === undefined ? '' : JSON.stringify(node.config[field.key])} placeholder={field.placeholder} onChange={e => editNode({ config: { ...node.config, [field.key]: e.target.value } })} /></label>)}
-      {node.type === 'Webhook' && <section className="webhook-settings"><h2 className="section-title">Webhook endpoint</h2><p className="muted">Save the trigger before generating credentials. Publish to accept events; pause or save a new draft to stop deliveries.</p>{webhook?.path && <label>POST URL<input readOnly value={new URL(webhook.path, window.location.origin).href} onFocus={e => e.target.select()} /></label>}{webhook?.token && <><label>Bearer token (shown once)<input type="password" readOnly value={webhook.token} onFocus={e => e.target.select()} /></label><button onClick={() => void navigator.clipboard.writeText(webhook.token!).catch(() => setError('Could not copy token. Select the token field and copy it manually.'))}>Copy token</button></>}<p className="muted">{webhook?.configured ? webhook.active ? 'Published: accepting authenticated events.' : 'Not active: publish the workflow to accept events.' : 'No endpoint configured.'} Send a unique X-Kasuri-Event-Id with every JSON event. HMAC mode uses a named signing secret.</p><button disabled={webhookBusy} onClick={() => void rotateWebhook()}>{webhookBusy ? 'Generating…' : webhook?.configured ? 'Rotate endpoint and token' : 'Generate endpoint and token'}</button></section>}
-      <h2 className="section-title">Outgoing connections</h2>{error && <p role="alert" className="danger">{error}</p>}{workflow.edges.filter(e => e.source === node.id).map(edge => <div className="edge-editor" key={edge.id}><label>Port<select aria-label="Output port" value={edge.sourcePort ?? 'success'} onChange={e => changeEdge(edge.id, edge.target, e.target.value)}>{(node.type === 'IF / Condition' ? ['true', 'false', 'error'] : ['success', 'error']).map(port => <option key={port}>{port}</option>)}</select></label><label>Target<select aria-label="Target step" value={edge.target} onChange={e => changeEdge(edge.id, e.target.value, edge.sourcePort ?? 'success')}>{workflow.nodes.filter(n => n.id !== node.id && !triggers.includes(n.type)).map(n => <option key={n.id} value={n.id}>{n.label}</option>)}</select></label><button aria-label="Remove connection" onClick={() => update({ ...workflow, status: 'draft', edges: workflow.edges.filter(e => e.id !== edge.id) })}>×</button></div>)}<button className="subtle" disabled={!workflow.nodes.some(n => n.id !== node.id && !triggers.includes(n.type))} onClick={addConnection}>＋ Add connection</button>
-      <div className="info-box">{node.type === 'HTTP Request' ? 'Public HTTPS works by default. Basic passwords and sensitive headers use named secrets configured on this installation. Simulations use your response fixture without making a request.' : node.type === 'Map / Transform' ? 'Use {"$input":"/name"} to reference an input field. Other values are JSON literals.' : node.type === 'Schedule' ? 'Five-field cron, minimum one minute. Publish to register; pause to unregister. Timezone uses IANA names.' : 'Runs execute this node in the Rust backend. Simulations use the same logic with a virtual clock.'}</div><button className="danger subtle" onClick={() => { update(removeNode(workflow, node.id)); setNodeId(undefined) }}>Remove step</button>
-    </> : <div className="empty"><h2>Select a step</h2><p>Choose a step to edit its configuration.</p></div>}</aside></div>
-  </>
+  async function play() {
+    if (playing) {
+      setPlaying(false)
+      return
+    }
+    if (result) {
+      if (cursor >= result.nodes.length) setCursor(0)
+      setPlaying(true)
+      return
+    }
+    setPending(true)
+    setError('')
+    try {
+      const run = await runSimulation()
+      setResult(run)
+      setCursor(0)
+      setPlaying(true)
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Simulation failed.')
+    } finally {
+      setPending(false)
+    }
+  }
+  const states: Record<string, string> = {}
+  if (result) {
+    result.nodes.forEach((n, i) => {
+      if (i < cursor) states[n.id] = n.status
+      else if (i === cursor && playing) states[n.id] = 'running'
+    })
+  }
+  const selectedResult = result?.nodes.find((n) => n.id === nodeId)
+  const parameterKeys = [
+    ...new Set([
+      ...(fields[node?.type || ''] || []).map((f) => f.key),
+      ...Object.keys(
+        (manifest?.configSchema.properties as Record<string, unknown>) || {}
+      )
+    ])
+  ]
+  const groups = [
+    ['trigger', 'Triggers'],
+    ['logic', 'Logic & data'],
+    ['http', 'HTTP & AI'],
+    ['cf', 'Cloudflare'],
+    ['app', 'Apps'],
+    ['error', 'Error handling']
+  ]
+  return (
+    <>
+      <div
+        className={'simulation-toolbar ' + (!simulate ? 'build-toolbar' : '')}
+      >
+        {simulate ? (
+          <>
+            <div>
+              <span className="eyebrow">SIMULATION</span>
+              <p>Draft results · external calls are mocked, never sent</p>
+            </div>
+            <button
+              className="primary"
+              disabled={busy || pending}
+              onClick={() => void play()}
+            >
+              <Icon
+                name={
+                  playing
+                    ? 'pause'
+                    : cursor && result && cursor >= result.nodes.length
+                      ? 'reset'
+                      : 'play'
+                }
+              />
+              {pending
+                ? 'Simulating…'
+                : playing
+                  ? 'Pause'
+                  : result && cursor >= result.nodes.length
+                    ? 'Replay results'
+                    : 'Play'}
+            </button>
+            <button
+              disabled={!result || cursor >= result.nodes.length}
+              onClick={() => {
+                setPlaying(false)
+                setNodeId(result!.nodes[cursor].id)
+                setCursor(cursor + 1)
+              }}
+            >
+              <Icon name="step" />
+              Step
+            </button>
+            <button
+              disabled={!result}
+              onClick={() => {
+                setResult(null)
+                setCursor(0)
+                setPlaying(false)
+              }}
+            >
+              <Icon name="reset" />
+              Reset
+            </button>
+            <span className="segmented">
+              {[0.5, 1, 2].map((s) => (
+                <button
+                  key={s}
+                  aria-pressed={speed === s}
+                  onClick={() => setSpeed(s)}
+                >
+                  {s}×
+                </button>
+              ))}
+            </span>
+            <span className="simulation-progress">
+              <small>
+                Step {cursor} of {result?.nodes.length || 0}
+              </small>
+              <progress value={cursor} max={result?.nodes.length || 1} />
+            </span>
+            <Pill
+              status={
+                pending || playing
+                  ? 'running'
+                  : result && cursor >= result.nodes.length
+                    ? result.status
+                    : 'queued'
+              }
+              label={
+                pending
+                  ? 'Computing'
+                  : playing
+                    ? 'Playing results'
+                    : result && cursor >= result.nodes.length
+                      ? undefined
+                      : 'Ready'
+              }
+            />
+          </>
+        ) : (
+          <>
+            <span>
+              <Icon name="pencil" />
+              Build your draft
+            </span>
+            <p>Drag nodes onto the canvas. Drop on a connection to insert.</p>
+            <button disabled={busy} onClick={runLive}>
+              <Icon name="play" />
+              Run now
+            </button>
+          </>
+        )}
+      </div>
+      {error && (
+        <div className="editor-error" role="alert">
+          <Icon name="warning" />
+          {error}
+          <button
+            className="icon-button"
+            aria-label="Dismiss editor error"
+            onClick={() => setError('')}
+          >
+            <Icon name="close" />
+          </button>
+        </div>
+      )}
+      <div className="editor-layout">
+        <aside className="node-sidebar">
+          {simulate ? (
+            <>
+              <div className="panel-heading">
+                <span className="eyebrow">TEST INPUT</span>
+              </div>
+              <div className="panel-body">
+                <p className="muted">
+                  This input runs against the saved draft. HTTP nodes require
+                  explicit simulation response fixtures.
+                </p>
+                <label>
+                  Current input · JSON
+                  <textarea
+                    aria-label="Test input JSON"
+                    className="mono"
+                    rows={15}
+                    value={input}
+                    onChange={(e) => setInput(e.target.value)}
+                    spellCheck={false}
+                  />
+                </label>
+                <button onClick={() => go(path('runs'))}>
+                  <Icon name="plus" />
+                  Pin input from a past run
+                </button>
+                <div className="info-box">
+                  Playback inspects final node snapshots returned by the Rust
+                  simulation. Per-attempt event streaming is not available yet.
+                </div>
+              </div>
+            </>
+          ) : (
+            <>
+              <div className="palette-search">
+                <Icon name="search" />
+                <input
+                  data-search
+                  aria-label="Search nodes"
+                  placeholder="Search nodes…"
+                  value={search}
+                  onChange={(e) => setSearch(e.target.value)}
+                />
+                <kbd>/</kbd>
+              </div>
+              <div className="palette-content">
+                {groups.map(([key, label]) => {
+                  const items = connectors.filter(
+                    (c) =>
+                      category(c.kind) === key &&
+                      c.kind.toLowerCase().includes(search.toLowerCase())
+                  )
+                  return items.length ? (
+                    <section key={key}>
+                      <div className="palette-group">
+                        <span>{label}</span>
+                        <small>{items.length}</small>
+                      </div>
+                      {items.map((c) => {
+                        const disabled =
+                          triggers.includes(c.kind) &&
+                          workflow.nodes.some((n) => triggers.includes(n.type))
+                        return (
+                          <button
+                            className="palette-node"
+                            key={c.kind}
+                            disabled={disabled}
+                            draggable={!disabled}
+                            title={
+                              disabled
+                                ? 'Change the existing trigger in its configuration'
+                                : c.kind
+                            }
+                            onDragStart={(e) => {
+                              setDragging(true)
+                              e.dataTransfer.setData(
+                                'application/kasuri-node',
+                                c.kind
+                              )
+                              e.dataTransfer.setData('text/plain', c.kind)
+                              e.dataTransfer.effectAllowed = 'copy'
+                            }}
+                            onDragEnd={() => setDragging(false)}
+                            onClick={() => setAddType(c.kind)}
+                          >
+                            <Tile kind={c.kind} size={22} />
+                            <span>{c.kind}</span>
+                            <Icon name="plus" size={12} />
+                          </button>
+                        )
+                      })}
+                    </section>
+                  ) : null
+                })}
+                {!connectors.some((c) =>
+                  c.kind.toLowerCase().includes(search.toLowerCase())
+                ) && (
+                  <p className="palette-empty">
+                    No matching implemented nodes.
+                  </p>
+                )}
+              </div>
+              <div className="palette-note">
+                <Icon name="lock" />
+                Only implemented nodes are shown.
+              </div>
+            </>
+          )}
+        </aside>
+        <WorkflowCanvas
+          workflow={workflow}
+          selectedId={nodeId}
+          select={setNodeId}
+          update={update}
+          showPalette={() =>
+            document
+              .querySelector<HTMLInputElement>('input[data-search]')
+              ?.focus()
+          }
+          dragging={dragging}
+          allowedTypes={connectors.map((c) => c.kind)}
+          addType={addType}
+          onAdded={() => setAddType(undefined)}
+          states={simulate ? states : undefined}
+          readOnly={simulate}
+        />
+        <aside className="inspector">
+          {simulate ? (
+            <>
+              <div className="panel-heading">
+                <h2>Execution results</h2>
+                {result && (
+                  <small className="mono">{result.id.slice(0, 10)}…</small>
+                )}
+              </div>
+              <div className="execution-log">
+                {!result ? (
+                  <Empty icon="play" title="Ready to simulate">
+                    Choose an input and press Play. External services will not
+                    be called.
+                  </Empty>
+                ) : (
+                  result.nodes.slice(0, cursor).map((n, i) => (
+                    <button
+                      className={n.id === nodeId ? 'selected' : ''}
+                      key={n.id}
+                      onClick={() => setNodeId(n.id)}
+                    >
+                      <span className={'step-dot ' + n.status} />
+                      <div>
+                        <strong>{n.label}</strong>
+                        <small>
+                          {n.status} · {n.attempts}{' '}
+                          {n.attempts === 1 ? 'attempt' : 'attempts'}
+                          {n.error ? ' · ' + n.error : ''}
+                        </small>
+                      </div>
+                      <small>{i + 1}</small>
+                    </button>
+                  ))
+                )}
+                {result && cursor === result.nodes.length && (
+                  <div className="result-finished">
+                    <Pill status={result.status} />
+                    <small>Simulation complete</small>
+                  </div>
+                )}
+              </div>
+              <div className="panel-body selected-node-data">
+                <div className="eyebrow">SELECTED NODE DATA</div>
+                <h3>{node?.label || 'Select a node'}</h3>
+                <span className="eyebrow">INPUT</span>
+                <pre>
+                  {selectedResult && result?.nodes[0]?.id === selectedResult.id
+                    ? JSON.stringify(result.input, null, 2)
+                    : '// Step input is not available in this run record'}
+                </pre>
+                <span className="eyebrow">OUTPUT</span>
+                <pre>
+                  {selectedResult &&
+                  cursor > result!.nodes.indexOf(selectedResult)
+                    ? selectedResult.output !== undefined
+                      ? JSON.stringify(selectedResult.output, null, 2)
+                      : '// ' + selectedResult.status
+                    : '// Not reached in playback yet'}
+                </pre>
+              </div>
+            </>
+          ) : node ? (
+            <>
+              <div className="inspector-heading">
+                <span className="eyebrow">NODE CONFIGURATION</span>
+                <span className="mono muted node-id">{node.id}</span>
+                <div>
+                  <Tile kind={node.type} size={26} />
+                  <strong>{node.type}</strong>
+                  <span className="mono muted">v{node.version || 1}</span>
+                </div>
+              </div>
+              <div className="underline-tabs">
+                {['Parameters', 'Settings', 'Output'].map((t) => (
+                  <button
+                    key={t}
+                    aria-pressed={tab === t}
+                    onClick={() => setTab(t)}
+                  >
+                    {t}
+                  </button>
+                ))}
+              </div>
+              <div className="inspector-scroll">
+                {tab === 'Parameters' ? (
+                  <>
+                    <label>
+                      Node name
+                      <input
+                        value={node.label}
+                        onChange={(e) => editNode({ label: e.target.value })}
+                      />
+                    </label>
+                    {triggers.includes(node.type) && (
+                      <label>
+                        Trigger type
+                        <select
+                          value={node.type}
+                          onChange={(e) =>
+                            editNode({
+                              type: e.target.value,
+                              label: e.target.value,
+                              config:
+                                e.target.value === 'Schedule'
+                                  ? { cron: '* * * * *', timezone: 'UTC' }
+                                  : {}
+                            })
+                          }
+                        >
+                          {triggers.map((t) => (
+                            <option key={t}>{t}</option>
+                          ))}
+                        </select>
+                      </label>
+                    )}
+                    {parameterKeys.map((key) => {
+                      const meta = fields[node.type]?.find((f) => f.key === key)
+                      const property = (
+                        (manifest?.configSchema.properties || {}) as Record<
+                          string,
+                          { enum?: string[]; type?: string }
+                        >
+                      )[key]
+                      const value =
+                        typeof node.config[key] === 'string'
+                          ? (node.config[key] as string)
+                          : node.config[key] === undefined
+                            ? ''
+                            : JSON.stringify(node.config[key], null, 2)
+                      const multiline =
+                        [
+                          'mapping',
+                          'body',
+                          'headers',
+                          'query',
+                          'simulationResponse'
+                        ].includes(key) || property?.type === 'object'
+                      return (
+                        <label key={key}>
+                          {meta?.label || key}
+                          {property?.enum ? (
+                            <select
+                              value={value || property.enum[0]}
+                              onChange={(e) =>
+                                editNode({
+                                  config: {
+                                    ...node.config,
+                                    [key]: e.target.value
+                                  }
+                                })
+                              }
+                            >
+                              {property.enum.map((v) => (
+                                <option key={v}>{v}</option>
+                              ))}
+                            </select>
+                          ) : multiline ? (
+                            <textarea
+                              className="mono"
+                              rows={4}
+                              value={value}
+                              placeholder={meta?.placeholder}
+                              spellCheck={false}
+                              onChange={(e) =>
+                                editNode({
+                                  config: {
+                                    ...node.config,
+                                    [key]: e.target.value
+                                  }
+                                })
+                              }
+                            />
+                          ) : (
+                            <input
+                              className={
+                                key === 'cron' ||
+                                key === 'url' ||
+                                key === 'pointer'
+                                  ? 'mono'
+                                  : ''
+                              }
+                              value={value}
+                              placeholder={meta?.placeholder}
+                              onChange={(e) =>
+                                editNode({
+                                  config: {
+                                    ...node.config,
+                                    [key]: e.target.value
+                                  }
+                                })
+                              }
+                            />
+                          )}
+                        </label>
+                      )
+                    })}
+                    {node.type === 'Webhook' && (
+                      <section className="webhook-settings">
+                        <h2 className="section-title">Webhook endpoint</h2>
+                        <p className="muted">
+                          Save the trigger before generating credentials.
+                          Publish to accept events; pause or save a new draft to
+                          stop deliveries.
+                        </p>
+                        {webhook?.path && (
+                          <label>
+                            POST URL
+                            <input
+                              readOnly
+                              value={
+                                new URL(webhook.path, window.location.origin)
+                                  .href
+                              }
+                              onFocus={(e) => e.target.select()}
+                            />
+                          </label>
+                        )}
+                        {webhook?.token && (
+                          <>
+                            <label>
+                              Bearer token (shown once)
+                              <input
+                                type="password"
+                                readOnly
+                                value={webhook.token}
+                                onFocus={(e) => e.target.select()}
+                              />
+                            </label>
+                            <button
+                              onClick={() =>
+                                void navigator.clipboard
+                                  .writeText(webhook.token!)
+                                  .catch(() =>
+                                    setError(
+                                      'Could not copy token. Select the token field and copy it manually.'
+                                    )
+                                  )
+                              }
+                            >
+                              Copy token
+                            </button>
+                          </>
+                        )}
+                        <p className="muted">
+                          {webhook?.configured
+                            ? webhook.active
+                              ? 'Published: accepting authenticated events.'
+                              : 'Not active: publish the workflow to accept events.'
+                            : 'No endpoint configured.'}{' '}
+                          Send a unique X-Kasuri-Event-Id with every JSON event.
+                          HMAC mode uses a named signing secret.
+                        </p>
+                        <button
+                          disabled={webhookBusy}
+                          onClick={() => void rotateWebhook()}
+                        >
+                          {webhookBusy
+                            ? 'Generating…'
+                            : webhook?.configured
+                              ? 'Rotate endpoint and token'
+                              : 'Generate endpoint and token'}
+                        </button>
+                      </section>
+                    )}
+                    <div className="info-box">
+                      {node.type === 'HTTP Request'
+                        ? 'Public HTTPS is allowed by default. Credentials use named secrets. Simulations require a response fixture.'
+                        : node.type === 'Map / Transform'
+                          ? 'Use {"$input":"/name"} to reference an input field. Other values are JSON literals.'
+                          : node.type === 'Schedule'
+                            ? 'Five-field cron in an IANA time zone. Publish to register the schedule.'
+                            : 'Configuration is validated by the Rust connector before execution.'}
+                    </div>
+                  </>
+                ) : tab === 'Settings' ? (
+                  <>
+                    <h3>Execution</h3>
+                    <label>
+                      Timeout (milliseconds)
+                      <input
+                        type="number"
+                        min={1}
+                        value={node.timeoutMs || 30000}
+                        onChange={(e) =>
+                          editNode({
+                            timeoutMs: Math.max(
+                              1,
+                              Number(e.target.value) || 30000
+                            )
+                          })
+                        }
+                      />
+                    </label>
+                    {[
+                      ['maxAttempts', 'Maximum attempts', 1],
+                      ['delayMs', 'Retry delay (ms)', 1000],
+                      ['maxDelayMs', 'Maximum retry delay (ms)', 60000]
+                    ].map(([key, label, fallback]) => (
+                      <label key={key}>
+                        {label}
+                        <input
+                          type="number"
+                          min={key === 'maxAttempts' ? 1 : 0}
+                          value={
+                            node.retry?.[
+                              key as keyof NonNullable<typeof node.retry>
+                            ] ?? fallback
+                          }
+                          onChange={(e) =>
+                            editNode({
+                              retry: {
+                                maxAttempts: node.retry?.maxAttempts ?? 1,
+                                delayMs: node.retry?.delayMs ?? 1000,
+                                maxDelayMs: node.retry?.maxDelayMs ?? 60000,
+                                [key]: Number(e.target.value)
+                              }
+                            })
+                          }
+                        />
+                      </label>
+                    ))}
+                    <h3>Outgoing connections</h3>
+                    {workflow.edges
+                      .filter((e) => e.source === node.id)
+                      .map((edge) => (
+                        <div className="edge-editor" key={edge.id}>
+                          <label>
+                            Port
+                            <select
+                              value={edge.sourcePort ?? 'success'}
+                              onChange={(e) =>
+                                changeEdge(edge.id, edge.target, e.target.value)
+                              }
+                            >
+                              {ports(node.type).map((p) => (
+                                <option key={p}>{p}</option>
+                              ))}
+                            </select>
+                          </label>
+                          <label>
+                            Target
+                            <select
+                              value={edge.target}
+                              onChange={(e) =>
+                                changeEdge(
+                                  edge.id,
+                                  e.target.value,
+                                  edge.sourcePort ?? 'success'
+                                )
+                              }
+                            >
+                              {workflow.nodes
+                                .filter(
+                                  (n) =>
+                                    n.id !== node.id &&
+                                    !triggers.includes(n.type)
+                                )
+                                .map((n) => (
+                                  <option key={n.id} value={n.id}>
+                                    {n.label}
+                                  </option>
+                                ))}
+                            </select>
+                          </label>
+                          <button
+                            className="icon-button"
+                            aria-label="Remove connection"
+                            onClick={() =>
+                              update({
+                                ...workflow,
+                                edges: workflow.edges.filter(
+                                  (e) => e.id !== edge.id
+                                )
+                              })
+                            }
+                          >
+                            <Icon name="close" />
+                          </button>
+                        </div>
+                      ))}
+                    <button onClick={addConnection}>
+                      <Icon name="plus" />
+                      Add connection
+                    </button>
+                  </>
+                ) : (
+                  <>
+                    <h3>Last simulation output</h3>
+                    <pre>
+                      {selectedResult?.output !== undefined
+                        ? JSON.stringify(selectedResult.output, null, 2)
+                        : '// Simulate this workflow to inspect node output'}
+                    </pre>
+                  </>
+                )}
+                <button
+                  className="danger ghost remove-node"
+                  onClick={() => {
+                    update(removeNode(workflow, node.id))
+                    setNodeId(undefined)
+                  }}
+                >
+                  Remove node
+                </button>
+              </div>
+            </>
+          ) : (
+            <Empty title="Select a node">
+              Choose a canvas node to edit its parameters and settings.
+            </Empty>
+          )}
+        </aside>
+      </div>
+      <footer className="editor-status">
+        <span style={{ color: errors.length ? 'var(--fail)' : 'var(--ok)' }}>
+          <i />
+          {errors.length ? errors.length + ' graph issues' : 'Graph valid'}
+        </span>
+        <span>
+          {workflow.nodes.length} nodes · {workflow.edges.length} connections
+        </span>
+        <span className="status-spacer" />
+        <span>
+          {simulate
+            ? 'External requests use explicit response fixtures'
+            : 'Draft changes take effect after saving and publishing'}
+        </span>
+      </footer>
+    </>
+  )
 }

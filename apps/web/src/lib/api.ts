@@ -1,6 +1,7 @@
 import type { Json, Run, RunMode, Workflow, Workspace, WebhookEndpoint } from '../../../../packages/contracts/src/index'
 async function request<T>(path: string, method = 'GET', body?: unknown): Promise<T> {
   const response = await fetch(`/api/${path}`, { method, credentials: 'same-origin', headers: body === undefined ? {} : { 'Content-Type': 'application/json' }, ...(body === undefined ? {} : { body: JSON.stringify(body) }) })
+  if (response.status === 401) throw new Error('Authentication required. Sign in through this installation’s configured authentication.')
   if (!response.headers.get('content-type')?.includes('application/json')) throw new Error('Backend unavailable. Start the full app with pnpm dev.')
   const result = await response.json()
   if (!response.ok) throw new Error(result.error || `Request failed (${response.status}).`)

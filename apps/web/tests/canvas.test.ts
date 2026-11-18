@@ -1,6 +1,6 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { addCanvasNode, connect, connectionError, edgeNear, layout } from '../src/lib/canvas.ts'
+import { addCanvasNode, connect, connectionError, edgeNear, layout, NODE_GAP } from '../src/lib/canvas.ts'
 import { appendNode, createWorkflow, parseWorkflow, validateWorkflow } from '../src/lib/workflows.ts'
 
 test('drop connects to an open output and keeps the chosen position', () => {
@@ -19,7 +19,7 @@ test('drop on edge inserts a node, retains branch port and shifts descendants', 
   assert.equal(workflow.edges.find(e => e.id === edge.id)?.sourcePort, 'true')
   assert.equal(workflow.edges.find(e => e.id === edge.id)?.target, nodeId)
   assert.equal(workflow.edges.find(e => e.source === nodeId)?.target, edge.target)
-  assert.ok(workflow.nodes.find(n => n.id === edge.target)!.position!.y >= 440)
+  assert.ok(workflow.nodes.find(n => n.id === edge.target)!.position!.y >= 280 + NODE_GAP)
   assert.deepEqual(validateWorkflow(workflow), [])
 })
 test('autoconnection chooses the unused condition branch and never chooses an error output', () => {
@@ -51,9 +51,9 @@ test('reconnection excludes the original edge and keeps its identity', () => {
 })
 test('layout and edge hit testing work for old graphs without saved positions', () => {
   const workflow = appendNode(createWorkflow(), 'Merge')
-  assert.deepEqual(layout(workflow).get(workflow.nodes[1].id), { x: 0, y: 160 })
-  assert.equal(edgeNear(workflow, { x: 100, y: 125 }, 24), workflow.edges[0].id)
-  assert.equal(edgeNear(workflow, { x: 500, y: 125 }, 24), undefined)
+  assert.deepEqual(layout(workflow).get(workflow.nodes[1].id), { x: 0, y: 112 })
+  assert.equal(edgeNear(workflow, { x: 100, y: 84 }, 24), workflow.edges[0].id)
+  assert.equal(edgeNear(workflow, { x: 500, y: 84 }, 24), undefined)
 })
 test('export/import retains positions and rejects malformed coordinates', () => {
   const workflow = createWorkflow()

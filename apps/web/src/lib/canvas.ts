@@ -4,7 +4,8 @@ export type Point = { x: number; y: number }
 export const isTrigger = (type: string) => ['Manual Trigger', 'Webhook', 'Schedule'].includes(type)
 export const ports = (type: string) => type === 'IF / Condition' ? ['true', 'false', 'error'] : ['success', 'error']
 export const NODE_WIDTH = 200
-export const NODE_HEIGHT = 92
+export const NODE_HEIGHT = 56
+export const NODE_GAP = 112
 
 /** Stable topological layout for imported/older graphs without saved positions. */
 export function layout(workflow: Workflow): Map<string, Point> {
@@ -21,7 +22,7 @@ export function layout(workflow: Workflow): Map<string, Point> {
   return new Map(workflow.nodes.map(node => {
     const depth = rank.get(node.id)!
     const column = rows.get(depth) ?? 0; rows.set(depth, column + 1)
-    return [node.id, node.position ?? { x: column * 260, y: depth * 160 }]
+    return [node.id, node.position ?? { x: column * 360, y: depth * NODE_GAP }]
   }))
 }
 
@@ -63,7 +64,7 @@ export function addCanvasNode(workflow: Workflow, type: string, position: Point,
   const edge = workflow.edges.find(e => e.id === anchor?.edgeId)
   if (edge) {
     const positions = layout(workflow)
-    const shift = Math.max(0, position.y + 160 - positions.get(edge.target)!.y)
+    const shift = Math.max(0, position.y + NODE_GAP - positions.get(edge.target)!.y)
     const downstream = new Set<string>(); const pending = [edge.target]
     while (pending.length) { const id = pending.pop()!; if (downstream.has(id)) continue; downstream.add(id); pending.push(...workflow.edges.filter(e => e.source === id).map(e => e.target)) }
     next.nodes = next.nodes.map(n => downstream.has(n.id) ? { ...n, position: { x: positions.get(n.id)!.x, y: positions.get(n.id)!.y + shift } } : n)
@@ -77,7 +78,7 @@ export function addCanvasNode(workflow: Workflow, type: string, position: Point,
   available.sort((a, b) => {
     if (a.node.id === anchor?.nodeId && b.node.id !== anchor?.nodeId) return -1
     if (b.node.id === anchor?.nodeId && a.node.id !== anchor?.nodeId) return 1
-    const distance = (n: WorkflowNode) => { const p = positions.get(n.id)!; return Math.hypot(p.x - position.x, p.y + 160 - position.y) }
+    const distance = (n: WorkflowNode) => { const p = positions.get(n.id)!; return Math.hypot(p.x - position.x, p.y + NODE_GAP - position.y) }
     return distance(a.node) - distance(b.node)
   })
   const from = available[0]

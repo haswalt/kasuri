@@ -54,3 +54,5 @@ An HttpOnly cookie with a workspace routing ID and a separate random session tok
 Kasuri must expose an authenticated MCP server so agents can build and manage workflows, execute and inspect runs, and audit changes and execution history. This is a planned Rust backend capability, with workspace-scoped permissions, revision checks, redacted results and attributable audit records. See [agent MCP requirements](docs/agent-mcp.md). It is separate from the planned MCP Client workflow connector. [Agentic connector requirements](docs/agentic-connectors.md) include Cloudflare AI Gateway and Cloudflare MCP Portals as model-routing and tool-access options.
 
 Completed changes use Conventional Commits. See [engine details](docs/workflow-engine.md).
+
+The [UI implementation notes](docs/ui-implementation.md) describe the design handoff, implemented screens and remaining backend dependencies.
