@@ -6,3 +6,9 @@ target/
 dist/
 .wrangler/
 .DS_Store
+
+# Generated Wasm and local Worker configuration
+apps/api/generated/
+.dev.vars*
+.env*
+!.env.example
