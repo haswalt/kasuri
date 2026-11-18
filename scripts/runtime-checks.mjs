@@ -6,7 +6,11 @@ export async function checkRuntime(origin,credentials,restart){
  let cookie='';const authorization='Basic '+Buffer.from(credentials).toString('base64')
  async function api(path,method='GET',body){const res=await fetch(`${origin}/api/${path}`,{method,headers:{cookie,Authorization:authorization,...(body===undefined?{}:{'Content-Type':'application/json'})},...(body===undefined?{}:{body:JSON.stringify(body)})});if(res.headers.has('set-cookie'))cookie=res.headers.get('set-cookie').split(';')[0];assert.ok(res.ok,`${path}: ${res.status} ${await res.clone().text()}`);return res.json()}
  assert.equal((await fetch(origin)).status,401)
- const html=await fetch(origin,{headers:{Authorization:authorization}});assert.equal(html.status,200);assert.match(html.headers.get('content-type'),/text\/html/);assert.match(await html.text(),/root/)
+ const html=await fetch(origin,{headers:{Authorization:authorization}});assert.equal(html.status,200);assert.match(html.headers.get('content-type'),/text\/html/);const htmlText=await html.text();assert.match(htmlText,/root/)
+ const stylesheet=htmlText.match(/href="([^"]+\.css)"/);assert.ok(stylesheet,'Built UI stylesheet')
+ const cssUrl=new URL(stylesheet[1],origin);const cssResponse=await fetch(cssUrl,{headers:{Authorization:authorization}});assert.equal(cssResponse.status,200)
+ const css=await cssResponse.text();const font=css.match(/url\(["']?([^"')]+\.woff2)/);assert.ok(font,'Self-hosted UI font')
+ const fontResponse=await fetch(new URL(font[1],cssUrl),{headers:{Authorization:authorization}});assert.equal(fontResponse.status,200);assert.match(fontResponse.headers.get('content-type'),/font\/woff2/);assert.ok((await fontResponse.arrayBuffer()).byteLength>1000)
  const empty=await api('workspace');assert.equal(empty.workflows.length,0);assert.equal(empty.runs.length,0);assert.equal('expiresAt' in empty,false)
  await api('workflows/check','PUT',fixture)
  let run=await api('runs','POST',{workflowId:'check',mode:'simulation',input:{test:1}});assert.equal(run.status,'succeeded')

@@ -90,6 +90,9 @@ pub async fn main(req: Request, env: Env, _ctx: Context) -> Result<Response> {
                 "svg" => "image/svg+xml",
                 "png" => "image/png",
                 "ico" => "image/x-icon",
+                "woff2" => "font/woff2",
+                "woff" => "font/woff",
+                "ttf" => "font/ttf",
                 "json" => "application/json",
                 _ => "text/html; charset=utf-8",
             })
