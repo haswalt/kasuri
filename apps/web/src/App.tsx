@@ -1,11 +1,11 @@
-import { useEffect, useRef, useState } from 'react'
+import { lazy, Suspense, useEffect, useRef, useState } from 'react'
 import { catalogue } from './lib/catalogue'
 import { createWorkflow, parseWorkflow, uid, validateWorkflow } from './lib/workflows'
 import type { Run, Workflow } from './lib/workflows'
 import type { NodeManifest, RunMode } from '../../../packages/contracts/src/index'
 import { api } from './lib/api'
 import { RunDetails } from './components/RunDetails'
-import { WorkflowEditor } from './components/WorkflowEditor'
+const WorkflowEditor = lazy(() => import('./components/WorkflowEditor').then(module => ({ default: module.WorkflowEditor })))
 import './App.css'
 
 type Page = 'Workflows' | 'Runs' | 'Connectors' | 'Connections'
@@ -93,8 +93,8 @@ function App() {
         {notice && <div className="notice" role="status"><span>{notice}</span><button aria-label="Dismiss notification" onClick={() => setNotice('')}>×</button></div>}
         {workflow ? <>
           <div className="page-heading"><div><button className="back" onClick={() => setWorkflowId(null)}>← All workflows</button><h1>{workflow.name || 'Untitled workflow'} <span className={`badge ${workflow.status}`}>{workflow.status}</span></h1><p>{dirty ? 'Unsaved changes. Published schedules continue until you save this draft.' : 'Saved in your backend workspace.'}</p></div><div className="actions"><button onClick={exportWorkflow}>Export</button><button disabled={controlsDisabled || !dirty} onClick={() => void perform(async () => { await save(workflow); setNotice('Workflow saved.') })}>Save draft</button><button disabled={controlsDisabled} onClick={() => run('simulation')}>▷ Simulate</button><button disabled={controlsDisabled} onClick={() => run('run')}>▶ Run</button><button disabled={controlsDisabled} className="primary" onClick={publish}>Publish</button></div></div>
-          <details className="test-input" open><summary>Test input · JSON</summary><textarea aria-label="Test input JSON" value={input} onChange={e => setInput(e.target.value)} spellCheck={false} /><p>Run uses real waits. Simulate executes the same core logic with a virtual clock.</p></details>
-          <fieldset disabled={busy} className="editor-fieldset"><WorkflowEditor key={workflow.id} workflow={workflow} connectors={connectors} update={update} /></fieldset>
+          <details className="test-input"><summary>Test input · JSON</summary><textarea aria-label="Test input JSON" value={input} onChange={e => setInput(e.target.value)} spellCheck={false} /><p>Run uses real waits. Simulate executes the same core logic with a virtual clock.</p></details>
+          <fieldset disabled={busy} className="editor-fieldset"><Suspense fallback={<div className="empty">Loading workflow canvas…</div>}><WorkflowEditor key={workflow.id} workflow={workflow} connectors={connectors} update={update} /></Suspense></fieldset>
         </> : page === 'Workflows' ? <>
           <div className="page-heading"><div><div className="eyebrow">BUILD & AUTOMATE</div><h1>Workflows</h1><p>Build, run and test your automations with the Rust engine.</p></div><div className="actions"><button disabled={controlsDisabled} onClick={() => fileInput.current?.click()}>↑ Import JSON</button><button disabled={controlsDisabled} className="primary" onClick={create}>＋ New workflow</button></div></div>
           <div className="stats">{[['Total workflows', workflows.length], ['Published', workflows.filter(w => w.status === 'active').length], ['Backend runs', runs.length]].map(([title, value]) => <div className="stat" key={title}><span>{title}</span><strong>{value}<small>{title === 'Backend runs' ? 'Runs & simulations' : 'In this workspace'}</small></strong></div>)}</div>

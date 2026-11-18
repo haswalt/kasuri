@@ -63,6 +63,7 @@ export function parseWorkflow(text: string, validate = true): Workflow {
   const value = JSON.parse(text)
   if (!value || value.schemaVersion !== 1 || typeof value.name !== 'string' || typeof value.description !== 'string' || !Array.isArray(value.nodes) || !Array.isArray(value.edges) || value.nodes.length > 100) throw new Error('Expected a version 1 workflow with up to 100 steps.')
   if (value.nodes.some((n: WorkflowNode) => !n || typeof n.id !== 'string' || typeof n.type !== 'string' || typeof n.label !== 'string' || !n.config || Array.isArray(n.config) || typeof n.config !== 'object')) throw new Error('Invalid node configuration.')
+  if (value.nodes.some((n: WorkflowNode) => n.position !== undefined && (!n.position || !Number.isFinite(n.position.x) || !Number.isFinite(n.position.y)))) throw new Error('Invalid node position.')
   if (value.edges.some((e: Workflow['edges'][number]) => !e || typeof e.id !== 'string' || typeof e.source !== 'string' || typeof e.target !== 'string' || (e.sourcePort !== undefined && typeof e.sourcePort !== 'string'))) throw new Error('Invalid workflow edges.')
   const workflow: Workflow = { ...value, id: uid(), status: 'draft', revision: 0, updatedAt: new Date().toISOString() }
   const errors = validateWorkflow(workflow)
