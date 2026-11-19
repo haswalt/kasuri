@@ -564,7 +564,20 @@ pub fn call(
         return content(Err(err("unknown_tool", "Tool not found")));
     };
     if !c.permits("read") || !c.permits(scope) {
-        ws.record_audit(&c.id, name, "", "forbidden", now, nonce);
+        if mutation && !name.starts_with("runs_") {
+            ws.record_audit(
+                &c.id,
+                "mcp.permission_denied",
+                args["workflowId"].as_str().unwrap_or(""),
+                "forbidden",
+                now,
+                nonce,
+            );
+            if let Some(event) = ws.audit.last_mut() {
+                event["attemptedAction"] = json!(name);
+                event["requiredScope"] = json!(scope);
+            }
+        }
         return content(Err(err("forbidden", "Credential lacks the required scope")));
     }
     if !args.is_object()
@@ -614,23 +627,6 @@ pub fn call(
     let result=execute(ws,name,args,now,nonce,&c.id).map(|v| {
         if mutation { json!({"id":v["id"],"workflowId":v["workflowId"],"version":v["version"],"revision":v["revision"],"status":v["status"],"detailsTool":if name.starts_with("runs_"){"runs_get"}else{"workflows_get"}}) } else { v }
     });
-    if name != "audit_list" {
-        ws.record_audit(
-            &c.id,
-            name,
-            args["workflowId"]
-                .as_str()
-                .or(args["runId"].as_str())
-                .unwrap_or(""),
-            if result.is_ok() {
-                "succeeded"
-            } else {
-                "rejected"
-            },
-            now,
-            nonce,
-        );
-    }
     let mut result = content(result);
     if result.to_string().len() > 131072 {
         result = content(Err(err(

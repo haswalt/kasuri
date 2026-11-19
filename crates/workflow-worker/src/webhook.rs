@@ -59,6 +59,24 @@ impl WorkflowWorkspace {
             let token = namespace.unique_id()?.to_string();
             match workspace.configure_webhook(id, endpoint, hash(token.as_bytes())) {
                 Ok(mut value) => {
+                    let name = workspace
+                        .workflows
+                        .iter()
+                        .find(|w| w.graph.id == id)
+                        .map(|w| w.graph.name.clone())
+                        .unwrap_or_else(|| id.into());
+                    workspace.record_audit(
+                        "browser",
+                        "webhook.credential_rotated",
+                        id,
+                        "succeeded",
+                        now(),
+                        "",
+                    );
+                    if let Some(event) = workspace.audit.last_mut() {
+                        event["entity"] = json!({"type":"workflow","id":id,"name":name});
+                        event["summary"] = json!(format!("{name}: webhook credential rotated"));
+                    }
                     self.save(&mut workspace).await?;
                     if value["authentication"] == "bearer" {
                         value["token"] = json!(token)

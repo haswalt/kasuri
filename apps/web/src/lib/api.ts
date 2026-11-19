@@ -55,7 +55,7 @@ export const api = {
       'POST',
       { scopes }
     ),
-  audit: (after = 0) => request<AuditPage>(`audit?after=${after}&limit=100`),
+  audit: (before = 0) => request<AuditPage>(`audit?order=desc&before=${before}&limit=100`),
   webhook: (id: string) => request<WebhookEndpoint>(`workflows/${id}/webhook`),
   rotateWebhook: (id: string) =>
     request<WebhookEndpoint>(`workflows/${id}/webhook/rotate`, 'POST'),
@@ -113,6 +113,15 @@ export type AuditEvent = {
   outcome: string
   at: string
   correlationId: string
+  summary?: string
+  entity?: { type: string; id: string; name: string }
+  before?: Json
+  after?: Json
+  changes?: Array<{field: string; description?: string; nodeId?: string; nodeName?: string; before?: Json; after?: Json; beforeCount?: number; afterCount?: number}>
+  reason?: Json
+  attemptedAction?: string
+  requiredScope?: string
+  context?: Json
 }
 export type AuditPage = {
   items: AuditEvent[]

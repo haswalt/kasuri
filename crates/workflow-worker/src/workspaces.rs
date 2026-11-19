@@ -12,6 +12,24 @@ pub(crate) struct Membership {
     pub name: String,
 }
 impl WorkflowWorkspace {
+    async fn catalogue_audit(
+        &self,
+        action: &str,
+        id: &str,
+        name: &str,
+        before: Option<&str>,
+    ) -> Result<()> {
+        let mut workspace = self.load()?;
+        workspace.record_audit("browser", action, id, "succeeded", crate::now(), "");
+        if let Some(event) = workspace.audit.last_mut() {
+            event["entity"] = json!({"type":"workspace","id":id,"name":name});
+            event["summary"] = json!(format!("{}: {}", name, action.replace(['.', '_'], " ")));
+            event["changes"] = json!([{"field":"name","before":before,"after":name}]);
+            event["context"] = json!({"scope":"owner workspace catalogue"});
+        }
+        self.save(&mut workspace).await
+    }
+
     pub(crate) fn browser_workspace_key(&self) -> Result<String> {
         let sql = self.state.storage().sql();
         sql.exec(
@@ -96,10 +114,15 @@ impl WorkflowWorkspace {
                 if member.is_empty() {
                     return Ok(Some(api_error(404, "Workspace not found")?));
                 }
+                if member[0].name == name {
+                    return Ok(Some(Response::from_json(&json!({"id":id,"name":name}))?));
+                }
                 sql.exec(
                     "UPDATE workspace_memberships SET name=? WHERE id=?",
                     Some(vec![name.into(), id.into()]),
                 )?;
+                self.catalogue_audit("workspace.renamed", id, name, Some(&member[0].name))
+                    .await?;
                 return Ok(Some(Response::from_json(&json!({"id":id,"name":name}))?));
             }
             // Authenticate the new workspace before publishing its directory entry.
@@ -119,6 +142,8 @@ impl WorkflowWorkspace {
                 "INSERT INTO workspace_memberships(id,name) VALUES(?,?)",
                 Some(vec![id.clone().into(), name.into()]),
             )?;
+            self.catalogue_audit("workspace.created", &id, name, None)
+                .await?;
             return Ok(Some(
                 Response::from_json(&json!({"id":id,"name":name}))?.with_status(201),
             ));

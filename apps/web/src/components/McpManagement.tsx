@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import { api } from '../lib/api'
-import type { McpStatus, OAuthRequest, AuditPage } from '../lib/api'
+import type { McpStatus, OAuthRequest, AuditPage, AuditEvent } from '../lib/api'
 import { Button, Dialog, Empty, Icon, PageHeader, Pill } from '../design/ui'
 import { styles } from '../design/styles'
 import { css } from '../../styled-system/css'
@@ -452,6 +452,7 @@ export function McpManagement({ authorizeId }: { authorizeId: string | null }) {
   )
 }
 export function AuditLog() {
+  const [selected,setSelected] = useState<AuditEvent | null>(null)
   const [page, setPage] = useState<AuditPage | null>(null),
     [error, setError] = useState(''),
     [busy, setBusy] = useState(false)
@@ -474,7 +475,7 @@ export function AuditLog() {
       <PageHeader
         eyebrow="GOVERNANCE"
         title="Audit log"
-        description="Persisted management actions, credential changes and agent tool calls. Arguments and credentials are excluded."
+        description="Workflow, workspace and credential changes with context. Run activity and routine reads are excluded."
         actions={
           <Button disabled={busy} onClick={() => void load()}>
             Refresh
@@ -522,8 +523,8 @@ export function AuditLog() {
                         <small>{new Date(e.at).toLocaleString()}</small>
                       </td>
                       <td className={styles.mono}>{e.actor}</td>
-                      <td>{e.action}</td>
-                      <td className={styles.mono}>{e.target}</td>
+                      <td><Button visual="ghost" onClick={() => setSelected(e)}>{e.summary || e.action}</Button><br/><small>{e.action}</small></td>
+                      <td>{e.entity?.name || e.target}<br/><small>{e.entity?.type}</small></td>
                       <td>
                         <Pill
                           status={
@@ -551,6 +552,17 @@ export function AuditLog() {
           </>
         )}
       </section>
+      {selected && <Dialog title="Audit detail" onClose={() => setSelected(null)}>
+        <div className={styles.settingsFields}>
+          <strong>{selected.summary || selected.action}</strong>
+          <p>{selected.entity?.type || 'Management'} · {selected.entity?.name || selected.target}</p>
+          <dl><dt>Actor</dt><dd>{selected.actor}</dd><dt>Time</dt><dd>{new Date(selected.at).toLocaleString()}</dd><dt>Outcome</dt><dd>{selected.outcome}</dd><dt>Target ID</dt><dd className={styles.mono}>{selected.target}</dd></dl>
+          {selected.changes?.length ? <ul>{selected.changes.map((change,index) => <li key={index}><strong>{change.nodeName || change.field}</strong>: {change.description || `${JSON.stringify(change.before)} → ${JSON.stringify(change.after)}`}</li>)}</ul> : <p>No field-level change details were retained for this event.</p>}
+          {(selected.before || selected.after) && <><h3>State references</h3><pre>{JSON.stringify({before:selected.before,after:selected.after},null,2)}</pre></>}
+          {(selected.reason || selected.context || selected.attemptedAction) && <pre>{JSON.stringify({reason:selected.reason,context:selected.context,attemptedAction:selected.attemptedAction,requiredScope:selected.requiredScope},null,2)}</pre>}
+          <small>Configuration values, credentials and workflow payloads are excluded from audit details.</small>
+        </div>
+      </Dialog>}
     </div>
   )
 }

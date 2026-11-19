@@ -199,7 +199,7 @@ fn oauth_requires_explicit_consent_pkce_audience_and_rotating_refresh() {
 fn audit_retention_is_reported_and_credentials_are_revocable() {
     let mut ws = Workspace::default();
     for i in 0..1005 {
-        ws.record_audit("agent", "read", "workflow", "succeeded", i, "")
+        ws.record_audit("agent", "workflow.updated", "workflow", "succeeded", i, "")
     }
     let page = ws.audit_page(0, 10);
     assert_eq!(page["oldestRetainedId"], 6);

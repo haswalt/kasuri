@@ -256,6 +256,13 @@ impl DurableObject for WorkflowWorkspace {
                 .get("limit")
                 .and_then(|s| s.parse().ok())
                 .unwrap_or(100);
+            if pairs.get("order").is_some_and(|v| v == "desc") {
+                let before = pairs
+                    .get("before")
+                    .and_then(|s| s.parse().ok())
+                    .unwrap_or(0);
+                return Response::from_json(&workspace.audit_recent_page(before, limit));
+            }
             return Response::from_json(&workspace.audit_page(after, limit));
         }
         let result = workspace.handle(

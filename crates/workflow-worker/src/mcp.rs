@@ -223,6 +223,12 @@ impl WorkflowWorkspace {
             let mut entropy = || namespace.unique_id().expect("secure entropy").to_string();
             let time = now();
             let nonce = entropy();
+            let previously_active: Vec<_> = auth
+                .credentials
+                .iter()
+                .filter(|c| !c.revoked)
+                .map(|c| c.id.clone())
+                .collect();
             let result = if rpc {
                 let bearer = req.headers().get("Authorization")?.unwrap_or_default();
                 let token = bearer.strip_prefix("Bearer ").unwrap_or("");
@@ -284,24 +290,7 @@ impl WorkflowWorkspace {
                 }
             } else if url.path().ends_with("/token") && req.method() == Method::Post {
                 match auth.exchange(&input, &resource, time, &mut entropy) {
-                    Ok(v) => {
-                        let digest = hash(v["access_token"].as_str().unwrap_or(""));
-                        let target = auth
-                            .credentials
-                            .iter()
-                            .find(|c| c.token_hash == digest)
-                            .map(|c| c.id.clone())
-                            .unwrap_or_default();
-                        ws.record_audit(
-                            "oauth",
-                            "oauth.token_issued",
-                            &target,
-                            "succeeded",
-                            time,
-                            &nonce,
-                        );
-                        json(&v, 200)?
-                    }
+                    Ok(v) => json(&v, 200)?,
                     Err(e) => oauth_error(e)?,
                 }
             } else if url.path().ends_with("/revoke") && req.method() == Method::Post {
@@ -315,6 +304,27 @@ impl WorkflowWorkspace {
             } else {
                 api_error(405, "Method not allowed")?
             };
+            for credential in auth
+                .credentials
+                .iter()
+                .filter(|c| c.revoked && previously_active.contains(&c.id))
+            {
+                ws.record_audit(
+                    "oauth_client",
+                    "credential.revoked",
+                    &credential.id,
+                    "succeeded",
+                    time,
+                    &nonce,
+                );
+                if let Some(event) = ws.audit.last_mut() {
+                    event["entity"] =
+                        json!({"type":"credential","id":credential.id,"name":credential.name});
+                    event["summary"] =
+                        json!(format!("{}: OAuth credential revoked", credential.name));
+                    event["context"] = json!({"reason":if url.path().ends_with("/token"){"refresh replay detected"}else{"client revocation"}});
+                }
+            }
             ws.management = serde_json::to_value(auth).map_err(internal)?;
             if ws.management.to_string().len() > 524288 {
                 return api_error(429, "Management storage budget exceeded");
@@ -359,6 +369,8 @@ impl WorkflowWorkspace {
         let mut entropy = || namespace.unique_id().expect("secure entropy").to_string();
         let time = now();
         auth.prune(time);
+        let management_before = serde_json::to_value(&auth).map_err(internal)?;
+        let consent_context = parts.get(3).and_then(|id| auth.consent_info(id, time).ok());
         let result: std::result::Result<Value, &str> = match parts.as_slice() {
             ["api", "mcp"] if method == Method::Get => Ok(
                 json!({"endpoint":resource,"issuer":issuer,"protocolVersion":workflow_mcp::PROTOCOL,"scopes":SCOPES,"credentials":auth.credentials.iter().map(|c|{let mut v=c.public();v["active"]=json!(!c.revoked&&c.expires_at>time);v["refreshAvailable"]=json!(!c.revoked&&c.refresh_until>time);v}).collect::<Vec<_>>(),"unusedClients":auth.clients.iter().filter(|c|!auth.credentials.iter().any(|g|g.client_id.as_deref()==Some(&c.id))).count(),"roles":{"reader":workflow_mcp::role("reader"),"builder":workflow_mcp::role("builder"),"operator":workflow_mcp::role("operator"),"manager":workflow_mcp::role("manager")}}),
@@ -440,19 +452,31 @@ impl WorkflowWorkspace {
             }
             _ => Err("route_not_found"),
         };
-        if method != Method::Get {
+        if method != Method::Get
+            && (result.is_err()
+                || management_before != serde_json::to_value(&auth).map_err(internal)?)
+        {
             let target = result
                 .as_ref()
                 .ok()
                 .and_then(|v| v["id"].as_str())
                 .unwrap_or(parts.get(3).copied().unwrap_or(""));
+            let action = if path.ends_with("/clients/reset") {
+                "oauth.clients_reset"
+            } else if path.ends_with("/approve") {
+                "oauth.grant_approved"
+            } else if path.ends_with("/deny") {
+                "oauth.grant_denied"
+            } else if method == Method::Delete {
+                "credential.revoked"
+            } else if path.ends_with("/credentials") {
+                "credential.created"
+            } else {
+                "mcp.management_rejected"
+            };
             ws.record_audit(
                 "browser",
-                if path.contains("/oauth/") {
-                    "oauth.consent"
-                } else {
-                    "mcp.credential"
-                },
+                action,
                 target,
                 if result.is_ok() {
                     "succeeded"
@@ -462,6 +486,20 @@ impl WorkflowWorkspace {
                 time,
                 "",
             );
+            if let Some(event) = ws.audit.last_mut() {
+                let value = result.as_ref().ok();
+                let name = value
+                    .and_then(|v| v["name"].as_str())
+                    .or_else(|| {
+                        consent_context
+                            .as_ref()
+                            .and_then(|v| v["clientName"].as_str())
+                    })
+                    .unwrap_or(target);
+                event["entity"] = json!({"type":if path.contains("/oauth/"){"oauth_grant"}else{"credential"},"id":target,"name":name});
+                event["summary"] = json!(format!("{}: {}", name, action.replace(['.', '_'], " ")));
+                event["context"] = json!({"scopes":value.and_then(|v|v.get("scopes")).or_else(||input.get("scopes")),"expiresAt":value.and_then(|v|v.get("expiresAt"))});
+            }
         }
         ws.management = serde_json::to_value(auth).map_err(internal)?;
         self.save(&mut ws).await?;

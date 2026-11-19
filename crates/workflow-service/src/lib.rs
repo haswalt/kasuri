@@ -1,5 +1,6 @@
 //! The Rust application layer shared by Cloudflare and self-hosted Wasm deployments.
 //! All workspace data is persistent. No sample workflows, seed data or expiry mode.
+mod audit;
 mod publication;
 use chrono::{DateTime, SecondsFormat, Utc};
 use chrono_tz::Tz;
@@ -255,6 +256,9 @@ impl Workspace {
             });
             if let Some(index) = removable {
                 self.runs.remove(index);
+            } else if text.len() > MAX_STATE_BYTES && self.audit.len() > 1 {
+                // Audit retention is bounded by both count and available storage.
+                self.audit.remove(0);
             } else {
                 return Err(error(
                     413,
@@ -373,8 +377,15 @@ impl Workspace {
         now: u64,
         correlation: &str,
     ) {
+        if action.starts_with("runs")
+            || action == "read"
+            || action == "oauth.token_issued"
+            || matches!(actor, "engine" | "scheduler" | "webhook")
+        {
+            return;
+        }
         self.audit_sequence += 1;
-        self.audit.push(json!({"id":self.audit_sequence,"actor":actor,"action":action,"target":target,"outcome":outcome,"at":iso(now),"correlationId":correlation}));
+        self.audit.push(json!({"schemaVersion":2,"id":self.audit_sequence,"actor":actor,"action":action,"target":target,"outcome":outcome,"at":iso(now),"correlationId":correlation,"summary":action.replace(['.','_']," "),"entity":{"type":"management","id":target,"name":target}}));
         if self.audit.len() > 1000 {
             self.audit.remove(0);
         }
@@ -383,7 +394,7 @@ impl Workspace {
         let items: Vec<_> = self
             .audit
             .iter()
-            .filter(|v| v["id"].as_u64().unwrap_or(0) > after)
+            .filter(|v| audit::visible(v) && v["id"].as_u64().unwrap_or(0) > after)
             .take(limit.clamp(1, 100))
             .cloned()
             .collect();
@@ -411,46 +422,42 @@ impl Workspace {
         let workflow_id = path
             .strip_prefix("/api/workflows/")
             .and_then(|p| p.split('/').next());
-        let before = workflow_id.and_then(|id| {
-            self.workflows
-                .iter()
-                .find(|w| w.graph.id == id)
-                .map(|w| (w.version, w.graph.revision))
-        });
+        let before =
+            workflow_id.and_then(|id| self.workflows.iter().find(|w| w.graph.id == id).cloned());
         let result = self.handle_inner(method, path, body, now, run_id, actor);
-        if matches!(method, "POST" | "PUT" | "DELETE") {
-            let target = result
-                .as_ref()
-                .ok()
-                .and_then(|(_, v)| v["id"].as_str())
-                .unwrap_or(path);
-            self.record_audit(
-                actor,
-                method,
-                target,
-                if result.is_ok() {
-                    "succeeded"
+        if let Some(id) = workflow_id.filter(|_| matches!(method, "POST" | "PUT" | "DELETE")) {
+            let after = self.workflows.iter().find(|w| w.graph.id == id).cloned();
+            let action = if method == "PUT" {
+                if before.is_none() {
+                    "workflow.created"
                 } else {
-                    "rejected"
-                },
+                    "workflow.updated"
+                }
+            } else if path.ends_with("/publish") {
+                "workflow.published"
+            } else if path.ends_with("/pause") {
+                "workflow.paused"
+            } else if path.ends_with("/resume") {
+                "workflow.resumed"
+            } else if path.ends_with("/archive") {
+                "workflow.archived"
+            } else if path.contains("/revisions/") {
+                "workflow.revision_restored"
+            } else if path.ends_with("/restore") {
+                "workflow.restored"
+            } else {
+                "workflow.change_rejected"
+            };
+            self.workflow_audit(
+                actor,
+                action,
+                id,
+                before.as_ref(),
+                after.as_ref(),
+                result.as_ref().err().map(|e| e.status),
                 now,
                 run_id,
             );
-            let after = workflow_id.and_then(|id| {
-                self.workflows
-                    .iter()
-                    .find(|w| w.graph.id == id)
-                    .map(|w| (w.version, w.graph.revision))
-            });
-            if let Some(event) = self.audit.last_mut() {
-                event["before"] = json!(
-                    before
-                        .map(|(version, revision)| json!({"version":version,"revision":revision}))
-                );
-                event["after"] = json!(
-                    after.map(|(version, revision)| json!({"version":version,"revision":revision}))
-                );
-            }
         }
         result
     }
@@ -609,6 +616,9 @@ impl Workspace {
                     .ok_or_else(|| error(409, "Version exhausted"))?;
                 let current = &self.workflows[index];
                 doc.graph.revision = current.graph.revision;
+                if doc.graph == current.graph {
+                    return Ok((200, serde_json::to_value(current).unwrap()));
+                }
                 doc.lifecycle = current.lifecycle.clone();
                 doc.status = current.status;
                 doc.next_scheduled_at = current.next_scheduled_at;
