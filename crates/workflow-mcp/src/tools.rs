@@ -105,6 +105,16 @@ fn definitions() -> Vec<(&'static str, &'static str, &'static str, bool, Value)>
             object(json!({}), vec![]),
         ),
         (
+            "connectors_get",
+            "read",
+            "Inspect one implemented connector's configuration and runtime input/output schemas, optionally specialized for supplied config. Includes typed wiring guidance and tested public configurations. Does not read workspace data.",
+            false,
+            object(
+                json!({"kind":{"type":"string"},"version":{"type":"integer","minimum":1},"config":{"type":"object"}}),
+                vec!["kind"],
+            ),
+        ),
+        (
             "connectors_list",
             "read",
             "Discover implemented connector versions, config schemas and ports. Planned connectors are excluded.",
@@ -460,6 +470,27 @@ fn execute(
     }
     match name {
         "connectors_list" => Ok(crate::discovery::connectors()),
+        "connectors_get" => {
+            let kind = required(args, "kind")?;
+            let version = args
+                .get("version")
+                .map(|v| v.as_u64().and_then(|n| u32::try_from(n).ok()))
+                .unwrap_or(Some(1))
+                .ok_or_else(|| err("invalid_arguments", "Use a positive connector version"))?;
+            let empty = serde_json::Map::new();
+            let config = match args.get("config") {
+                Some(value) => value
+                    .as_object()
+                    .ok_or_else(|| err("invalid_arguments", "Expected config object"))?,
+                None => &empty,
+            };
+            crate::discovery::connector(kind, version, config).ok_or_else(|| {
+                err(
+                    "unsupported_connector",
+                    "Connector kind/version is not implemented",
+                )
+            })
+        }
         "workflows_schema_get" => Ok(workflow_service::definition::discovery()),
         "platform_capabilities_get" => Ok(crate::discovery::capabilities()),
         "workflows_examples_list" => page(
@@ -933,6 +964,7 @@ pub fn call_with_data(
     let public = matches!(
         name,
         "workflows_schema_get"
+            | "connectors_get"
             | "platform_capabilities_get"
             | "workflows_examples_list"
             | "workflows_examples_get"

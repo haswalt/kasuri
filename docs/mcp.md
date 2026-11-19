@@ -117,7 +117,8 @@ Start with these read-scoped discovery tools; they never install examples or mut
 | `platform_capabilities_get` | Data flow, branch/child semantics, publication, simulation, retries, scopes and limits. |
 | `workflows_examples_list` | Paginated metadata for the repository's tested synthetic workflows, including dependency IDs. |
 | `workflows_examples_get` | One complete workflow, its synthetic input, asserted outputs and dependency/publication instructions. |
-| `connectors_list` | Implemented names/versions/config schemas/ports/side effects, input ports and configurations taken from public examples. |
+| `connectors_list` | Implemented names/versions/config schemas/ports/side effects, descriptions, input ports and configurations taken from public examples. |
+| `connectors_get` | One connector's input/output schemas, optionally specialized for supplied config, selected array rules, data-flow explanation and public usage examples. |
 
 The schema is generated from the engine's Rust/Serde graph types and composed with the actual connector manifests. Create/update/validate tool input schemas embed this same contract with resolvable local definitions. Runtime publication/execution uses the same structural/configuration schema plus topology and adapter-specific checks. The platform API also exposes `GET /api/workflows/schema` and `POST /api/workflows/validate` (the latter accepts the workflow object directly). These routes require platform access, not an MCP token.
 
@@ -156,3 +157,5 @@ Codes cover missing/wrong-typed fields, unsupported schema/connector values, dup
 For a parent/child example, fetch `19-invoke-workflow`; its dependency is `18-reusable-workflow`. Create the child using its declared ID, publish it with explicit publish scope, then create/simulate the caller. If choosing fresh IDs, update the caller's workflowId references. Validation alone does not publish dependencies or verify their deployment-local existence. Workflow-to-workflow and Each simulations still require a valid published child; data-access scopes remain explicit.
 
 Discovery assets are compiled from public repository fixtures, not production workflows. Their schema properties must remain intact even when named password/token/authorization; workspace/run responses still receive credential redaction. Existing scoped access, expectedVersion and idempotency requirements are unchanged. Higher-level add-node/connect-node mutation tools remain future work; complete-document building is supported through this contract now.
+
+Runtime contract inspection is pure and read-scoped: for example `connectors_get` with `{"kind":"Aggregate","config":{"operation":"sum","arrayPointer":"/items"}}` explains that the selected input is an array at `/items` and the output is a number itself. HTTP text responses expose a string at `/body`; awaited child results are at `/output`. Open schemas deliberately represent input-dependent values rather than inventing guarantees. Supplied mapping values are used only to infer types, never returned as sample data; workspace secrets and runs are not inspected.

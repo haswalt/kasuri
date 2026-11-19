@@ -23,7 +23,43 @@ pub fn connectors() -> Value {
     let examples = examples();
     let connectors:Vec<Value>=workflow_service::manifests().into_iter().map(|m|{
   let usage:Vec<Value>=examples.iter().flat_map(|e|e["workflow"]["nodes"].as_array().into_iter().flatten().filter(|n|n["type"]==m.kind).map(|n|json!({"exampleId":e["id"],"nodeId":n["id"],"config":n["config"]}))).take(3).collect();
-  let mut value=serde_json::to_value(&m).unwrap();value["inputPorts"]=json!(if ["Manual Trigger","Webhook","Schedule","Execute Workflow Trigger"].contains(&m.kind.as_str()){Vec::<&str>::new()}else{vec!["input"]});value["examples"]=json!(usage);value["constraints"]=json!(["Use workflows_validate for topology, dynamic ports and runtime-specific configuration checks.","Runtime data contracts can depend on configuration; workflows_examples_get includes exact synthetic inputs and asserted outputs."]);value
+  let contract=workflow_service::contracts::describe(&m.kind,&serde_json::Map::new());
+  let mut value=serde_json::to_value(&m).unwrap();value["description"]=contract["description"].clone();value["runtimeContractsTool"]=json!("connectors_get");value["documentationUrl"]=contract["documentationUrl"].clone();value["inputPorts"]=json!(if ["Manual Trigger","Webhook","Schedule","Execute Workflow Trigger"].contains(&m.kind.as_str()){Vec::<&str>::new()}else{vec!["input"]});value["examples"]=json!(usage);value["constraints"]=json!(["Use workflows_validate for topology, dynamic ports and runtime-specific configuration checks.","Runtime data contracts can depend on configuration; workflows_examples_get includes exact synthetic inputs and asserted outputs."]);value
  }).collect();
     json!({"connectors":connectors})
+}
+
+pub fn connector(
+    kind: &str,
+    version: u32,
+    config: &serde_json::Map<String, Value>,
+) -> Option<Value> {
+    let mut manifest = workflow_service::manifests()
+        .into_iter()
+        .find(|m| m.kind == kind && m.version == version)
+        .map(|m| serde_json::to_value(m).unwrap())?;
+    let contract = workflow_service::contracts::describe(kind, config);
+    for (key, value) in contract.as_object().unwrap() {
+        manifest[key] = value.clone();
+    }
+    manifest["inputPorts"] = json!(if [
+        "Manual Trigger",
+        "Webhook",
+        "Schedule",
+        "Execute Workflow Trigger"
+    ]
+    .contains(&kind)
+    {
+        vec![]
+    } else {
+        vec!["input"]
+    });
+    manifest["examples"] = connectors()["connectors"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|m| m["kind"] == kind)
+        .unwrap()["examples"]
+        .clone();
+    Some(manifest)
 }

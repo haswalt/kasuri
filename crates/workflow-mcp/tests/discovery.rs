@@ -368,3 +368,90 @@ fn authoritative_schema_preserves_supported_encoded_and_dynamic_configurations()
         assert!(errors.is_empty(), "{kind}: {errors:?}");
     }
 }
+
+#[test]
+fn connector_inspection_describes_runtime_values_without_reading_workspace_data() {
+    let mut ws = Workspace::default();
+    let mut auth = Auth::default();
+    let token = grant(&mut auth, "reader");
+    for manifest in workflow_service::manifests() {
+        let detail = data(
+            &mut ws,
+            &mut auth,
+            &token,
+            "connectors_get",
+            json!({"kind":manifest.kind}),
+        );
+        assert!(detail["description"].as_str().unwrap().len() > 20);
+        assert!(detail.get("inputSchema").is_some());
+        assert!(detail.get("outputSchema").is_some());
+        jsonschema::validator_for(&detail["inputSchema"]).unwrap();
+        jsonschema::validator_for(&detail["outputSchema"]).unwrap();
+    }
+    let sum = data(
+        &mut ws,
+        &mut auth,
+        &token,
+        "connectors_get",
+        json!({"kind":"Aggregate","config":{"operation":"sum","arrayPointer":"/items"}}),
+    );
+    assert_eq!(sum["outputSchema"]["type"], "number");
+    assert_eq!(sum["selectedInput"]["pointer"], "/items");
+    assert!(sum["inputSchema"].as_object().unwrap().is_empty());
+    let http = data(
+        &mut ws,
+        &mut auth,
+        &token,
+        "connectors_get",
+        json!({"kind":"HTTP Request","config":{"responseType":"text"}}),
+    );
+    assert_eq!(http["outputSchema"]["properties"]["body"]["type"], "string");
+    let mapping = data(
+        &mut ws,
+        &mut auth,
+        &token,
+        "connectors_get",
+        json!({"kind":"Map / Transform","config":{"mapping":{"password":"caller-supplied-private-value","total":10,"customer":{"$input":"/customer"}}}}),
+    );
+    assert_eq!(
+        mapping["outputSchema"]["properties"]["password"]["type"],
+        "string"
+    );
+    assert!(
+        !mapping
+            .to_string()
+            .contains("caller-supplied-private-value")
+    );
+    assert!(
+        mapping["outputSchema"]["properties"]["customer"]
+            .as_object()
+            .unwrap()
+            .is_empty()
+    );
+    for example in workflow_mcp::discovery::examples() {
+        for (id, expected) in example["expectedOutputs"].as_object().unwrap() {
+            let node = example["workflow"]["nodes"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .find(|n| n["id"] == *id)
+                .unwrap();
+            let detail = workflow_service::contracts::describe(
+                node["type"].as_str().unwrap(),
+                node["config"].as_object().unwrap(),
+            );
+            let validator = jsonschema::validator_for(&detail["outputSchema"]).unwrap();
+            assert!(
+                validator.is_valid(expected),
+                "{} {id}: {:?}",
+                example["id"],
+                validator
+                    .iter_errors(expected)
+                    .map(|e| e.to_string())
+                    .collect::<Vec<_>>()
+            );
+        }
+    }
+    assert!(ws.workflows.is_empty());
+    assert!(ws.runs.is_empty());
+}

@@ -1,6 +1,7 @@
 //! The Rust application layer shared by Cloudflare and self-hosted Wasm deployments.
 //! All workspace data is persistent. No sample workflows, seed data or expiry mode.
 mod audit;
+pub mod contracts;
 pub mod definition;
 mod http_api;
 pub mod invocation;
