@@ -87,3 +87,27 @@ fn routing_permissions_and_host_receipts_cannot_be_selected_by_input() {
         FailureCode::InvalidConfig
     );
 }
+
+#[test]
+fn repeated_input_references_are_bounded_and_resolved_values_are_not_evaluated() {
+    let references: Vec<_> = (0..100).map(|_| json!({"$input":"/payload"})).collect();
+    let oversized = node(
+        "Context Store",
+        json!({"operation":"put","tableId":"cache","key":"x","value":references}),
+    );
+    assert_eq!(
+        prepare(&oversized, &json!({"payload":"x".repeat(1024)})).unwrap_err(),
+        FailureCode::BudgetExceeded
+    );
+    let literal = node(
+        "Context Store",
+        json!({"operation":"put","tableId":"cache","key":"x","value":{"$input":"/payload"}}),
+    );
+    let prepared = prepare(
+        &literal,
+        &json!({"payload":{"$input":"/private"},"private":"do not evaluate"}),
+    )
+    .unwrap();
+    let serialized = serde_json::to_value(prepared.command).unwrap();
+    assert_eq!(serialized["value"], json!({"$input":"/private"}));
+}

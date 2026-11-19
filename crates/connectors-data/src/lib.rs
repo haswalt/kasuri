@@ -84,6 +84,7 @@ pub fn access(node: &Node) -> Result<Access, FailureCode> {
 pub fn prepare(node: &Node, input: &Value) -> Result<Prepared, FailureCode> {
     let access = access(node)?;
     let mut value = node.config["command"].clone();
+    let mut remaining = workflow_schema::MAX_CONFIG_BYTES;
     let fields = value.as_object_mut().ok_or(FailureCode::InvalidConfig)?;
     for key in [
         "key",
@@ -95,9 +96,11 @@ pub fn prepare(node: &Node, input: &Value) -> Result<Prepared, FailureCode> {
         "query",
     ] {
         if let Some(field) = fields.get_mut(key) {
-            *field = resolve(field, input, 0)?;
+            *field = resolve(field, input, 0, &mut remaining)?;
         }
     }
+    let mut command_budget = workflow_schema::MAX_CONFIG_BYTES;
+    charge(&value, &mut command_budget)?;
     let command: Command = serde_json::from_value(value).map_err(|_| FailureCode::InvalidConfig)?;
     // Defense against future command variants changing static routing semantics.
     if command.table_id() != access.table_id || command.mutates() != access.writes {
@@ -106,7 +109,30 @@ pub fn prepare(node: &Node, input: &Value) -> Result<Prepared, FailureCode> {
     Ok(Prepared { command, access })
 }
 
-fn resolve(value: &Value, input: &Value, depth: usize) -> Result<Value, FailureCode> {
+// Charge before cloning: many references to one input must not amplify memory
+// beyond the node configuration budget. Serialization writes into a bounded sink.
+fn charge(value: &Value, remaining: &mut usize) -> Result<(), FailureCode> {
+    struct Budget<'a>(&'a mut usize);
+    impl std::io::Write for Budget<'_> {
+        fn write(&mut self, bytes: &[u8]) -> std::io::Result<usize> {
+            if bytes.len() > *self.0 {
+                return Err(std::io::Error::other("Configuration budget exceeded"));
+            }
+            *self.0 -= bytes.len();
+            Ok(bytes.len())
+        }
+        fn flush(&mut self) -> std::io::Result<()> {
+            Ok(())
+        }
+    }
+    serde_json::to_writer(Budget(remaining), value).map_err(|_| FailureCode::BudgetExceeded)
+}
+fn resolve(
+    value: &Value,
+    input: &Value,
+    depth: usize,
+    remaining: &mut usize,
+) -> Result<Value, FailureCode> {
     if depth > 64 {
         return Err(FailureCode::InvalidConfig);
     }
@@ -116,22 +142,36 @@ fn resolve(value: &Value, input: &Value, depth: usize) -> Result<Value, FailureC
                 return Err(FailureCode::InvalidConfig);
             }
             let pointer = map["$input"].as_str().ok_or(FailureCode::InvalidConfig)?;
-            input
-                .pointer(pointer)
-                .cloned()
-                .ok_or(FailureCode::MissingInput)
+            let resolved = input.pointer(pointer).ok_or(FailureCode::MissingInput)?;
+            charge(resolved, remaining)?;
+            Ok(resolved.clone())
         }
-        Value::Object(map) => Ok(Value::Object(
-            map.iter()
-                .map(|(key, value)| Ok((key.clone(), resolve(value, input, depth + 1)?)))
-                .collect::<Result<_, FailureCode>>()?,
-        )),
-        Value::Array(values) => Ok(Value::Array(
-            values
-                .iter()
-                .map(|value| resolve(value, input, depth + 1))
-                .collect::<Result<_, _>>()?,
-        )),
-        value => Ok(value.clone()),
+        Value::Object(map) => {
+            let mut result = serde_json::Map::new();
+            for (key, value) in map {
+                charge(&Value::String(key.clone()), remaining)?;
+                // Include separators and braces conservatively.
+                *remaining = remaining
+                    .checked_sub(3)
+                    .ok_or(FailureCode::BudgetExceeded)?;
+                result.insert(key.clone(), resolve(value, input, depth + 1, remaining)?);
+            }
+            Ok(Value::Object(result))
+        }
+        Value::Array(values) => {
+            *remaining = remaining
+                .checked_sub(values.len() + 2)
+                .ok_or(FailureCode::BudgetExceeded)?;
+            Ok(Value::Array(
+                values
+                    .iter()
+                    .map(|value| resolve(value, input, depth + 1, remaining))
+                    .collect::<Result<_, _>>()?,
+            ))
+        }
+        value => {
+            charge(value, remaining)?;
+            Ok(value.clone())
+        }
     }
 }

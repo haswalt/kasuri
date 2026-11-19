@@ -19,6 +19,8 @@ Persistent table rows must live outside workflow/run JSON checkpoints. Engine ta
 
 The `connectors-data` crate prepares typed commands for future Data Tables and Context Store tasks. It is not registered for execution yet. Configuration contains one `command`, using the same operations as the owner API. The operation, table ID and table/context kind are static so the host can determine permissions and snapshot targets before execution. Record keys, values, patches, expected versions, TTL and query fields support explicit `{"$input":"/json/pointer"}` references. Missing pointers fail rather than silently inserting null. Resolved input is data and is not evaluated again.
 
+Input expansion is bounded by the existing 64 KiB node configuration budget before referenced values are cloned; repeated references cannot grow an unbounded command. Preparation distinguishes missing input, invalid configuration and exceeded budgets.
+
 Hosts must enforce the declared table/context kind against stored metadata, select the storage scope themselves and execute prepared commands with engine-owned receipts inside a transaction. Preparation does not grant access or execute a command. Durable dispatch, snapshot lifecycle, MCP run-scope checks and importable workflow examples remain required before enabling these connectors.
 
 ## Owner management API
