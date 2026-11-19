@@ -1,6 +1,6 @@
 # Persistent workflow data foundations
 
-Status: the runtime-independent `workflow-data` crate, SQLite host and owner management APIs are implemented and tested on native Rust and real workerd. The dashboard supports table/context creation, row editing/deletion with version checks, TTL, filters, keyset pagination and renaming. MCP tools and workflow connector integration are subsequent increments. Data Tables and Context Store are not advertised as available connectors until those paths work end to end, including isolated simulations and importable examples.
+Status: the runtime-independent `workflow-data` crate, SQLite host and owner management APIs are implemented and tested on native Rust and real workerd. The dashboard supports table/context creation, row editing/deletion with version checks, TTL, filters, keyset pagination and renaming. Scoped MCP data tools are also implemented; workflow connector integration is the next increment. Data Tables and Context Store are not advertised as available connectors until those paths work end to end, including isolated simulations and importable examples.
 
 Data Tables and Context Store share one storage model. A table holds keyed JSON objects with optional declared field types and required fields; a context namespace holds arbitrary keyed JSON values. Hosts scope stores to the selected workspace and verify membership before access.
 
@@ -46,3 +46,5 @@ Use the returned `nextCursor` in the next query. Queries need no idempotency key
 Rows, table definitions and receipts live in dedicated SQLite tables outside workflow/run checkpoints. A mutation, its successful receipt and its management audit entry commit in the same synchronous transaction. Failed batches roll back staged rows, table data revisions and receipts. Audit contains table names, operation names and version references, excluding row keys and values. Replays, reads and unchanged conditional outcomes do not create duplicate audit events. Engine integration and simulation snapshot/receipt lifecycle handling remain pending.
 
 `patch` changes only supplied top-level object fields, optionally removes named `removeFields`, preserves expiry and validates the resulting row schema. An optional expected row version protects it from concurrent changes. Unmentioned fields remain intact; an unchanged patch preserves the row version.
+
+MCP exposes metadata/read tools under explicit `data_read` and mutations under `data_write`; existing grants are unchanged. See [dataset management scopes and recovery](mcp.md#dataset-management). Agent reads apply credential-field redaction, and partial patches preserve unmentioned fields without copying masked values back into storage.

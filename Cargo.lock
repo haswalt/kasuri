@@ -1144,6 +1144,7 @@ dependencies = [
  "sha2",
  "subtle",
  "url",
+ "workflow-data",
  "workflow-schema",
  "workflow-service",
 ]

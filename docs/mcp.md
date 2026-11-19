@@ -19,7 +19,9 @@ Configure a Streamable HTTP client with the copied URL and an `Authorization: Be
 | Reader | `read audit` | Connector schemas, workflows, recorded runs and audit reads |
 | Builder | Reader + `write simulate` | Create/edit/clone drafts and run offline simulations |
 | Operator | Builder + `publish execute control` | Activate triggers, start real runs, pause/resume/cancel runs |
-| Manager | Operator + `delete` | Move workflows to recoverable trash and restore them |
+| Manager | All listed scopes | Full workflow, run and data management |
+| Data viewer | Reader + `data_read` | Inspect workspace datasets and records |
+| Data editor | Data viewer + `data_write` | Create/rename datasets and insert, patch, replace or permanently delete records |
 
 Credential administration is owner-only through the browser portal; agents cannot mint credentials, approve OAuth grants or change their own permissions. Scopes apply to the entire selected workspace, not individual workflows. The underlying credential API also accepts explicit subsets of the advertised scopes; MCP tools require baseline `read` plus the appropriate operation scope.
 
@@ -53,6 +55,8 @@ Discovery only lists tools permitted by the credential. The server checks scopes
 | `execute` | `runs_start` |
 | `control` | `runs_pause`, `runs_resume`, `runs_cancel` |
 | `delete` | `workflows_archive`, `workflows_restore` |
+| `data_read` | `data_tables_list`, `data_table_get`, `data_get`, `data_query` |
+| `data_write` | `data_apply`, `data_batch` |
 
 Use `workflows_get` to retrieve the saved graph and its `version`. This edit version changes on saved mutations. `revision` is a monotonic publication counter. Unchanged publish and repeated pause/resume are no-ops and preserve the edit version. Publishing unchanged paused content does not resume triggers. Update passes a `workflow` object and `expectedVersion`. Publication and execution pass `workflowId` and `expectedVersion`. Stale versions return a structured conflict. The UI also submits edit versions, so an agent edit cannot be silently overwritten by a stale UI save. The [HTTP API v2 migration](http-api.md) rejects omitted REST edit preconditions with 428 and stale versions with 409. MCP already requires explicit edit versions.
 
@@ -87,3 +91,16 @@ Draft saves preserve the published graph, webhook authentication and schedule. `
 Workflow trash is recoverable. Archiving stops future triggers and scheduling, retains definitions/history/runs, and leaves in-flight runs to finish. Restoring never reactivates triggers. The `delete` scope is explicit; existing Operator/Builder grants are not expanded. No permanent-delete tool is exposed.
 
 The earlier `/mcp/<workspace-id>/mcp` URL and its protected-resource discovery URL remain compatibility aliases. Existing bearer/OAuth grants stay bound to their original audience, and existing OAuth clients may refresh against that same audience through the unchanged issuer. New portal credentials and discovery use the canonical single-`mcp` path. No credential-bearing POST is redirected, and tokens are not silently accepted across both audience URLs.
+
+
+## Dataset management
+
+Dataset scopes are explicit opt-ins. Existing Reader/Builder/Operator credentials and previously issued Manager grants are not expanded when dataset tools are installed. New Data viewer/Data editor profiles grant dataset access, and newly issued Manager credentials include the displayed dataset scopes. Baseline `read` is still required for every tool. Data editor permissions do not grant workflow draft editing or execution.
+
+Use `data_tables_list` for metadata summaries and `data_table_get` for schema/version details. `data_get` reads a key; `data_query` accepts bounded JSON-pointer filters and keyset cursors. An empty query page may still have `nextCursor`. Input discovery includes the supported command variants and query schema.
+
+`data_apply` accepts one mutating `command`; `data_batch` accepts up to 100 mutating `commands`. Both require `idempotencyKey`. Prefer `patch` with an observed row version when changing known fields, so unmentioned fields and expiry remain intact. Credential-shaped values are redacted in read results; writing redaction placeholders is rejected. Replace them deliberately or patch only the fields you know. Data mutations return compact status/version references rather than copying record values into transport receipts; use a read tool for details.
+
+The SQLite host commits data mutations, durable data receipts and semantic audit together. MCP transport receipts provide an additional replay layer. A retry after a lost transport receipt still recovers the stored effect without repeating its mutation or audit. Receipt identities are credential-scoped and separate from owner API/engine domains. The server reserves bounded receipt space before executing a data mutation.
+
+Record deletion is permanent and is explicitly part of `data_write`; it does not reuse the workflow-only `delete` scope. Table deletion/schema migration and workflow Data Tables/Context Store nodes remain separate implementation increments.

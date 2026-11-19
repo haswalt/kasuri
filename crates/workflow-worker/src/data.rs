@@ -7,6 +7,7 @@ use worker::*;
 use workflow_data::{
     Command, DataError, ErrorCode, MAX_SCAN_BYTES, Receipt, Row, ScanPage, Store, Table,
 };
+use workflow_service::Workspace;
 
 const TABLES: &str = "CREATE TABLE IF NOT EXISTS data_tables (scope TEXT NOT NULL,id TEXT NOT NULL,body TEXT NOT NULL,PRIMARY KEY(scope,id))";
 const ROWS: &str = "CREATE TABLE IF NOT EXISTS data_rows (scope TEXT NOT NULL,table_id TEXT NOT NULL,key TEXT NOT NULL,body TEXT NOT NULL,PRIMARY KEY(scope,table_id,key))";
@@ -210,7 +211,117 @@ fn status(error: &DataError) -> u16 {
         ErrorCode::Storage => 500,
     }
 }
+pub(crate) struct DataExecution {
+    pub result: Value,
+    pub replayed: bool,
+    pub workspace: Option<Workspace>,
+}
+pub(crate) struct McpDataAccess<'a> {
+    pub owner: &'a WorkflowWorkspace,
+}
+impl workflow_mcp::DataAccess for McpDataAccess<'_> {
+    fn tables(
+        &mut self,
+        cursor: Option<&str>,
+        limit: usize,
+        time: u64,
+    ) -> workflow_data::Result<Value> {
+        let cursor = cursor.map(str::to_string);
+        self.owner
+            .data_transaction("mcp-read".into(), time, move |store| {
+                store.tables(cursor.as_deref(), limit)
+            })
+    }
+    fn execute(
+        &mut self,
+        workspace: &mut Workspace,
+        commands: Vec<Command>,
+        batch: bool,
+        receipt: Option<&str>,
+        actor: &str,
+        time: u64,
+    ) -> workflow_data::Result<Value> {
+        let snapshot = commands
+            .iter()
+            .any(Command::mutates)
+            .then(|| workspace.clone());
+        let execution = self.owner.execute_data(
+            commands,
+            batch,
+            receipt.map(str::to_string),
+            actor.into(),
+            format!("mcp:{actor}"),
+            snapshot,
+            time,
+        )?;
+        if let Some(updated) = execution.workspace {
+            *workspace = updated;
+        }
+        Ok(execution.result)
+    }
+}
 impl WorkflowWorkspace {
+    fn data_transaction<T: 'static>(
+        &self,
+        domain: String,
+        time: u64,
+        operation: impl FnOnce(&mut SqlDataStore) -> workflow_data::Result<T> + 'static,
+    ) -> workflow_data::Result<T> {
+        let failure = Rc::new(RefCell::new(None));
+        let failed = failure.clone();
+        let result = self.sql_transaction(move |sql| {
+            let result = SqlDataStore::new(sql, "live".into(), domain, None, time)
+                .and_then(|mut store| operation(&mut store));
+            result.map_err(|error| {
+                *failed.borrow_mut() = Some(error);
+                internal("Data transaction aborted")
+            })
+        });
+        match result {
+            Ok(value) => Ok(value),
+            Err(error) => Err(failure
+                .borrow_mut()
+                .take()
+                .unwrap_or_else(|| storage_error(error))),
+        }
+    }
+    fn execute_data(
+        &self,
+        commands: Vec<Command>,
+        batch: bool,
+        receipt: Option<String>,
+        actor: String,
+        domain: String,
+        mut workspace: Option<Workspace>,
+        time: u64,
+    ) -> workflow_data::Result<DataExecution> {
+        if commands.is_empty() || commands.len() > 100 || (!batch && commands.len() != 1) {
+            return Err(invalid(
+                "Provide 1–100 commands, or exactly one non-batch command",
+            ));
+        }
+        self.data_transaction(domain,time,move |store| {
+            let replayed=if let Some(key)=receipt.as_deref(){store.receipt(key)?.is_some()}else{false};
+            let ids:BTreeSet<String>=commands.iter().map(|c|c.table_id().to_string()).collect();
+            let before:Vec<_>=if workspace.is_some(){ids.iter().map(|id|store.table(id)).collect::<workflow_data::Result<_>>()?}else{vec![]};
+            let operations:Vec<_>=commands.iter().map(|command|match command {Command::CreateTable{..}=>"create table",Command::RenameTable{..}=>"rename table",Command::InsertIfAbsent{..}=>"insert if absent",Command::Put{..}=>"store row",Command::Patch{..}=>"patch row",Command::Delete{..}=>"delete row",Command::Get{..}|Command::GetTable{..}|Command::Query{..}=>"read"}).collect();
+            let result=if batch {workflow_data::apply_batch(store,commands,receipt.as_deref().ok_or_else(||invalid("Batches require an idempotencyKey"))?,time)?}else{workflow_data::apply(store,commands.into_iter().next().unwrap(),receipt.as_deref(),time)?};
+            let after:Vec<_>=if workspace.is_some(){ids.iter().map(|id|store.table(id)).collect::<workflow_data::Result<_>>()?}else{vec![]};
+            if !replayed&&before!=after&&let Some(workspace)=&mut workspace {
+                workspace.record_audit(&actor,"data.changed",ids.iter().next().map(String::as_str).unwrap_or(""),"succeeded",time,"");
+                if let Some(event)=workspace.audit.last_mut(){
+                    let name=after.first().and_then(|t|t.as_ref()).map(|t|t.definition.name.as_str()).unwrap_or("Data tables");
+                    event["summary"]=json!(format!("{name}: {} operation(s)",operations.len()));
+                    event["entity"]=json!({"type":"data_table","id":ids.iter().next(),"name":name});
+                    event["context"]=json!({"tableIds":ids,"operations":operations});
+                    event["before"]=json!(before.iter().map(|t|t.as_ref().map(|t|json!({"id":t.definition.id,"version":t.version,"dataRevision":t.data_revision}))).collect::<Vec<_>>());
+                    event["after"]=json!(after.iter().map(|t|t.as_ref().map(|t|json!({"id":t.definition.id,"version":t.version,"dataRevision":t.data_revision}))).collect::<Vec<_>>());
+                }
+                crate::storage::write_workspace_records(&store.sql,workspace).map_err(storage_error)?;
+            }
+            Ok(DataExecution{result,replayed,workspace})
+        })
+    }
     pub(crate) async fn data_management(
         &self,
         method: Method,
@@ -282,46 +393,24 @@ impl WorkflowWorkspace {
                 "Use an 8–128 character idempotencyKey",
             )?));
         }
-        let mut workspace = if commands.iter().any(Command::mutates) {
+        let workspace = if commands.iter().any(Command::mutates) {
             Some(self.load()?)
         } else {
             None
         };
-        let result=self.sql_transaction(move |sql| {
-            let mut store=SqlDataStore::new(sql,"live".into(),"api".into(),None,time).map_err(|error|{*failed.borrow_mut()=Some(error);internal("Data initialization aborted")})?;
-            let replayed=if let Some(key)=input.idempotency_key.as_deref(){store.receipt(key).map_err(|error|{*failed.borrow_mut()=Some(error);internal("Receipt read aborted")})?.is_some()}else{false};
-            let ids:BTreeSet<String>=commands.iter().map(|c|c.table_id().to_string()).collect();
-            let before:Vec<_>=ids.iter().map(|id|store.table(id)).collect::<workflow_data::Result<_>>().map_err(|error|{*failed.borrow_mut()=Some(error);internal("Data state read aborted")})?;
-            let operations:Vec<_>=commands.iter().map(|command|match command {Command::CreateTable{..}=>"create table",Command::RenameTable{..}=>"rename table",Command::InsertIfAbsent{..}=>"insert if absent",Command::Put{..}=>"store row",Command::Patch{..}=>"patch row",Command::Delete{..}=>"delete row",Command::Get{..}|Command::GetTable{..}|Command::Query{..}=>"read"}).collect();
-            let value=if batch {
-                match input.idempotency_key.as_deref(){Some(key)=>workflow_data::apply_batch(&mut store,commands,key,time),None=>Err(invalid("Batches require an idempotencyKey"))}
-            }else{workflow_data::apply(&mut store,commands.into_iter().next().unwrap(),input.idempotency_key.as_deref(),time)};
-            let value=value.map_err(|error|{*failed.borrow_mut()=Some(error);internal("Data mutation aborted")})?;
-            let after:Vec<_>=ids.iter().map(|id|store.table(id)).collect::<workflow_data::Result<_>>().map_err(|error|{*failed.borrow_mut()=Some(error);internal("Data state read aborted")})?;
-            let changed=before!=after;
-            if !replayed&&changed&&let Some(workspace)=&mut workspace {
-                workspace.record_audit("browser","data.changed",ids.iter().next().map(String::as_str).unwrap_or(""),"succeeded",time,"");
-                if let Some(event)=workspace.audit.last_mut(){
-                    let name=after.first().and_then(|t|t.as_ref()).map(|t|t.definition.name.as_str()).unwrap_or("Data tables");
-                    event["summary"]=json!(format!("{name}: {} operation(s)",operations.len()));
-                    event["entity"]=json!({"type":"data_table","id":ids.iter().next(),"name":name});
-                    event["context"]=json!({"tableIds":ids,"operations":operations});
-                    event["before"]=json!(before.iter().map(|t|t.as_ref().map(|t|json!({"id":t.definition.id,"version":t.version,"dataRevision":t.data_revision}))).collect::<Vec<_>>());
-                    event["after"]=json!(after.iter().map(|t|t.as_ref().map(|t|json!({"id":t.definition.id,"version":t.version,"dataRevision":t.data_revision}))).collect::<Vec<_>>());
-                }
-                crate::storage::write_workspace_records(&store.sql,workspace)?;
-            }
-            Ok(json!({"result":value,"replayed":replayed}))
-        });
-        match result {
-            Ok(value) => Ok(Some(Response::from_json(&value)?)),
-            Err(error) => {
-                if let Some(failure) = failure.borrow_mut().take() {
-                    Ok(Some(api_error(status(&failure), &failure.message)?))
-                } else {
-                    Err(error)
-                }
-            }
+        match self.execute_data(
+            commands,
+            batch,
+            input.idempotency_key,
+            "browser".into(),
+            "api".into(),
+            workspace,
+            time,
+        ) {
+            Ok(execution) => Ok(Some(Response::from_json(
+                &json!({"result":execution.result,"replayed":execution.replayed}),
+            )?)),
+            Err(error) => Ok(Some(api_error(status(&error), &error.message)?)),
         }
     }
 }

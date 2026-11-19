@@ -10,6 +10,7 @@ import { tmpdir } from 'node:os'
 import { join, resolve } from 'node:path'
 import { once } from 'node:events'
 import { createServer } from 'node:net'
+import { checkMcpData } from './mcp-data-checks.mjs'
 import { checkData } from './data-checks.mjs'
 import { checkPreconditions } from './precondition-checks.mjs'
 import { checkAudit } from './audit-checks.mjs'
@@ -123,6 +124,11 @@ try {
     })
     await checkPreconditions(origin, 'test:runtime-check')
     await checkAudit(origin, 'test:runtime-check')
+    await checkMcpData(origin, 'test:runtime-check', async () => {
+      await stop()
+      start()
+      await healthy(origin)
+    })
     await checkData(origin, 'test:runtime-check', async () => {
       await stop()
       start()

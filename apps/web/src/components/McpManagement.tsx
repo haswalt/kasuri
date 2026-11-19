@@ -13,7 +13,9 @@ const scopeLabels: Record<string, string> = {
   publish: 'Publish and activate schedules or webhook triggers',
   execute: 'Start real runs with external effects',
   control: 'Pause, resume or cancel runs',
-  delete: 'Move workflows to trash and restore them'
+  delete: 'Move workflows to trash and restore them',
+  data_read: 'Read workspace data tables and context values',
+  data_write: 'Create, update and permanently delete workspace records'
 }
 export function McpManagement({ authorizeId }: { authorizeId: string | null }) {
   const [data, setData] = useState<McpStatus | null>(null),
@@ -232,7 +234,7 @@ export function McpManagement({ authorizeId }: { authorizeId: string | null }) {
           <div className={styles.infoBox}>
             Reader can inspect and audit. Builder adds draft editing and
             simulations. Operator also permits publishing, real execution and
-            run control. Manager adds recoverable workflow trash. Credential administration stays in the owner portal.
+            run control. Data profiles grant dataset access separately. Manager adds workflow trash and data management. Credential administration stays in the owner portal.
           </div>
           {Boolean(data?.unusedClients) && (
             <Button
@@ -277,7 +279,9 @@ export function McpManagement({ authorizeId }: { authorizeId: string | null }) {
                   Builder — edit drafts and simulate
                 </option>
                 <option value="operator">Operator — publish and execute</option>
-                <option value="manager">Manager — operator plus workflow trash</option>
+                <option value="manager">Manager — full platform management</option>
+                <option value="data_viewer">Data viewer — inspect records</option>
+                <option value="data_editor">Data editor — manage persistent records</option>
               </select>
             </label>
             <ul>

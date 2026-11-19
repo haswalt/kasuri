@@ -17,6 +17,63 @@ fn definitions() -> Vec<(&'static str, &'static str, &'static str, bool, Value)>
     let workflow = json!({"type":"object","description":"A schemaVersion 1 Kasuri workflow export, with stable node/edge IDs, connector versions, configuration and optional canvas positions.","required":["schemaVersion","id","name","nodes","edges"]});
     vec![
         (
+            "data_tables_list",
+            "data_read",
+            "List workspace data tables/context namespaces with keyset pagination.",
+            false,
+            object(
+                json!({"cursor":{"type":"string","maxLength":64},"limit":{"type":"integer","minimum":1,"maximum":100}}),
+                vec![],
+            ),
+        ),
+        (
+            "data_table_get",
+            "data_read",
+            "Inspect a table/context definition and metadata version.",
+            false,
+            object(json!({"tableId":id}), vec!["tableId"]),
+        ),
+        (
+            "data_get",
+            "data_read",
+            "Read one unexpired keyed record. Common credential fields are redacted.",
+            false,
+            object(
+                json!({"tableId":id,"key":{"type":"string","minLength":1,"maxLength":512}}),
+                vec!["tableId", "key"],
+            ),
+        ),
+        (
+            "data_query",
+            "data_read",
+            "Query workspace records with bounded keyset cursors and JSON-pointer filters. Empty pages may still have continuation.",
+            false,
+            object(
+                json!({"tableId":id,"query":workflow_data::query_schema()}),
+                vec!["tableId"],
+            ),
+        ),
+        (
+            "data_apply",
+            "data_write",
+            "Create/rename a data set or insert/put/patch/delete a record. Patch preserves unmentioned fields and expiry. Mutations use persistent receipts; delete is permanent.",
+            true,
+            mutate(
+                json!({"command":workflow_data::mutation_schema()}),
+                vec!["command"],
+            ),
+        ),
+        (
+            "data_batch",
+            "data_write",
+            "Apply up to 100 mutating data commands in one storage transaction. Per-command existing/conflict statuses remain explicit outcomes.",
+            true,
+            mutate(
+                json!({"commands":{"type":"array","minItems":1,"maxItems":100,"items":workflow_data::mutation_schema()}}),
+                vec!["commands"],
+            ),
+        ),
+        (
             "connectors_list",
             "read",
             "Discover implemented connector versions, config schemas and ports. Planned connectors are excluded.",
@@ -294,7 +351,67 @@ fn execute(
     now: u64,
     nonce: &str,
     actor: &str,
+    data: Option<&mut dyn crate::DataAccess>,
 ) -> Result<Value, Value> {
+    if name.starts_with("data_") {
+        let host = data.ok_or_else(|| {
+            err(
+                "unsupported",
+                "Persistent data access is unavailable in this host",
+            )
+        })?;
+        let convert = |error: workflow_data::DataError| {
+            err(
+                match error.code {
+                    workflow_data::ErrorCode::InvalidRequest => "invalid_arguments",
+                    workflow_data::ErrorCode::NotFound => "not_found",
+                    workflow_data::ErrorCode::Conflict => "conflict",
+                    workflow_data::ErrorCode::Storage => "storage_error",
+                },
+                &error.message,
+            )
+        };
+        if name == "data_tables_list" {
+            if args.get("limit").is_some_and(|v| v.as_u64().is_none())
+                || args.get("cursor").is_some_and(|v| !v.is_string())
+            {
+                return Err(err(
+                    "invalid_arguments",
+                    "Expected an integer limit and string cursor",
+                ));
+            }
+            let limit = args["limit"].as_u64().unwrap_or(25);
+            if !(1..=100).contains(&limit) {
+                return Err(err("invalid_arguments", "Use a limit between 1 and 100"));
+            }
+            let limit = limit as usize;
+            return host
+                .tables(args["cursor"].as_str(), limit, now)
+                .map_err(convert);
+        }
+        let (commands,batch,receipt)=match name {
+            "data_table_get"=>(vec![workflow_data::Command::GetTable{table_id:required(args,"tableId")?.into()}],false,None),
+            "data_get"=>(vec![serde_json::from_value::<workflow_data::Command>(json!({"operation":"get","tableId":args["tableId"],"key":args["key"]})).map_err(|_|err("invalid_arguments","Invalid keyed read"))?],false,None),
+            "data_query"=>(vec![serde_json::from_value::<workflow_data::Command>(json!({"operation":"query","tableId":args["tableId"],"query":args.get("query").cloned().unwrap_or(json!({}))})).map_err(|_|err("invalid_arguments","Invalid query"))?],false,None),
+            "data_apply"=>(vec![serde_json::from_value::<workflow_data::Command>(args["command"].clone()).map_err(|_|err("invalid_arguments","Invalid data command"))?],false,args["idempotencyKey"].as_str()),
+            "data_batch"=>(serde_json::from_value::<Vec<workflow_data::Command>>(args["commands"].clone()).map_err(|_|err("invalid_arguments","Invalid data batch"))?,true,args["idempotencyKey"].as_str()),
+            _=>return Err(err("unknown_tool","Data tool not found")),
+        };
+        if receipt.is_some()
+            && (commands.iter().any(|command| !command.mutates())
+                || serde_json::to_string(&commands)
+                    .unwrap_or_default()
+                    .contains("[REDACTED]"))
+        {
+            return Err(err(
+                "invalid_arguments",
+                "Use read tools for reads; replace redaction placeholders explicitly or patch only known fields",
+            ));
+        }
+        return host
+            .execute(ws, commands, batch, receipt, actor, now)
+            .map_err(convert);
+    }
     match name {
         "connectors_list" => Ok(json!({"connectors":manifests()})),
         "workflows_list" => {
@@ -543,6 +660,12 @@ pub fn redact(value: Value) -> Value {
         other => other,
     }
 }
+fn compact_data(value: Value) -> Value {
+    if let Some(results) = value["results"].as_array() {
+        return json!({"results":results.iter().cloned().map(compact_data).collect::<Vec<_>>()});
+    }
+    json!({"status":value["status"],"inserted":value["inserted"],"deleted":value["deleted"],"rowVersion":value["row"]["version"],"expiresAt":value["row"]["expiresAt"],"tableId":value["table"]["definition"]["id"],"version":value["table"]["version"],"dataRevision":value["table"]["dataRevision"],"detailsTool":if value["table"].is_object(){"data_table_get"}else{"data_get"}})
+}
 fn content(result: Result<Value, Value>) -> Value {
     let error = result.is_err();
     let data = redact(result.unwrap_or_else(|e| e));
@@ -555,6 +678,17 @@ pub fn call(
     params: &Value,
     now: u64,
     nonce: &str,
+) -> Value {
+    call_with_data(ws, auth, c, params, now, nonce, None)
+}
+pub fn call_with_data(
+    ws: &mut Workspace,
+    auth: &mut Auth,
+    c: &Credential,
+    params: &Value,
+    now: u64,
+    nonce: &str,
+    data: Option<&mut dyn crate::DataAccess>,
 ) -> Value {
     let name = params["name"].as_str().unwrap_or("");
     let args = &params["arguments"];
@@ -624,7 +758,20 @@ pub fn call(
             )));
         }
     }
-    let result=execute(ws,name,args,now,nonce,&c.id).map(|v| {
+    if mutation
+        && name.starts_with("data_")
+        && serde_json::to_string(auth)
+            .map(|s| s.len() + 66_560 > 524_288)
+            .unwrap_or(true)
+    {
+        return content(Err(err(
+            "capacity",
+            "Receipt storage is full; inspect existing state before retrying later",
+        )));
+    }
+    let result=execute(ws,name,args,now,nonce,&c.id,data).map(|v| {
+        if mutation && name.starts_with("data_") {return compact_data(v);}
+
         if mutation { json!({"id":v["id"],"workflowId":v["workflowId"],"version":v["version"],"revision":v["revision"],"status":v["status"],"detailsTool":if name.starts_with("runs_"){"runs_get"}else{"workflows_get"}}) } else { v }
     });
     let mut result = content(result);
