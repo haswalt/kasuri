@@ -1,0 +1,10 @@
+[package]
+name = "connectors-data"
+version.workspace = true
+edition.workspace = true
+
+[dependencies]
+connector-sdk.workspace = true
+workflow-schema.workspace = true
+workflow-data = { path = "../workflow-data" }
+serde_json.workspace = true

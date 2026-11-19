@@ -113,6 +113,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "connectors-data"
+version = "0.1.0"
+dependencies = [
+ "connector-sdk",
+ "serde_json",
+ "workflow-data",
+ "workflow-schema",
+]
+
+[[package]]
 name = "connectors-http"
 version = "0.1.0"
 dependencies = [

@@ -15,6 +15,12 @@ Queries use bounded keyset pagination, JSON-pointer filters and explicit continu
 Persistent table rows must live outside workflow/run JSON checkpoints. Engine task receipts must remain recoverable until the completed task checkpoint is durable; time-based cleanup alone is insufficient for a long-running workflow. Receipts retain the original host completion clock, unchanged by replay, so future task recovery can distinguish an effect committed before its deadline from a new late execution. Legacy receipts without that clock remain explicitly unknown. This metadata alone does not change engine timeout behavior. Run-scoped receipt cleanup and SQLite simulation snapshots are part of the host integration still to come.
 
 
+## Workflow connector configuration boundary
+
+The `connectors-data` crate prepares typed commands for future Data Tables and Context Store tasks. It is not registered for execution yet. Configuration contains one `command`, using the same operations as the owner API. The operation, table ID and table/context kind are static so the host can determine permissions and snapshot targets before execution. Record keys, values, patches, expected versions, TTL and query fields support explicit `{"$input":"/json/pointer"}` references. Missing pointers fail rather than silently inserting null. Resolved input is data and is not evaluated again.
+
+Hosts must enforce the declared table/context kind against stored metadata, select the storage scope themselves and execute prepared commands with engine-owned receipts inside a transaction. Preparation does not grant access or execute a command. Durable dispatch, snapshot lifecycle, MCP run-scope checks and importable workflow examples remain required before enabling these connectors.
+
 ## Owner management API
 
 These endpoints use the existing browser ownership session, workspace selection header, installation protection and CSRF checks. Scope is selected by the authenticated host; a request cannot choose an arbitrary storage or receipt namespace.
