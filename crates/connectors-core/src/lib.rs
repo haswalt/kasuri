@@ -2,6 +2,7 @@
 use connector_sdk::{Connector, Failure, FailureCode, Outcome, Task};
 use serde_json::{Map, Value};
 
+pub mod conditions;
 pub struct CoreConnector;
 
 fn invalid() -> Outcome {
@@ -54,23 +55,15 @@ impl Connector for CoreConnector {
                 }
                 Outcome::success(Value::Object(output))
             }
-            "IF / Condition" => {
-                let Some(pointer) = node.config.get("pointer").and_then(Value::as_str) else {
-                    return invalid();
-                };
-                let Some(expected) = node.config.get("equals") else {
-                    return invalid();
-                };
-                let Some(actual) = task.input.pointer(pointer) else {
-                    return Outcome::Failed {
-                        failure: Failure::permanent(FailureCode::MissingInput),
-                    };
-                };
-                Outcome::Complete {
+            "IF / Condition" => match conditions::evaluate(&node.config, &task.input) {
+                Ok(passed) => Outcome::Complete {
                     output: task.input.clone(),
-                    port: if actual == expected { "true" } else { "false" }.into(),
-                }
-            }
+                    port: if passed { "true" } else { "false" }.into(),
+                },
+                Err(code) => Outcome::Failed {
+                    failure: Failure::permanent(code),
+                },
+            },
             "Filter" => {
                 let Some(items) = task
                     .input
@@ -201,7 +194,7 @@ pub fn manifests() -> Vec<connector_sdk::NodeManifest> {
         ("Merge", json!({"type":"object","properties":{}})),
         ("Error Handler", json!({"type":"object","properties":{}})),
         ("Map / Transform", json!({"type":"object","properties":{"mapping":{"oneOf":[{"type":"object"},{"type":"string","description":"JSON-encoded mapping object"}]}},"required":["mapping"]})),
-        ("IF / Condition", json!({"type":"object","properties":{"pointer":{"type":"string","description":"JSON Pointer into the input"},"equals":{}},"required":["pointer","equals"]})),
+        ("IF / Condition", conditions::schema()),
         ("Wait / Delay", json!({"type":"object","properties":{"delayMs":{"oneOf":[{"type":"integer","minimum":0},{"type":"string","pattern":"^[0-9]+$"}]}},"required":["delayMs"]})),
         ("JSON Utilities", json!({"type":"object","properties":{"operation":{"enum":["parse","stringify"]}},"required":["operation"]})),
     ].into_iter().map(|(kind, config_schema)| connector_sdk::NodeManifest {

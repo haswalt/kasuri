@@ -4,6 +4,7 @@ import { useCallback, useEffect, useState } from 'react'
 import type { Workflow } from '../lib/workflows'
 import { removeNode, validateWorkflow } from '../lib/workflows'
 import { connect, connectionError, ports } from '../lib/canvas'
+import { ConditionBuilder } from './ConditionBuilder'
 import { WorkflowCanvas } from './WorkflowCanvas'
 import { fields } from '../lib/catalogue'
 import { api } from '../lib/api'
@@ -622,7 +623,7 @@ export function WorkflowEditor({
                         </select>
                       </label>
                     )}
-                    {parameterKeys.map((key) => {
+                    {node.type === 'IF / Condition' ? <ConditionBuilder config={node.config} sample={result?.nodes.find(n => n.id === workflow.edges.find(e => e.target === node.id)?.source)?.output ?? (() => { try { return JSON.parse(input) } catch { return {} } })()} onChange={config => editNode({ config })} /> : parameterKeys.map((key) => {
                       const meta = fields[node.type]?.find((f) => f.key === key)
                       const property = (
                         (manifest?.configSchema.properties || {}) as Record<

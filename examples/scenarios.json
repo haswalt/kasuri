@@ -167,5 +167,16 @@
       }
     },
     "statuses": {}
+  },
+  {
+    "file": "workflows/14-structured-conditions.json",
+    "outputs": {
+      "accepted": {
+        "accepted": true
+      }
+    },
+    "statuses": {
+      "rejected": "skipped"
+    }
   }
 ]

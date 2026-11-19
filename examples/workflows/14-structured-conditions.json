@@ -1,0 +1,103 @@
+{
+  "schemaVersion": 1,
+  "id": "14-structured-conditions",
+  "name": "Structured header and business checks",
+  "description": "Typed All/Any conditions check synthetic header, numeric and boolean fields. Import and run with empty input.",
+  "status": "draft",
+  "revision": 0,
+  "updatedAt": "",
+  "nodes": [
+    {
+      "id": "start",
+      "type": "Manual Trigger",
+      "label": "Start",
+      "config": {}
+    },
+    {
+      "id": "prepare",
+      "type": "Map / Transform",
+      "label": "Synthetic request fields",
+      "config": {
+        "mapping": {
+          "headers": {
+            "content-type": "application/json; charset=utf-8"
+          },
+          "amount": 120,
+          "inserted": true
+        }
+      }
+    },
+    {
+      "id": "check",
+      "type": "IF / Condition",
+      "label": "All checks pass",
+      "config": {
+        "match": "all",
+        "conditions": [
+          {
+            "field": "headers.content-type",
+            "operator": "starts_with",
+            "valueType": "string",
+            "value": "application/json"
+          },
+          {
+            "field": "amount",
+            "operator": "greater_or_equal",
+            "valueType": "number",
+            "value": "100"
+          },
+          {
+            "field": "inserted",
+            "operator": "equals",
+            "valueType": "boolean",
+            "value": true
+          }
+        ]
+      }
+    },
+    {
+      "id": "accepted",
+      "type": "Map / Transform",
+      "label": "Accepted",
+      "config": {
+        "mapping": {
+          "accepted": true
+        }
+      }
+    },
+    {
+      "id": "rejected",
+      "type": "Map / Transform",
+      "label": "Rejected",
+      "config": {
+        "mapping": {
+          "accepted": false
+        }
+      }
+    }
+  ],
+  "edges": [
+    {
+      "id": "a",
+      "source": "start",
+      "target": "prepare"
+    },
+    {
+      "id": "b",
+      "source": "prepare",
+      "target": "check"
+    },
+    {
+      "id": "c",
+      "source": "check",
+      "target": "accepted",
+      "sourcePort": "true"
+    },
+    {
+      "id": "d",
+      "source": "check",
+      "target": "rejected",
+      "sourcePort": "false"
+    }
+  ]
+}

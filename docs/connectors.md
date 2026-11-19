@@ -18,6 +18,10 @@ Set a JSON/text HTTP response at the selected point in the workflow, then pass i
 
 Public or explicitly authenticated JSON delivery, generated/rotatable endpoints, publish/pause activation, bearer/query keys and timestamped HMAC signatures are implemented. Accepted deliveries start independent runs; business-event deduplication belongs in workflow logic. See [webhook setup and API](webhooks.md).
 
+## IF / Condition
+
+Build typed field/operator/value conditions with All/Any matching, existence/empty checks, containment and numeric comparisons. Legacy equality definitions remain supported. See [condition semantics](conditions.md) and [example 14](../examples/workflows/14-structured-conditions.json).
+
 ## HTTP Request
 
 HTTP Request supports GET, HEAD, POST, PUT, PATCH and DELETE against public HTTPS destinations by default. Requests run asynchronously from persisted checkpoints. The node emits:
