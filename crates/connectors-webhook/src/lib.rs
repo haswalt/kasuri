@@ -85,3 +85,87 @@ mod tests {
         ));
     }
 }
+
+pub fn token(value: &str, expected_hash: &str) -> bool {
+    bool::from(
+        hash(value.as_bytes())
+            .as_bytes()
+            .ct_eq(expected_hash.as_bytes()),
+    )
+}
+pub fn valid_parameter(value: &str) -> bool {
+    !value.is_empty()
+        && value.len() <= 64
+        && value
+            .bytes()
+            .all(|b| b.is_ascii_alphanumeric() || matches!(b, b'_' | b'-'))
+}
+/// Signature format without a business event ID: timestamp + '.' + raw body.
+pub fn signature_v2(secret: &[u8], timestamp: &str, body: &[u8]) -> String {
+    let mut mac = Hmac::<Sha256>::new_from_slice(secret).unwrap();
+    mac.update(timestamp.as_bytes());
+    mac.update(b".");
+    mac.update(body);
+    hex(&mac.finalize().into_bytes())
+}
+pub fn verify_signature_v2(
+    secret: &[u8],
+    timestamp: &str,
+    body: &[u8],
+    supplied: &str,
+    now_seconds: u64,
+) -> bool {
+    if secret.is_empty()
+        || timestamp.is_empty()
+        || timestamp.len() > 20
+        || !timestamp.bytes().all(|b| b.is_ascii_digit())
+    {
+        return false;
+    }
+    let Ok(time) = timestamp.parse::<u64>() else {
+        return false;
+    };
+    if time.abs_diff(now_seconds) > 300 {
+        return false;
+    }
+    bool::from(
+        signature_v2(secret, timestamp, body).as_bytes().ct_eq(
+            supplied
+                .strip_prefix("sha256=")
+                .unwrap_or(supplied)
+                .as_bytes(),
+        ),
+    )
+}
+
+#[cfg(test)]
+mod modern_tests {
+    use super::*;
+    #[test]
+    fn event_free_hmac_binds_body_and_timestamp_with_a_bounded_window() {
+        let signed = signature_v2(b"private", "1000", b"{}");
+        assert!(verify_signature_v2(
+            b"private", "1000", b"{}", &signed, 1001
+        ));
+        assert!(!verify_signature_v2(
+            b"private", "1000", b"changed", &signed, 1001
+        ));
+        assert!(!verify_signature_v2(
+            b"private", "1001", b"{}", &signed, 1001
+        ));
+        assert!(!verify_signature_v2(
+            b"private", "1000", b"{}", &signed, 1301
+        ));
+        assert!(!verify_signature_v2(b"private", "", b"{}", &signed, 1000));
+        assert!(verify_signature_v2(
+            b"private",
+            "1000",
+            b"{}",
+            &format!("sha256={signed}"),
+            1000
+        ));
+        assert!(!verify_signature(
+            b"private", "1000", "event", b"{}", &signed, 1000
+        ));
+    }
+}

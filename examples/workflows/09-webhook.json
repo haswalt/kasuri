@@ -13,7 +13,7 @@
       "label": "Webhook",
       "version": 1,
       "config": {
-        "authentication": "bearer"
+        "authentication": "none"
       },
       "position": {
         "x": 0,

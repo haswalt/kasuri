@@ -1,6 +1,6 @@
 //! Public webhook ingress is separate from browser management sessions.
 use crate::{WorkflowWorkspace, api_error, now};
-use connectors_webhook::{MAX_WEBHOOK_BYTES, bearer, hash, valid_event_id, verify_signature};
+use connectors_webhook::{MAX_WEBHOOK_BYTES, bearer, hash, verify_signature, verify_signature_v2};
 use futures_util::StreamExt;
 use serde_json::{Value, json};
 use worker::*;
@@ -78,7 +78,19 @@ impl WorkflowWorkspace {
                         event["summary"] = json!(format!("{name}: webhook credential rotated"));
                     }
                     self.save(&mut workspace).await?;
-                    if value["authentication"] == "bearer" {
+                    if matches!(value["authentication"].as_str(), Some("bearer" | "query"))
+                        || workspace
+                            .workflows
+                            .iter()
+                            .find(|w| w.graph.id == id)
+                            .and_then(|w| w.graph.nodes.iter().find(|n| n.kind == "Webhook"))
+                            .is_some_and(|n| {
+                                matches!(
+                                    n.config.get("authentication").and_then(Value::as_str),
+                                    Some("bearer" | "query")
+                                )
+                            })
+                    {
                         value["token"] = json!(token)
                     }
                     Ok(value)
@@ -116,10 +128,6 @@ impl WorkflowWorkspace {
         }
         if req.method() != Method::Post {
             return api_error(405, "Webhooks accept POST requests");
-        }
-        let event_id = req.headers().get("X-Kasuri-Event-Id")?.unwrap_or_default();
-        if !valid_event_id(&event_id) {
-            return api_error(400, "A valid X-Kasuri-Event-Id is required");
         }
         if !req
             .headers()
@@ -167,11 +175,26 @@ impl WorkflowWorkspace {
             .and_then(Value::as_str)
             .unwrap_or("bearer")
         {
+            "none" => true,
+            "query" => {
+                let parameter = trigger
+                    .config
+                    .get("queryParameter")
+                    .and_then(Value::as_str)
+                    .unwrap_or("key");
+                let url = req.url()?;
+                let values: Vec<_> = url
+                    .query_pairs()
+                    .filter(|(key, _)| key == parameter)
+                    .collect();
+                values.len() == 1
+                    && connectors_webhook::token(&values[0].1, &registration.token_hash)
+            }
             "bearer" => bearer(
                 &req.headers().get("Authorization")?.unwrap_or_default(),
                 &registration.token_hash,
             ),
-            "hmac" => {
+            mode @ ("hmac" | "hmac_sha256") => {
                 let alias = trigger
                     .config
                     .get("signingSecret")
@@ -185,23 +208,33 @@ impl WorkflowWorkspace {
                     .unwrap_or_default();
                 let secrets: std::collections::BTreeMap<String, String> =
                     serde_json::from_str(&raw).unwrap_or_default();
+                let timestamp = req.headers().get("X-Kasuri-Timestamp")?.unwrap_or_default();
+                let supplied = req.headers().get("X-Kasuri-Signature")?.unwrap_or_default();
                 secrets.get(alias).is_some_and(|secret| {
-                    verify_signature(
-                        secret.as_bytes(),
-                        &req.headers()
-                            .get("X-Kasuri-Timestamp")
+                    if mode == "hmac" {
+                        let event = req
+                            .headers()
+                            .get("X-Kasuri-Event-Id")
                             .ok()
                             .flatten()
-                            .unwrap_or_default(),
-                        &event_id,
-                        &body,
-                        &req.headers()
-                            .get("X-Kasuri-Signature")
-                            .ok()
-                            .flatten()
-                            .unwrap_or_default(),
-                        now() / 1000,
-                    )
+                            .unwrap_or_default();
+                        verify_signature(
+                            secret.as_bytes(),
+                            &timestamp,
+                            &event,
+                            &body,
+                            &supplied,
+                            now() / 1000,
+                        )
+                    } else {
+                        verify_signature_v2(
+                            secret.as_bytes(),
+                            &timestamp,
+                            &body,
+                            &supplied,
+                            now() / 1000,
+                        )
+                    }
                 })
             }
             _ => false,
@@ -218,15 +251,7 @@ impl WorkflowWorkspace {
             .durable_object("WORKSPACES")?
             .unique_id()?
             .to_string();
-        match workspace.receive_webhook(
-            id,
-            endpoint,
-            &event_id,
-            payload,
-            &hash(&body),
-            now(),
-            &run_id,
-        ) {
+        match workspace.receive_webhook(id, endpoint, payload, now(), &run_id) {
             Ok(value) => {
                 self.save(&mut workspace).await?;
                 let mut response = Response::from_json(&value)?.with_status(202);

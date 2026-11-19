@@ -177,63 +177,32 @@ fn http_simulation_never_creates_an_external_dispatch() {
 }
 
 #[test]
-fn webhook_events_are_durable_deduplicated_and_disabled_by_pause_or_rotation() {
+fn webhook_deliveries_are_independent_and_disabled_by_pause_or_rotation() {
     let mut ws = Workspace::default();
     save(&mut ws, &document("Webhook"));
     ws.configure_webhook("flow", "endpoint".into(), "hash".into())
         .unwrap();
     assert!(
-        ws.receive_webhook("flow", "endpoint", "event1", json!({}), "digest", 0, "run1")
+        ws.receive_webhook("flow", "endpoint", json!({}), 0, "run1")
             .is_err()
     );
     ws.handle("POST", "/api/workflows/flow/publish", b"", 0, "")
         .unwrap();
     let first = ws
-        .receive_webhook(
-            "flow",
-            "endpoint",
-            "event1",
-            json!({"hello":1}),
-            "digest",
-            1,
-            "run1",
-        )
+        .receive_webhook("flow", "endpoint", json!({"hello":1}), 1, "run1")
         .unwrap();
-    assert_eq!(first["duplicate"], false);
     let mut ws = Workspace::from_json(&ws.checkpoint().unwrap()).unwrap();
-    let repeat = ws
-        .receive_webhook(
-            "flow",
-            "endpoint",
-            "event1",
-            json!({"hello":1}),
-            "digest",
-            2,
-            "run2",
-        )
+    let second = ws
+        .receive_webhook("flow", "endpoint", json!({"hello":1}), 2, "run2")
         .unwrap();
-    assert_eq!(repeat["runId"], "run1");
-    assert_eq!(repeat["duplicate"], true);
-    assert_eq!(ws.runs.len(), 1);
-    assert_eq!(
-        ws.receive_webhook(
-            "flow",
-            "endpoint",
-            "event1",
-            json!({}),
-            "different",
-            3,
-            "run3"
-        )
-        .unwrap_err()
-        .status,
-        409
-    );
+    assert_ne!(first["runId"], second["runId"]);
+    assert_eq!(ws.runs.len(), 2);
+    assert!(ws.webhook_events.is_empty());
     assert!(ws.snapshot().unwrap().get("webhooks").is_none());
     ws.handle("POST", "/api/workflows/flow/pause", b"", 4, "")
         .unwrap();
     assert_eq!(
-        ws.receive_webhook("flow", "endpoint", "event2", json!({}), "digest", 5, "run2")
+        ws.receive_webhook("flow", "endpoint", json!({}), 5, "run3")
             .unwrap_err()
             .status,
         404
@@ -243,7 +212,7 @@ fn webhook_events_are_durable_deduplicated_and_disabled_by_pause_or_rotation() {
     ws.configure_webhook("flow", "new-endpoint".into(), "new-hash".into())
         .unwrap();
     assert_eq!(
-        ws.receive_webhook("flow", "endpoint", "event2", json!({}), "digest", 7, "run2")
+        ws.receive_webhook("flow", "endpoint", json!({}), 7, "run3")
             .unwrap_err()
             .status,
         404
@@ -310,4 +279,40 @@ fn pending_data_is_not_uncertain_network_io_and_simulation_clock_survives_restor
         ws.data_runs().unwrap().is_empty(),
         "Terminal simulations release their snapshot"
     );
+}
+
+#[test]
+fn webhook_defaults_are_public_but_legacy_auth_requires_an_explicit_published_change() {
+    let mut ws = Workspace::default();
+    save(&mut ws, &document("Webhook"));
+    assert_eq!(
+        ws.workflows[0].graph.nodes[0].config["authentication"],
+        "none"
+    );
+    // Model a stored pre-upgrade active trigger with its omitted bearer default.
+    ws.workflows[0].graph.nodes[0]
+        .config
+        .remove("authentication");
+    ws.handle("POST", "/api/workflows/flow/publish", b"", 0, "")
+        .unwrap();
+    let mut ws = Workspace::from_json(&ws.checkpoint().unwrap()).unwrap();
+    assert_eq!(ws.webhook_info("flow").unwrap()["authentication"], "bearer");
+    let legacy_version = ws.workflows[0].version;
+    save(&mut ws, &document("Webhook"));
+    assert_eq!(
+        ws.workflows[0].version, legacy_version,
+        "Unchanged legacy save must remain a no-op"
+    );
+    assert_eq!(ws.webhook_info("flow").unwrap()["authentication"], "bearer");
+    let mut public = document("Webhook");
+    public["nodes"][0]["config"] = json!({"authentication":"none"});
+    save(&mut ws, &public);
+    assert_eq!(
+        ws.webhook_info("flow").unwrap()["authentication"],
+        "bearer",
+        "Draft must not weaken live authentication"
+    );
+    ws.handle("POST", "/api/workflows/flow/publish", b"", 1, "")
+        .unwrap();
+    assert_eq!(ws.webhook_info("flow").unwrap()["authentication"], "none");
 }

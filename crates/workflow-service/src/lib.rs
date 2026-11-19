@@ -313,19 +313,21 @@ impl Workspace {
                     .and_then(Value::as_str)
                     .unwrap_or("bearer")
                 {
-                    "bearer" => {}
-                    "hmac"
+                    "none" | "bearer" => {}
+                    "query"
+                        if node
+                            .config
+                            .get("queryParameter")
+                            .and_then(Value::as_str)
+                            .is_some_and(connectors_webhook::valid_parameter)
+                            || !node.config.contains_key("queryParameter") => {}
+                    "hmac" | "hmac_sha256"
                         if node
                             .config
                             .get("signingSecret")
                             .and_then(Value::as_str)
                             .is_some_and(|s| !s.is_empty()) => {}
-                    _ => {
-                        return Err(error(
-                            400,
-                            "Webhook requires bearer authentication or hmac with a signingSecret alias",
-                        ));
-                    }
+                    _ => return Err(error(400, "Invalid webhook authentication configuration")),
                 }
             }
             if connectors_data::handles(&node.kind) {
@@ -615,6 +617,28 @@ impl Workspace {
             {
                 return Err(error(400, "Invalid workflow metadata or graph size"));
             }
+            // Missing auth on a new trigger means public ingress. On an existing
+            // trigger preserve its protection; making it public must be explicit.
+            for node in doc.graph.nodes.iter_mut().filter(|n| n.kind == "Webhook") {
+                if !node.config.contains_key("authentication") {
+                    let previous = self
+                        .workflows
+                        .iter()
+                        .find(|w| w.graph.id == id)
+                        .and_then(|w| w.graph.nodes.iter().find(|n| n.kind == "Webhook"));
+                    if let Some(previous) = previous {
+                        for key in ["authentication", "signingSecret", "queryParameter"] {
+                            if !node.config.contains_key(key) {
+                                if let Some(value) = previous.config.get(key) {
+                                    node.config.insert(key.into(), value.clone());
+                                }
+                            }
+                        }
+                    } else {
+                        node.config.insert("authentication".into(), json!("none"));
+                    }
+                }
+            }
             doc.archived_at = None;
             doc.lifecycle = Some(Lifecycle::default());
             doc.has_unpublished_changes = true;
@@ -820,7 +844,7 @@ impl Workspace {
             .find(|n| n.kind == "Webhook")
             .unwrap();
         Ok(
-            json!({"configured":registration.is_some(),"endpointId":registration.map(|r|&r.endpoint_id),"active":doc.status==Publication::Active,"authentication":trigger.config.get("authentication").and_then(Value::as_str).unwrap_or("bearer")}),
+            json!({"configured":registration.is_some(),"endpointId":registration.map(|r|&r.endpoint_id),"active":doc.status==Publication::Active,"authentication":trigger.config.get("authentication").and_then(Value::as_str).unwrap_or("bearer"),"queryParameter":trigger.config.get("queryParameter").and_then(Value::as_str).unwrap_or("key")}),
         )
     }
     pub fn configure_webhook(
@@ -842,9 +866,7 @@ impl Workspace {
         &mut self,
         id: &str,
         endpoint: &str,
-        event_id: &str,
         payload: Value,
-        fingerprint: &str,
         now: u64,
         run_id: &str,
     ) -> Result<Value, ApiError> {
@@ -860,47 +882,8 @@ impl Workspace {
         {
             return Err(error(404, "Webhook is not active"));
         }
-        if !connectors_webhook::valid_event_id(event_id) {
-            return Err(error(400, "A valid X-Kasuri-Event-Id is required"));
-        }
-        self.webhook_events
-            .retain(|e| now.saturating_sub(e.received_at) < 86_400_000);
-        if let Some(existing) = self
-            .webhook_events
-            .iter()
-            .find(|e| e.endpoint_id == endpoint && e.event_id == event_id)
-        {
-            if existing.fingerprint != fingerprint {
-                return Err(error(
-                    409,
-                    "Event ID was already used with a different payload",
-                ));
-            }
-            return Ok(json!({"runId":existing.run_id,"eventId":event_id,"duplicate":true}));
-        }
-        if self.webhook_events.len() >= 1000 {
-            return Err(error(
-                429,
-                "Webhook deduplication window is full; retry later",
-            ));
-        }
         self.start_run(run_id, &doc, payload, Mode::Webhook, now)?;
-        self.record_audit(
-            "webhook",
-            "runs.started",
-            run_id,
-            "succeeded",
-            now,
-            event_id,
-        );
-        self.webhook_events.push(WebhookEvent {
-            endpoint_id: endpoint.into(),
-            event_id: event_id.into(),
-            fingerprint: fingerprint.into(),
-            run_id: run_id.into(),
-            received_at: now,
-        });
-        Ok(json!({"runId":run_id,"eventId":event_id,"duplicate":false}))
+        Ok(json!({"runId":run_id}))
     }
     /// Active dataset users, for host-owned snapshots and receipt retention.
     pub fn data_runs(&self) -> Result<Vec<(String, Mode, Vec<String>)>, ApiError> {

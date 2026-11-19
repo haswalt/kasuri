@@ -109,7 +109,7 @@ export function WorkflowEditor({
             ...value,
             token:
               previous?.endpointId === value.endpointId &&
-              value.authentication === 'bearer'
+              ['bearer', 'query'].includes(value.authentication)
                 ? previous?.token
                 : undefined
           }))
@@ -606,7 +606,7 @@ export function WorkflowEditor({
                               config:
                                 e.target.value === 'Schedule'
                                   ? { cron: '* * * * *', timezone: 'UTC' }
-                                  : {}
+                                  : e.target.value === 'Webhook' ? { authentication: 'none' } : {}
                             })
                           }
                         >
@@ -643,7 +643,7 @@ export function WorkflowEditor({
                           {meta?.label || key}
                           {property?.enum ? (
                             <select
-                              value={value || property.enum[0]}
+                              value={value || (node.type === 'Webhook' && key === 'authentication' ? 'bearer' : property.enum[0])}
                               onChange={(e) =>
                                 editNode({
                                   config: {
@@ -703,9 +703,9 @@ export function WorkflowEditor({
                           Webhook endpoint
                         </h2>
                         <p className={styles.muted}>
-                          Save the trigger before generating credentials.
-                          Publish to accept events; pause or save a new draft to
-                          stop deliveries.
+                          Save the trigger before generating its endpoint.
+                          Publish to accept events; pause to stop new deliveries.
+                          Draft edits do not change the live trigger.
                         </p>
                         {webhook?.path && (
                           <label>
@@ -723,7 +723,7 @@ export function WorkflowEditor({
                         {webhook?.token && (
                           <>
                             <label>
-                              Bearer token (shown once)
+                              Secret key (shown once)
                               <input
                                 type="password"
                                 readOnly
@@ -742,18 +742,19 @@ export function WorkflowEditor({
                                   )
                               }
                             >
-                              Copy token
+                              Copy secret key
                             </Button>
                           </>
                         )}
                         <p className={styles.muted}>
                           {webhook?.configured
                             ? webhook.active
-                              ? 'Published: accepting authenticated events.'
+                              ? `Published: accepting events (${webhook.authentication}).`
                               : 'Not active: publish the workflow to accept events.'
                             : 'No endpoint configured.'}{' '}
-                          Send a unique X-Kasuri-Event-Id with every JSON event.
-                          HMAC mode uses a named signing secret.
+                          Event IDs are optional. Deduplicate explicitly in the workflow when needed.
+                          Query authentication uses the configured query parameter;
+                          HMAC modes use a named signing secret.
                         </p>
                         <Button
                           disabled={webhookBusy}
@@ -762,8 +763,8 @@ export function WorkflowEditor({
                           {webhookBusy
                             ? 'Generating…'
                             : webhook?.configured
-                              ? 'Rotate endpoint and token'
-                              : 'Generate endpoint and token'}
+                              ? 'Rotate endpoint and secret'
+                              : 'Generate endpoint'}
                         </Button>
                       </section>
                     )}

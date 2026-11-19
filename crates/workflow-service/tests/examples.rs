@@ -184,16 +184,8 @@ fn webhook_example_runs_from_an_installation_local_registration() {
         .unwrap();
     ws.handle("POST", "/api/workflows/09-webhook/publish", b"", 0, "")
         .unwrap();
-    ws.receive_webhook(
-        "09-webhook",
-        "test-endpoint",
-        "example-event",
-        json!({}),
-        "test-fingerprint",
-        0,
-        "event-run",
-    )
-    .unwrap();
+    ws.receive_webhook("09-webhook", "test-endpoint", json!({}), 0, "event-run")
+        .unwrap();
     let run = ws.runs[0].view(false).unwrap();
     assert_eq!(run["mode"], "webhook");
     check(&case, &run);
