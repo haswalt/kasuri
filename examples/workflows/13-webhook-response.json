@@ -1,0 +1,80 @@
+{
+  "schemaVersion": 1,
+  "id": "13-webhook-response",
+  "name": "Acknowledge then continue",
+  "description": "Response position controls timing. Run/Simulate previews it without a live request; a published webhook replies 201 then continues.",
+  "status": "draft",
+  "revision": 0,
+  "updatedAt": "",
+  "nodes": [
+    {
+      "id": "start",
+      "type": "Webhook",
+      "label": "Incoming request",
+      "config": {
+        "authentication": "none"
+      }
+    },
+    {
+      "id": "prepare",
+      "type": "Map / Transform",
+      "label": "Prepare acknowledgement",
+      "config": {
+        "mapping": {
+          "accepted": true,
+          "message": "Hello from Kasuri"
+        }
+      }
+    },
+    {
+      "id": "respond",
+      "type": "Respond to Webhook",
+      "label": "Reply 201",
+      "config": {
+        "status": 201,
+        "responseType": "json",
+        "headers": {
+          "X-Workflow-Result": "accepted"
+        },
+        "body": {
+          "accepted": {
+            "$input": "/accepted"
+          },
+          "message": {
+            "$input": "/message"
+          }
+        }
+      }
+    },
+    {
+      "id": "background",
+      "type": "Map / Transform",
+      "label": "Continue after response",
+      "config": {
+        "mapping": {
+          "accepted": {
+            "$input": "/accepted"
+          },
+          "backgroundComplete": true
+        }
+      }
+    }
+  ],
+  "edges": [
+    {
+      "id": "a",
+      "source": "start",
+      "target": "prepare"
+    },
+    {
+      "id": "b",
+      "source": "prepare",
+      "target": "respond"
+    },
+    {
+      "id": "c",
+      "source": "respond",
+      "target": "background"
+    }
+  ]
+}

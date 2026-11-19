@@ -3,6 +3,7 @@
 mod audit;
 mod http_api;
 mod publication;
+mod webhook_response;
 use chrono::{DateTime, SecondsFormat, Utc};
 use chrono_tz::Tz;
 use connector_sdk::{Connector, FailureCode, Outcome, Task};
@@ -12,6 +13,7 @@ pub use publication::{Lifecycle, Revision};
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 use std::str::FromStr;
+pub use webhook_response::{Reply as WebhookReply, ResponseWindow};
 use workflow_engine::{Dispatch, Limits, NodeState, Run, RunStatus};
 use workflow_schema::Workflow;
 
@@ -92,6 +94,8 @@ pub struct RunRecord {
     pub logical_clock: u64,
     #[serde(default)]
     pub trigger_context: Value,
+    #[serde(default)]
+    pub webhook_response: Option<ResponseWindow>,
     pub checkpoint: String,
     pub mode: Mode,
     pub created_at: u64,
@@ -129,10 +133,11 @@ impl RunRecord {
             value
         }).collect();
         Ok(
-            json!({"id":run.id(),"workflowId":run.workflow().id,"name":run.workflow().name,"revision":run.workflow().revision,"createdAt":iso(self.created_at),"mode":self.mode,"status":self.status()?,"nodes":nodes,"context":if summary {Value::Null}else{self.trigger_context.clone()},"input":if summary {Value::Null}else{state["input"].clone()},"error":self.host_error.clone().map(Value::String).unwrap_or_else(||state["failure"].clone()),"wakeAt":self.wake_at}),
+            json!({"id":run.id(),"workflowId":run.workflow().id,"name":run.workflow().name,"revision":run.workflow().revision,"createdAt":iso(self.created_at),"mode":self.mode,"status":self.status()?,"nodes":nodes,"webhookResponse":if summary {self.webhook_response.as_ref().map(|w|json!({"delivery":w.delivery,"deadlineMs":w.deadline_ms,"closedAt":w.closed_at}))}else{self.webhook_response.as_ref().map(|w|json!(w))},"context":if summary {Value::Null}else{self.trigger_context.clone()},"input":if summary {Value::Null}else{state["input"].clone()},"error":self.host_error.clone().map(Value::String).unwrap_or_else(||state["failure"].clone()),"wakeAt":self.wake_at}),
         )
     }
     fn advance(&mut self, now: u64) -> Result<(), ApiError> {
+        self.settle_response(now)?;
         let mut run = self.restore()?;
         if let Some(external) = &self.external {
             if run.status() == RunStatus::Paused {
@@ -183,7 +188,33 @@ impl RunRecord {
                         self.wake_at = Some(now.saturating_add(1));
                         break;
                     }
-                    let outcome = if task.node.kind == "Request Context" {
+                    let outcome = if task.node.kind == "Respond to Webhook" {
+                        match connectors_webhook::response::prepare(&task.node.config, &task.input)
+                        {
+                            Ok(response) => {
+                                let window = self
+                                    .webhook_response
+                                    .get_or_insert_with(|| ResponseWindow::new(false, clock));
+                                if window.prepare(&task.node.id, response, clock) {
+                                    Outcome::success(task.input.clone())
+                                } else {
+                                    connectors_http::failure(FailureCode::DuplicateResponse, false)
+                                }
+                            }
+                            Err(code) => connectors_http::failure(
+                                match code {
+                                    connectors_webhook::response::ResponseError::MissingInput => {
+                                        FailureCode::MissingInput
+                                    }
+                                    connectors_webhook::response::ResponseError::BudgetExceeded => {
+                                        FailureCode::BudgetExceeded
+                                    }
+                                    _ => FailureCode::InvalidConfig,
+                                },
+                                false,
+                            ),
+                        }
+                    } else if task.node.kind == "Request Context" {
                         let part = task
                             .node
                             .config
@@ -211,6 +242,15 @@ impl RunRecord {
                     };
                     run.complete(&task.id, outcome, clock)
                         .map_err(|e| error(400, e.to_string()))?;
+                    if task.node.kind == "Respond to Webhook"
+                        && self
+                            .webhook_response
+                            .as_ref()
+                            .is_some_and(|w| w.deadline_ms.is_some())
+                    {
+                        self.wake_at = Some(now.saturating_add(1));
+                        break;
+                    }
                 }
                 Dispatch::SleepUntil(at) => {
                     if self.mode == Mode::Simulation {
@@ -228,6 +268,7 @@ impl RunRecord {
         }
         self.logical_clock = clock;
         self.checkpoint = run.checkpoint().map_err(|e| error(400, e.to_string()))?;
+        self.settle_response(clock)?;
         Ok(())
     }
 }
@@ -284,12 +325,16 @@ impl Workspace {
                 return Ok(text);
             }
             let removable = (1..self.runs.len()).rev().find(|i| {
-                self.runs[*i].status().is_ok_and(|s| {
-                    matches!(
-                        s,
-                        RunStatus::Succeeded | RunStatus::Failed | RunStatus::Cancelled
-                    )
-                })
+                !self.runs[*i]
+                    .webhook_response
+                    .as_ref()
+                    .is_some_and(|w| w.open())
+                    && self.runs[*i].status().is_ok_and(|s| {
+                        matches!(
+                            s,
+                            RunStatus::Succeeded | RunStatus::Failed | RunStatus::Cancelled
+                        )
+                    })
             });
             if let Some(index) = removable {
                 self.runs.remove(index);
@@ -309,6 +354,12 @@ impl Workspace {
             .iter()
             .filter_map(|w| w.next_scheduled_at)
             .chain(self.runs.iter().filter_map(|r| r.wake_at))
+            .chain(self.runs.iter().filter_map(|r| {
+                r.webhook_response
+                    .as_ref()
+                    .filter(|w| w.open())
+                    .and_then(|w| w.deadline_ms)
+            }))
             .min()
     }
     pub fn snapshot(&self) -> Result<Value, ApiError> {
@@ -327,8 +378,21 @@ impl Workspace {
             .graph
             .validate()
             .map_err(|e| error(400, e.to_string()))?;
+        if document
+            .graph
+            .nodes
+            .iter()
+            .any(|n| n.kind == "Respond to Webhook")
+            && !document.graph.nodes.iter().any(|n| n.kind == "Webhook")
+        {
+            return Err(error(400, "Respond to Webhook requires a Webhook trigger"));
+        }
         let manifests = manifests();
         for node in &document.graph.nodes {
+            if node.kind == "Respond to Webhook" {
+                connectors_webhook::response::validate(&node.config)
+                    .map_err(|_| error(400, "Invalid webhook response configuration"))?;
+            }
             if node.kind == "Request Context"
                 && (node.config.keys().any(|k| k != "part")
                     || node.config.get("part").is_some_and(|p| {
@@ -422,8 +486,9 @@ impl Workspace {
             .runs
             .iter()
             .filter(|r| {
-                r.status()
-                    .is_ok_and(|s| matches!(s, RunStatus::Running | RunStatus::Paused))
+                r.webhook_response.as_ref().is_some_and(|w| w.open())
+                    || r.status()
+                        .is_ok_and(|s| matches!(s, RunStatus::Running | RunStatus::Paused))
             })
             .count()
             >= 5
@@ -438,6 +503,17 @@ impl Workspace {
         let mut record = RunRecord {
             external: None,
             logical_clock: now,
+            webhook_response: doc
+                .graph
+                .nodes
+                .iter()
+                .any(|n| n.kind == "Respond to Webhook")
+                .then(|| {
+                    ResponseWindow::new(
+                        mode == Mode::Webhook && trigger_context["request"].is_object(),
+                        now,
+                    )
+                }),
             trigger_context,
             checkpoint: run.checkpoint().map_err(|e| error(400, e.to_string()))?,
             mode,
@@ -875,6 +951,7 @@ impl Workspace {
                 if parts[3] == "resume" {
                     record.advance(now)?
                 }
+                record.settle_response(now)?;
                 return Ok((200, record.view(false)?));
             }
         }
@@ -1108,6 +1185,7 @@ impl Workspace {
             .map(|r| Ok((r.restore()?.id().to_string(), r.status()?)))
             .collect::<Result<_, ApiError>>()?;
         for record in &mut self.runs {
+            record.settle_response(now)?;
             if record.wake_at.is_some_and(|at| at <= now)
                 && let Err(_) = record.advance(now)
             {
@@ -1203,6 +1281,7 @@ pub fn manifests() -> Vec<connector_sdk::NodeManifest> {
     let mut manifests = connectors_core::manifests();
     manifests.push(connectors_http::manifest());
     manifests.extend(connectors_data::manifests());
+    manifests.push(connector_sdk::NodeManifest{kind:"Respond to Webhook".into(),version:1,config_schema:json!({"type":"object","properties":{"status":{"type":"integer","default":200},"responseType":{"enum":["json","text"]},"headers":{"type":"object"},"body":{}},"additionalProperties":false}),output_ports:vec!["success".into(),"error".into()],has_external_side_effects:true});
     manifests.push(connector_sdk::NodeManifest {kind:"Request Context".into(),version:1,config_schema:json!({"type":"object","properties":{"part":{"enum":["metadata","body","headers","query"]}},"additionalProperties":false}),output_ports:vec!["success".into(),"error".into()],has_external_side_effects:false});
     manifests
 }

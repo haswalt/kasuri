@@ -520,6 +520,12 @@ export function WorkflowEditor({
                       : '// ' + selectedResult.status
                     : '// Not reached in playback yet'}
                 </pre>
+                {result && result.webhookResponse?.decision && result.webhookResponse.decision.nodeId === node?.id && selectedResult && cursor > result.nodes.indexOf(selectedResult) && (
+                  <>
+                    <span className={styles.eyebrow}>RESPONSE PREVIEW · {result.webhookResponse.delivery}</span>
+                    <pre>{JSON.stringify(result.webhookResponse.decision.response, null, 2)}</pre>
+                  </>
+                )}
               </div>
             </>
           ) : edge ? (
@@ -769,7 +775,9 @@ export function WorkflowEditor({
                       </section>
                     )}
                     <div className={styles.infoBox}>
-                      {node.type === 'HTTP Request'
+                      {node.type === 'Respond to Webhook'
+                        ? 'Responds at this point, then passes input onward. A second response attempt is an error. Run and Simulate only preview the response.'
+                        : node.type === 'HTTP Request'
                         ? 'Public HTTPS is allowed by default. Credentials use named secrets. Simulations require a response fixture.'
                         : node.type === 'Map / Transform'
                           ? 'Use {"$input":"/name"} to reference an input field. Other values are JSON literals.'

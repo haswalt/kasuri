@@ -143,6 +143,13 @@ export function RunDetails({
           </Button>
         </div>
       )}
+      {detail.webhookResponse && (
+        <details className={styles.infoBox}>
+          <summary>Webhook response · {detail.webhookResponse.delivery.replaceAll('_', ' ')}</summary>
+          <p>{detail.webhookResponse.delivery === 'preview' ? 'Preview only; no HTTP response was sent.' : 'Submission status is recorded separately from the workflow outcome. Submitted does not confirm client receipt.'}</p>
+          {detail.webhookResponse.decision && <pre className={styles.executionInformation}>{JSON.stringify(detail.webhookResponse.decision, null, 2)}</pre>}
+        </details>
+      )}
       <div className={styles.debuggerBody}>
         <aside className={styles.debuggerSteps}>
           <div className={styles.eyebrow}>STEPS · {detail.nodes.length}</div>

@@ -57,7 +57,17 @@ pub async fn main(req: Request, env: Env, _ctx: Context) -> Result<Response> {
             Ok(id) => id,
             Err(_) => return api_error(404, "Webhook not found"),
         };
-        return id.get_stub()?.fetch_with_request(req).await;
+        // Pass cancellation explicitly across the public Worker -> DO boundary.
+        // Workflow effects run independently on alarms and never inherit it.
+        use worker::wasm_bindgen::JsCast;
+        let init = worker::web_sys::RequestInit::new();
+        let signal = req.signal();
+        init.set_signal(Some(&signal));
+        let stub = id.get_stub()?.into_rpc::<worker::worker_sys::Fetcher>();
+        let response =
+            worker::wasm_bindgen_futures::JsFuture::from(stub.fetch_with_init(req.inner(), &init)?)
+                .await?;
+        return Ok(response.dyn_into::<worker::web_sys::Response>()?.into());
     }
     let credentials = env
         .secret("BASIC_AUTH")

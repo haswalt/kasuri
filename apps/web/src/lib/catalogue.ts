@@ -1,4 +1,5 @@
 export const catalogue = [
+  { "name": "Respond to Webhook", "category": "Core platform" },
   { "name": "Request Context", "category": "Core platform" },
   { "name": "Data Tables", "category": "Core platform" },
   { "name": "Context Store", "category": "Core platform" },
@@ -209,6 +210,7 @@ export const catalogue = [
 
 export const fields: Record<string, { key: string; label: string; placeholder: string }[]> = {
   "Data Tables": [{ key: "command", label: "Data command (JSON)", placeholder: '{ "operation": "get", "tableId": "records", "key": "example" }' }],
+  "Respond to Webhook": [{ key: "status", label: "HTTP status", placeholder: "200" }, { key: "responseType", label: "Response body type", placeholder: "json" }, { key: "headers", label: "Response headers (JSON)", placeholder: '{ "X-Result": "accepted" }' }, { key: "body", label: "Response body (JSON or text)", placeholder: '{ "accepted": true }' }],
   "Request Context": [{ key: "part", label: "Read immutable trigger metadata, body, headers or query", placeholder: "metadata" }],
   "Context Store": [{ key: "command", label: "Context command (JSON)", placeholder: '{ "operation": "get", "tableId": "cache", "key": "example" }' }],
   "HTTP Request": [{ key: "url", label: "Public HTTPS URL", placeholder: "https://api.example.com/data" }, { key: "method", label: "Method: GET, HEAD, POST, PUT, PATCH, DELETE", placeholder: "GET" }, { key: "query", label: "Query parameters (JSON)", placeholder: '{ "q": { "$input": "/query" } }' }, { key: "headers", label: "Custom headers (JSON; use $secret for credentials)", placeholder: '{ "X-Tenant": "team-a", "X-Api-Key": { "$secret": "api_key" } }' }, { key: "authentication", label: "Authentication: none or basic", placeholder: "none" }, { key: "username", label: "Basic auth username", placeholder: "api-user" }, { key: "passwordSecret", label: "Basic auth password secret name", placeholder: "api_password" }, { key: "body", label: "JSON request body (write methods only)", placeholder: '{ "name": { "$input": "/name" } }' }, { key: "responseType", label: "Response: json or text", placeholder: "json" }, { key: "simulationResponse", label: "Simulation response (JSON; no network request)", placeholder: '{ "status": 200, "body": { "items": [] } }' }],

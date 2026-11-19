@@ -4,6 +4,35 @@ use connectors_webhook::{MAX_WEBHOOK_BYTES, bearer, hash, verify_signature, veri
 use futures_util::StreamExt;
 use serde_json::{Value, json};
 use worker::*;
+struct DisconnectObserver {
+    signal: AbortSignal,
+    callback: worker::wasm_bindgen::closure::Closure<dyn FnMut()>,
+    disconnected: std::rc::Rc<std::cell::Cell<bool>>,
+}
+impl DisconnectObserver {
+    fn new(signal: AbortSignal) -> Result<Self> {
+        use worker::wasm_bindgen::JsCast;
+        let disconnected = std::rc::Rc::new(std::cell::Cell::new(signal.aborted()));
+        let flag = disconnected.clone();
+        let callback = worker::wasm_bindgen::closure::Closure::wrap(
+            Box::new(move || flag.set(true)) as Box<dyn FnMut()>,
+        );
+        signal.add_event_listener_with_callback("abort", callback.as_ref().unchecked_ref())?;
+        Ok(Self {
+            signal,
+            callback,
+            disconnected,
+        })
+    }
+}
+impl Drop for DisconnectObserver {
+    fn drop(&mut self) {
+        use worker::wasm_bindgen::JsCast;
+        let _ = self
+            .signal
+            .remove_event_listener_with_callback("abort", self.callback.as_ref().unchecked_ref());
+    }
+}
 impl WorkflowWorkspace {
     pub(crate) fn authorize_session(&self, token: &str) -> Result<bool> {
         if token.len() != 64 || !token.bytes().all(|b| b.is_ascii_hexdigit()) {
@@ -269,11 +298,121 @@ impl WorkflowWorkspace {
         match workspace.receive_webhook_context(id, endpoint, payload, now(), &run_id, context) {
             Ok(value) => {
                 self.save(&mut workspace).await?;
-                let mut response = Response::from_json(&value)?.with_status(202);
-                response.headers_mut().set("Cache-Control", "no-store")?;
-                Ok(response)
+                if workspace.runs.iter().any(|r| {
+                    r.webhook_response
+                        .as_ref()
+                        .is_some_and(|w| w.deadline_ms.is_some())
+                        && r.view(true).is_ok_and(|v| v["id"] == run_id)
+                }) {
+                    self.keep_webhook_response(&run_id, req.signal()).await
+                } else {
+                    let mut response = Response::from_json(&value)?.with_status(202);
+                    response.headers_mut().set("Cache-Control", "no-store")?;
+                    Ok(response)
+                }
             }
             Err(error) => api_error(error.status, &error.message),
+        }
+    }
+    async fn keep_webhook_response(&self, id: &str, signal: AbortSignal) -> Result<Response> {
+        // The bounded responder outlives cancellation of its awaiting HTTP future,
+        // so client disconnect can be recorded without cancelling the durable run.
+        use worker::wasm_bindgen::JsCast;
+        let raw: &worker::wasm_bindgen::JsValue = self.state.as_raw().as_ref();
+        let host = WorkflowWorkspace {
+            state: State::from(
+                raw.clone()
+                    .unchecked_into::<worker::worker_sys::DurableObjectState>(),
+            ),
+            env: self.env.clone(),
+        };
+        let id = id.to_string();
+        let result = std::rc::Rc::new(std::cell::RefCell::new(None));
+        let wake = std::rc::Rc::new(std::cell::RefCell::new(None::<std::task::Waker>));
+        let output = result.clone();
+        let notify = wake.clone();
+        self.state.wait_until(async move {
+            let response = host.await_webhook_response(&id, signal).await;
+            *output.borrow_mut() = Some(response);
+            if let Some(waker) = notify.borrow_mut().take() {
+                waker.wake()
+            }
+        });
+        futures_util::future::poll_fn(move |cx| {
+            if let Some(result) = result.borrow_mut().take() {
+                return std::task::Poll::Ready(result);
+            }
+            *wake.borrow_mut() = Some(cx.waker().clone());
+            std::task::Poll::Pending
+        })
+        .await
+    }
+    async fn await_webhook_response(&self, id: &str, signal: AbortSignal) -> Result<Response> {
+        let observer = DisconnectObserver::new(signal)?;
+        loop {
+            // Always reload: alarms and management requests can advance or cancel
+            // this run while the original request is awaiting its response.
+            let mut workspace = self.load()?;
+            let reply = workspace
+                .webhook_reply(
+                    id,
+                    now(),
+                    observer.disconnected.get() || observer.signal.aborted(),
+                )
+                .map_err(crate::internal)?;
+            if matches!(reply, workflow_service::WebhookReply::Pending) {
+                Delay::from(std::time::Duration::from_millis(100)).await;
+                continue;
+            }
+            // No await or network write occurs before the submission checkpoint.
+            self.save(&mut workspace).await?;
+            let mut response = match reply {
+                workflow_service::WebhookReply::Response(spec) => {
+                    let mut response = if matches!(spec.status, 204 | 205 | 304) {
+                        Response::empty()?
+                    } else if spec.response_type == "text" {
+                        Response::ok(spec.body.as_str().unwrap_or_default())?
+                    } else {
+                        Response::from_json(&spec.body)?
+                    };
+                    response = response.with_status(spec.status);
+                    response.headers_mut().set(
+                        "Content-Type",
+                        if spec.response_type == "text" {
+                            "text/plain; charset=utf-8"
+                        } else {
+                            "application/json"
+                        },
+                    )?;
+                    for (name, value) in spec.headers {
+                        response.headers_mut().set(&name, &value)?;
+                    }
+                    response
+                }
+                workflow_service::WebhookReply::TimedOut => {
+                    Response::from_json(&json!({"runId":id,"error":"webhook_response_timeout"}))?
+                        .with_status(504)
+                }
+                workflow_service::WebhookReply::Disconnected => Response::empty()?.with_status(499),
+                workflow_service::WebhookReply::NoResponse => Response::from_json(
+                    &json!({"runId":id,"error":"workflow_completed_without_response"}),
+                )?
+                .with_status(502),
+                workflow_service::WebhookReply::Failed => Response::from_json(
+                    &json!({"runId":id,"error":"workflow_failed_before_response"}),
+                )?
+                .with_status(500),
+                _ => {
+                    Response::from_json(&json!({"runId":id,"error":"response_window_unavailable"}))?
+                        .with_status(409)
+                }
+            };
+            response.headers_mut().set("Cache-Control", "no-store")?;
+            response
+                .headers_mut()
+                .set("X-Content-Type-Options", "nosniff")?;
+            response.headers_mut().set("X-Kasuri-Run-Id", id)?;
+            return Ok(response);
         }
     }
 }

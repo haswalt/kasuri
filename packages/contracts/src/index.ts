@@ -4,7 +4,7 @@ export type Workflow = { schemaVersion: 1; id: string; name: string; description
 export type RunStatus = 'running' | 'paused' | 'succeeded' | 'failed' | 'cancelled'
 export type RunMode = 'run' | 'simulation' | 'schedule' | 'webhook'
 export type RunNode = { id: string; label: string; type: string; status: string; attempts: number; output?: Json; error?: string; untilMs?: number }
-export type Run = { id: string; workflowId: string; name: string; createdAt: string; revision: number; mode: RunMode; status: RunStatus; nodes: RunNode[]; input: Json; context?: Json; error?: string; wakeAt?: number | null }
+export type Run = { id: string; workflowId: string; name: string; createdAt: string; revision: number; mode: RunMode; status: RunStatus; nodes: RunNode[]; input: Json; context?: Json; webhookResponse?: { delivery: string; deadlineMs?: number | null; closedAt?: number | null; decision?: { nodeId: string; preparedAt: number; late: boolean; response: { status: number; headers: Record<string, string>; body: Json; responseType: string } } | null } | null; error?: string; wakeAt?: number | null }
 export type NodeManifest = { kind: string; version: number; configSchema: Record<string, unknown>; outputPorts: string[]; hasExternalSideEffects: boolean }
 export type Workspace = { workflows: Workflow[]; runs: Run[]; connectors: NodeManifest[] }
 

@@ -19,6 +19,7 @@ import { checkPublications } from './publication-checks.mjs'
 import { checkStorage } from './storage-checks.mjs'
 import { checkWorkspaces } from './workspace-checks.mjs'
 import { checkMcp } from './mcp-checks.mjs'
+import { checkWebhookResponses } from './webhook-response-checks.mjs'
 import { checkWebhooks } from './webhook-checks.mjs'
 import {
   checkHttp,
@@ -102,7 +103,9 @@ async function stop() {
 try {
   start()
   await healthy(origin)
-  if (process.argv.includes('--data-workflows-only')) {
+  if (process.argv.includes('--webhook-responses-only')) {
+    await checkWebhookResponses(origin, 'test:runtime-check', async () => {await stop();start();await healthy(origin)})
+  } else if (process.argv.includes('--data-workflows-only')) {
     await checkDataWorkflows(origin, 'test:runtime-check', async () => {
       await stop(); start(); await healthy(origin)
     })
@@ -113,6 +116,7 @@ try {
       await healthy(origin)
     })
   } else {
+    await checkWebhookResponses(origin, 'test:runtime-check', async () => {await stop();start();await healthy(origin)})
     await checkDataWorkflows(origin, 'test:runtime-check', async () => {
       await stop(); start(); await healthy(origin)
     })

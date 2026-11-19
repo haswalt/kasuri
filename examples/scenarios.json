@@ -153,5 +153,19 @@
       }
     },
     "statuses": {}
+  },
+  {
+    "file": "workflows/13-webhook-response.json",
+    "outputs": {
+      "respond": {
+        "accepted": true,
+        "message": "Hello from Kasuri"
+      },
+      "background": {
+        "accepted": true,
+        "backgroundComplete": true
+      }
+    },
+    "statuses": {}
   }
 ]

@@ -48,7 +48,7 @@ Signature checks bind the timestamp and payload and compare signatures in consta
 
 ## Delivery and retries
 
-The accepted JSON value becomes workflow input directly. Authentication headers, consumed query credentials, signatures and cookies are not copied into run inputs. Use **Request Context** to read the immutable trigger body or selected metadata after other nodes transform the payload. Configurable methods/parsers/CORS and custom webhook responses remain planned.
+The accepted JSON value becomes workflow input directly. Authentication headers, consumed query credentials, signatures and cookies are not copied into run inputs. Use **Request Context** to read the immutable trigger body or selected metadata after other nodes transform the payload. Configurable methods/parsers/CORS remain planned.
 
 A successful response is `202 Accepted`:
 
@@ -61,6 +61,38 @@ Acceptance means the run is durably saved, not that every node succeeded. Inspec
 Engine effect recovery remains idempotent: recovering one persisted data task does not repeat its write. This is separate from deciding whether two incoming events represent the same business event. Timestamp windows limit signature age, but do not make repeated authenticated requests duplicates.
 
 Payloads must be JSON and at most 32 KiB. Invalid credentials/signatures return `401`; inactive/rotated endpoints return `404`; unsupported methods/content types return `405`/`415`; oversized bodies return `413`; invalid JSON returns `400`. Active-run/checkpoint budgets still apply and can reject a delivery with `429`/`413`. Retry according to the workflow's business policy rather than assuming an event ID suppresses another run.
+
+## Respond to Webhook
+
+Response timing is expressed by node placement, with no async/sync switch on the trigger:
+
+- **Webhook → process/validate → Respond to Webhook** returns the processing result.
+- **Webhook → Respond to Webhook (202) → background work** acknowledges early, then continues the durable workflow.
+
+A workflow containing a response node waits up to five seconds from acceptance. Workflows without one retain their immediate `202` acknowledgement. Different conditional branches can contain different response nodes; only the selected branch should respond. A second response attempt fails that node with `duplicate_response`; it does not overwrite or resend the original response. Future parallel races must select/join explicitly before one response node.
+
+The response node sets `status` (default 200), `responseType` (`json` or `text`), optional `headers` and `body`. Bodies/header values support explicit `{"$input":"/pointer"}` references. JSON fields also accept JSON text from the editor. The node passes its input onward unchanged. Simulation and manual Run now produce a preview, including the proposed response in run details, without opening or submitting an HTTP response.
+
+```json
+{"status":201,"responseType":"json","headers":{"X-Result":"created"},"body":{"accepted":{"$input":"/accepted"}}}
+```
+
+Content type is generated from `responseType`. Bodyless statuses 204/205/304 require null or empty text. Response bodies/expansion are bounded to 32 KiB, with at most 16 headers and 8 KiB of header data. Cookies, hop-by-hop/framing headers and platform response headers cannot be set by workflows. The platform sets `Cache-Control: no-store`, `X-Content-Type-Options: nosniff` and `X-Kasuri-Run-Id` on synchronous responses.
+
+The decision and run checkpoint commit before submission. Run details expose `webhookResponse`, including delivery state, deciding node, proposed response and whether the decision was late. Summary lists omit the response body. Delivery is separate from the workflow's final success/failure:
+
+| Situation | HTTP result / recorded state |
+| --- | --- |
+| Response node reached in time | Configured response; `submitted` means attempted submission, not confirmed client receipt |
+| Run succeeds on a path without a response | `502 workflow_completed_without_response`; `no_response` |
+| Run fails/is cancelled before responding | `500 workflow_failed_before_response`; `failed` |
+| Five-second window expires | `504 webhook_response_timeout`; `timed_out` |
+| Caller disconnects before submission | `disconnected` when observed; otherwise a submission remains unconfirmed. No second response, and the durable run continues |
+| Response node reached after timeout/disconnect | Decision recorded with `late: true`; no HTTP submission |
+
+The response decision survives restart, but an interrupted HTTP connection cannot be reattached to a restarted process. An unsubmitted window closes at its deadline; a new delivery creates a new run. Client disconnects never cancel the workflow's independent alarms or effects. Transport cancellation may not reach the Durable Object before it prepares/submits a response; that case remains `submitted` without implying receipt. Native tests cover observed-abort transitions, and real TCP-disconnect tests verify independent workflow completion. The bounded responder uses Durable Object `waitUntil` for cleanup and forwards the incoming abort signal explicitly across the Worker/DO boundary. The configured compatibility date enables incoming `Request.signal`; see [Cloudflare's cancellation documentation](https://developers.cloudflare.com/workers/configuration/compatibility-flags/#enable-requestsignal-for-incoming-requests).
+
+See [example 13](../examples/workflows/13-webhook-response.json), which previews without configuration and can be published on your own installation for a live `201` followed by background processing.
 
 ## Request Context
 

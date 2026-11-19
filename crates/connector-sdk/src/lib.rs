@@ -23,6 +23,7 @@ pub enum FailureCode {
     UnsupportedNode,
     External,
     InvalidResponse,
+    DuplicateResponse,
     EgressDenied,
     OutcomeUnknown,
     Timeout,
