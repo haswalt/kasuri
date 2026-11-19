@@ -56,8 +56,21 @@
       "version": 1,
       "config": {
         "arrayPointer": "/items",
-        "pointer": "/active",
-        "equals": true
+        "match": "all",
+        "conditions": [
+          {
+            "field": "active",
+            "operator": "equals",
+            "valueType": "boolean",
+            "value": true
+          },
+          {
+            "field": "rank",
+            "operator": "greater_or_equal",
+            "valueType": "number",
+            "value": 1
+          }
+        ]
       },
       "position": {
         "x": 0,

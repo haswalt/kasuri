@@ -80,3 +80,33 @@ fn invalid_rows_fail_validation_and_legacy_behavior_is_preserved() {
         Err(FailureCode::MissingInput)
     );
 }
+
+#[test]
+fn collection_rules_are_typed_and_preserve_legacy_filtering() {
+    use connectors_core::conditions::{filter, validate_filter};
+    let items = vec![
+        json!({"active":true,"rank":3}),
+        json!({"active":false,"rank":2}),
+        json!({"active":true,"rank":1}),
+    ];
+    let before = items.clone();
+    let config = json!({"arrayPointer":"/items","match":"all","conditions":[{"field":"active","operator":"equals","valueType":"boolean","value":true},{"field":"rank","operator":"greater_than","valueType":"number","value":1}]});
+    assert_eq!(
+        filter(config.as_object().unwrap(), &items).unwrap(),
+        vec![items[0].clone()]
+    );
+    assert_eq!(items, before);
+    let legacy = json!({"pointer":"/active","equals":"true"});
+    assert_eq!(
+        filter(legacy.as_object().unwrap(), &items).unwrap(),
+        vec![items[0].clone(), items[2].clone()]
+    );
+    assert!(
+        validate_filter(
+            json!({"conditions":[],"pointer":"/active","equals":true})
+                .as_object()
+                .unwrap()
+        )
+        .is_err()
+    );
+}

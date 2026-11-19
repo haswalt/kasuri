@@ -212,3 +212,7 @@ Acceptance: binary data is accessed by authorized durable references rather than
 6. Treat the supplied twelve-workflow assessment as a capability checklist. After the internal foundations land, use sanitized actual exports and expected datasets/results to verify parity. Do not claim the external-service scenarios are migrated while their adapters and credentials remain out of scope.
 
 Start implementation with delivery 1, then the workspace/storage and publication model. Those foundations should precede more connectors: they fix the current product behavior and give Data Tables, responses and subworkflows stable semantics to build on.
+
+### Guided condition and collection inputs (completed)
+
+IF, Filter and Sort now offer known input fields from upstream schemas/mappings, test input and observed simulation output. Boolean and fixed operator/match/direction values use selectors; schema enums/constants and sample equality values are selectable, with explicit custom path/value options for dynamic inputs. Filter shares the bounded typed condition evaluator (compiled once per collection); legacy Filter equality remains compatible. Example 03 exercises structured filtering plus sorting. Frontend hint tests, native Filter compatibility, Wasm execution and browser controls cover this delivery.

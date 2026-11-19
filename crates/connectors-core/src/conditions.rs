@@ -197,6 +197,9 @@ pub fn evaluate(config: &Map<String, Value>, input: &Value) -> Result<bool, Fail
             .ok_or(FailureCode::MissingInput);
     }
     let (any, rules) = rules(config)?;
+    Ok(evaluate_rules(any, &rules, input))
+}
+fn evaluate_rules(any: bool, rules: &[Rule], input: &Value) -> bool {
     let matches = |rule: &Rule| {
         let actual = input.pointer(&rule.field);
         match rule.operator.as_str() {
@@ -246,12 +249,52 @@ pub fn evaluate(config: &Map<String, Value>, input: &Value) -> Result<bool, Fail
             }
         }
     };
-    Ok(if any {
+    if any {
         rules.iter().any(matches)
     } else {
         rules.iter().all(matches)
-    })
+    }
 }
 pub fn schema() -> Value {
     json!({"type":"object","properties":{"match":{"enum":["all","any"]},"conditions":{"type":"array","minItems":1,"maxItems":32,"items":{"type":"object","properties":{"field":{"type":"string"},"operator":{"enum":["equals","not_equals","exists","not_exists","is_empty","is_not_empty","contains","not_contains","starts_with","ends_with","greater_than","greater_or_equal","less_than","less_or_equal"]},"value":{},"valueType":{"enum":["string","number","boolean","null","json"]}},"required":["field","operator"],"additionalProperties":false}},"pointer":{"type":"string"},"equals":{}}})
+}
+
+/// Compile collection predicates once, preserving legacy Filter JSON-text values.
+pub fn filter(config: &Map<String, Value>, items: &[Value]) -> Result<Vec<Value>, FailureCode> {
+    let mut config = config.clone();
+    config.remove("arrayPointer");
+    if config.contains_key("conditions") {
+        let (any, rules) = rules(&config)?;
+        Ok(items
+            .iter()
+            .filter(|item| evaluate_rules(any, &rules, item))
+            .cloned()
+            .collect())
+    } else {
+        let pointer = config
+            .get("pointer")
+            .and_then(Value::as_str)
+            .ok_or(FailureCode::InvalidConfig)?;
+        let expected = config
+            .get("equals")
+            .and_then(super::config_json)
+            .ok_or(FailureCode::InvalidConfig)?;
+        Ok(items
+            .iter()
+            .filter(|item| item.pointer(pointer) == Some(&expected))
+            .cloned()
+            .collect())
+    }
+}
+pub fn validate_filter(config: &Map<String, Value>) -> Result<(), FailureCode> {
+    if config.get("arrayPointer").is_some_and(|v| !v.is_string()) {
+        return bad();
+    }
+    let mut predicate = config.clone();
+    predicate.remove("arrayPointer");
+    if predicate.contains_key("conditions") {
+        rules(&predicate).map(|_| ())
+    } else {
+        filter(config, &[]).map(|_| ())
+    }
 }

@@ -79,19 +79,12 @@ impl Connector for CoreConnector {
                 else {
                     return invalid();
                 };
-                let Some(pointer) = node.config.get("pointer").and_then(Value::as_str) else {
-                    return invalid();
-                };
-                let Some(expected) = node.config.get("equals").and_then(config_json) else {
-                    return invalid();
-                };
-                Outcome::success(Value::Array(
-                    items
-                        .iter()
-                        .filter(|item| item.pointer(pointer) == Some(&expected))
-                        .cloned()
-                        .collect(),
-                ))
+                match conditions::filter(&node.config, items) {
+                    Ok(items) => Outcome::success(Value::Array(items)),
+                    Err(code) => Outcome::Failed {
+                        failure: Failure::permanent(code),
+                    },
+                }
             }
             "Sort" => {
                 let Some(items) = task
@@ -191,7 +184,7 @@ pub fn manifests() -> Vec<connector_sdk::NodeManifest> {
         ("Manual Trigger", json!({"type":"object","properties":{}})),
         ("Webhook", json!({"type":"object","properties":{"authentication":{"enum":["none","bearer","query","hmac_sha256","hmac"]},"signingSecret":{"type":"string"},"queryParameter":{"type":"string","default":"key"},"contextHeaders":{"type":"array","items":{"type":"string"}},"contextQuery":{"type":"array","items":{"type":"string"}}}})),
         ("Schedule", json!({"type":"object","properties":{"cron":{"type":"string"}}})),
-        ("Filter", json!({"type":"object","properties":{"arrayPointer":{"type":"string"},"pointer":{"type":"string"},"equals":{}},"required":["pointer","equals"]})),
+        ("Filter", { let mut schema = conditions::schema(); schema["properties"]["arrayPointer"] = json!({"type":"string"}); schema }),
         ("Sort", json!({"type":"object","properties":{"arrayPointer":{"type":"string"},"pointer":{"type":"string"},"order":{"enum":["asc","desc"]}}})),
         ("Merge", json!({"type":"object","properties":{}})),
         ("Error Handler", json!({"type":"object","properties":{}})),

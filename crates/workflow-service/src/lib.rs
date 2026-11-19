@@ -393,6 +393,10 @@ impl Workspace {
                 connectors_core::validation::validate(&node.config)
                     .map_err(|_| error(400, "Invalid or unsupported validation schema"))?;
             }
+            if node.kind == "Filter" {
+                connectors_core::conditions::validate_filter(&node.config)
+                    .map_err(|_| error(400, "Invalid Filter conditions"))?;
+            }
             if node.kind == "IF / Condition" {
                 connectors_core::conditions::validate(&node.config)
                     .map_err(|_| error(400, "Invalid IF conditions"))?;

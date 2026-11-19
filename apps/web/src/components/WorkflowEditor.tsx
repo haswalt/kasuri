@@ -4,6 +4,8 @@ import { useCallback, useEffect, useState } from 'react'
 import type { Workflow } from '../lib/workflows'
 import { removeNode, validateWorkflow } from '../lib/workflows'
 import { connect, connectionError, ports } from '../lib/canvas'
+import { CollectionBuilder } from './CollectionBuilder'
+import { workflowInputHints } from '../lib/input-hints'
 import { ConditionBuilder } from './ConditionBuilder'
 import { WorkflowCanvas } from './WorkflowCanvas'
 import { fields } from '../lib/catalogue'
@@ -192,6 +194,7 @@ export function WorkflowEditor({
     })
   }
   const selectedResult = result?.nodes.find((n) => n.id === nodeId)
+  const inputHints=workflowInputHints(workflow,node?.id,result,input)
   const parameterKeys = [
     ...new Set([
       ...(fields[node?.type || ''] || []).map((f) => f.key),
@@ -623,7 +626,7 @@ export function WorkflowEditor({
                         </select>
                       </label>
                     )}
-                    {node.type === 'IF / Condition' ? <ConditionBuilder config={node.config} sample={result?.nodes.find(n => n.id === workflow.edges.find(e => e.target === node.id)?.source)?.output ?? (() => { try { return JSON.parse(input) } catch { return {} } })()} onChange={config => editNode({ config })} /> : parameterKeys.map((key) => {
+                    {node.type === 'IF / Condition' ? <ConditionBuilder config={node.config} sample={inputHints.sample} schema={inputHints.schema} onChange={config => editNode({ config })} /> : node.type==='Filter'||node.type==='Sort' ? <CollectionBuilder kind={node.type} config={node.config} hints={inputHints} onChange={config=>editNode({config})} /> : parameterKeys.map((key) => {
                       const meta = fields[node.type]?.find((f) => f.key === key)
                       const property = (
                         (manifest?.configSchema.properties || {}) as Record<
