@@ -22,6 +22,7 @@ Every example accepts the default `{}` input. No edits, accounts, API keys, envi
 | [14 Structured conditions](workflows/14-structured-conditions.json) | Conditional routing | Checks a header, amount and boolean using All matching and typed values, then follows the matching branch. |
 | [15 Schema validation](workflows/15-schema-validation.json) | Validation | Checks required fields, types, numeric ranges and email format, then IF chooses a branch. |
 | [16 Request validation and duplicate gate](workflows/16-request-validation-gate.json) | More involved | Preview the missing-header `400` path immediately. Published requests check selected headers/body, atomically claim event IDs, and respond `201`, `400` or `409`, then continue background work. See [live test instructions](../docs/validation.md#workflow-patterns-and-examples). |
+| [17 Body parsing](workflows/17-body-parsing.json) | Combined formats | Decode synthetic JSON, XML, form and text, then validate the parsed JSON. No configuration required. |
 
 Together these cover every currently implemented node: Manual Trigger, Webhook, Schedule, Map / Transform, IF / Condition, Merge, Wait / Delay, JSON Utilities, Error Handler, HTTP Request, Filter and Sort.
 

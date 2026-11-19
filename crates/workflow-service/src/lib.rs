@@ -223,6 +223,17 @@ impl RunRecord {
                             .unwrap_or("metadata");
                         Outcome::success(match part {
                             "body" => run.input().clone(),
+                            "raw_body" => self
+                                .trigger_context
+                                .get("rawBody")
+                                .cloned()
+                                .unwrap_or_else(|| {
+                                    if run.input().is_string() {
+                                        run.input().clone()
+                                    } else {
+                                        json!(run.input().to_string())
+                                    }
+                                }),
                             "headers" => self
                                 .trigger_context
                                 .pointer("/request/headers")
@@ -233,7 +244,13 @@ impl RunRecord {
                                 .pointer("/request/query")
                                 .cloned()
                                 .unwrap_or_else(|| json!({})),
-                            _ => self.trigger_context.clone(),
+                            _ => {
+                                let mut metadata = self.trigger_context.clone();
+                                if let Some(object) = metadata.as_object_mut() {
+                                    object.remove("rawBody");
+                                }
+                                metadata
+                            }
                         })
                     } else if task.node.kind == "HTTP Request" {
                         connectors_http::simulate(&task)
@@ -393,6 +410,10 @@ impl Workspace {
                 connectors_core::validation::validate(&node.config)
                     .map_err(|_| error(400, "Invalid or unsupported validation schema"))?;
             }
+            if node.kind == "Parse Body" {
+                connectors_core::parsing::validate(&node.config)
+                    .map_err(|_| error(400, "Invalid body parser configuration"))?;
+            }
             if node.kind == "Filter" {
                 connectors_core::conditions::validate_filter(&node.config)
                     .map_err(|_| error(400, "Invalid Filter conditions"))?;
@@ -408,7 +429,10 @@ impl Workspace {
             if node.kind == "Request Context"
                 && (node.config.keys().any(|k| k != "part")
                     || node.config.get("part").is_some_and(|p| {
-                        !matches!(p.as_str(), Some("metadata" | "body" | "headers" | "query"))
+                        !matches!(
+                            p.as_str(),
+                            Some("metadata" | "body" | "raw_body" | "headers" | "query")
+                        )
                     }))
             {
                 return Err(error(400, "Invalid Request Context part"));
@@ -490,7 +514,7 @@ impl Workspace {
         now: u64,
         trigger_context: Value,
     ) -> Result<Value, ApiError> {
-        if trigger_context.to_string().len() > 16384 {
+        if trigger_context.to_string().len() > 98304 {
             return Err(error(413, "Trigger context exceeds budget"));
         }
         Self::executable(doc)?;
@@ -1294,6 +1318,6 @@ pub fn manifests() -> Vec<connector_sdk::NodeManifest> {
     manifests.push(connectors_http::manifest());
     manifests.extend(connectors_data::manifests());
     manifests.push(connector_sdk::NodeManifest{kind:"Respond to Webhook".into(),version:1,config_schema:json!({"type":"object","properties":{"status":{"type":"integer","default":200},"responseType":{"enum":["json","text"]},"headers":{"type":"object"},"body":{}},"additionalProperties":false}),output_ports:vec!["success".into(),"error".into()],has_external_side_effects:true});
-    manifests.push(connector_sdk::NodeManifest {kind:"Request Context".into(),version:1,config_schema:json!({"type":"object","properties":{"part":{"enum":["metadata","body","headers","query"]}},"additionalProperties":false}),output_ports:vec!["success".into(),"error".into()],has_external_side_effects:false});
+    manifests.push(connector_sdk::NodeManifest {kind:"Request Context".into(),version:1,config_schema:json!({"type":"object","properties":{"part":{"enum":["metadata","body","raw_body","headers","query"]}},"additionalProperties":false}),output_ports:vec!["success".into(),"error".into()],has_external_side_effects:false});
     manifests
 }

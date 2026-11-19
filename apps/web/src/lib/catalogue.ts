@@ -1,4 +1,5 @@
 export const catalogue = [
+  { "name": "Parse Body", "category": "Core platform" },
   { "name": "Validate Schema", "category": "Core platform" },
   { "name": "Respond to Webhook", "category": "Core platform" },
   { "name": "Request Context", "category": "Core platform" },
@@ -211,6 +212,7 @@ export const catalogue = [
 
 export const fields: Record<string, { key: string; label: string; placeholder: string }[]> = {
   "Data Tables": [{ key: "command", label: "Data command (JSON)", placeholder: '{ "operation": "get", "tableId": "records", "key": "example" }' }],
+  "Parse Body": [{ key: "format", label: "Format", placeholder: "json" },{ key: "pointer", label: "Input JSON Pointer (empty = whole input)", placeholder: "/body" }],
   "Validate Schema": [{ key: "schema", label: "Validation schema (JSON)", placeholder: '{ "type": "object", "required": ["eventId"], "properties": { "eventId": { "type": "string", "minLength": 1 } } }' }, { key: "pointer", label: "Input JSON Pointer (empty = whole input)", placeholder: "/body" }],
   "Respond to Webhook": [{ key: "status", label: "HTTP status", placeholder: "200" }, { key: "responseType", label: "Response body type", placeholder: "json" }, { key: "headers", label: "Response headers (JSON)", placeholder: '{ "X-Result": "accepted" }' }, { key: "body", label: "Response body (JSON or text)", placeholder: '{ "accepted": true }' }],
   "Request Context": [{ key: "part", label: "Read immutable trigger metadata, body, headers or query", placeholder: "metadata" }],

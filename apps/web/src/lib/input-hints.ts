@@ -50,7 +50,8 @@ export function workflowInputHints(workflow: Workflow, nodeId: string | undefine
     const incoming=workflow.edges.find(e=>e.target===id)
     const parent=incoming?output(incoming.source,depth+1):{sample:initial}
     let hint:InputHints=parent
-    if(node.type==='Validate Schema')hint={sample:null,schema:{type:'object',properties:{valid:{type:'boolean'},errors:{type:'array'},errorsTruncated:{type:'boolean'},value:decodeJson(node.config.schema)??{}}}}
+    if(node.type==='Parse Body')hint={sample:null,schema:{type:'object',properties:{valid:{type:'boolean'},value:{},errors:{type:'array'}}}}
+    else if(node.type==='Validate Schema')hint={sample:null,schema:{type:'object',properties:{valid:{type:'boolean'},errors:{type:'array'},errorsTruncated:{type:'boolean'},value:decodeJson(node.config.schema)??{}}}}
     else if(node.type==='Map / Transform') {
       const mapping=object(decodeJson(node.config.mapping));const sample:Record<string,Json>={};const properties:Record<string,Json>={}
       for(const [key,value] of Object.entries(mapping)) { const ref=object(value).$input;const actual=typeof ref==='string'?inputValue(parent.sample,ref):value;properties[key]=actual===undefined?{}:inferredSchema(actual);if(actual!==undefined)sample[key]=actual }

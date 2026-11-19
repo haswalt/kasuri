@@ -158,16 +158,14 @@ impl WorkflowWorkspace {
         if req.method() != Method::Post {
             return api_error(405, "Webhooks accept POST requests");
         }
-        if !req
-            .headers()
-            .get("Content-Type")?
-            .unwrap_or_default()
+        let content_type = req.headers().get("Content-Type")?.unwrap_or_default();
+        let media_type = content_type
             .split(';')
             .next()
-            .is_some_and(|v| v.trim().eq_ignore_ascii_case("application/json"))
-        {
-            return api_error(415, "Webhook payload must be application/json");
-        }
+            .unwrap_or("")
+            .trim()
+            .to_ascii_lowercase();
+        let json_body = media_type == "application/json" || media_type.ends_with("+json");
         let mut body = Vec::new();
         let mut stream = req.stream()?;
         while let Some(chunk) = stream.next().await {
@@ -271,7 +269,7 @@ impl WorkflowWorkspace {
         if !authenticated {
             return api_error(401, "Webhook authentication failed");
         }
-        let context = match connectors_webhook::context::capture(
+        let mut context = match connectors_webhook::context::capture(
             &trigger.config,
             "POST",
             &path,
@@ -286,9 +284,24 @@ impl WorkflowWorkspace {
             }
             Err(_) => return api_error(400, "Invalid request context selection"),
         };
-        let payload = match serde_json::from_slice(&body) {
-            Ok(v) => v,
-            Err(_) => return api_error(400, "Invalid JSON payload"),
+        if doc.graph.nodes.iter().any(|n| {
+            n.kind == "Request Context"
+                && n.config.get("part").and_then(serde_json::Value::as_str) == Some("raw_body")
+        }) {
+            let text = match std::str::from_utf8(&body) {
+                Ok(text) => text,
+                Err(_) => return api_error(400, "Webhook body must be UTF-8"),
+            };
+            context["rawBody"] = json!(text);
+        }
+        let text = match std::str::from_utf8(&body) {
+            Ok(text) => text,
+            Err(_) => return api_error(400, "Webhook body must be UTF-8"),
+        };
+        let payload = if json_body {
+            serde_json::from_slice(&body).unwrap_or_else(|_| json!(text))
+        } else {
+            json!(text)
         };
         let run_id = self
             .env

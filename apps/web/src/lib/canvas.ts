@@ -54,7 +54,7 @@ export function connect(workflow: Workflow, source: string, target: string, port
 export function addCanvasNode(workflow: Workflow, type: string, position: Point, anchor?: { edgeId?: string; nodeId?: string }): { workflow: Workflow; nodeId: string; message: string } {
   if (workflow.nodes.length >= 100) throw new Error('A workflow supports at most 100 nodes.')
   if (isTrigger(type) && workflow.nodes.some(n => isTrigger(n.type))) throw new Error('Change the existing trigger instead of adding a second one.')
-  const node: WorkflowNode = { id: uid(), type, label: type, position, config: type === 'Wait / Delay' ? { delayMs: '1000' } : type === 'Schedule' ? { cron: '* * * * *', timezone: 'UTC' } : type === 'JSON Utilities' ? { operation: 'stringify' } : {} }
+  const node: WorkflowNode = { id: uid(), type, label: type, position, config: type === 'Parse Body' ? {format:'json'} : type === 'Wait / Delay' ? { delayMs: '1000' } : type === 'Schedule' ? { cron: '* * * * *', timezone: 'UTC' } : type === 'JSON Utilities' ? { operation: 'stringify' } : {} }
   let next: Workflow = { ...workflow, status: 'draft', nodes: [...workflow.nodes, node] }
   if (isTrigger(type)) {
     const target = workflow.nodes.find(n => !workflow.edges.some(e => e.target === n.id))

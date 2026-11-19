@@ -1,6 +1,6 @@
 # Implemented connectors
 
-The runtime advertises 17 node types: Manual Trigger, Webhook, Schedule, Map / Transform, IF / Condition, Merge, Wait / Delay, JSON Utilities, Error Handler, Filter, Sort, HTTP Request, Data Tables, Context Store, Request Context Respond to Webhook and Validate Schema. A catalogue entry marked Planned is not executable.
+The runtime advertises 18 node types: Manual Trigger, Webhook, Schedule, Map / Transform, IF / Condition, Merge, Wait / Delay, JSON Utilities, Error Handler, Filter, Sort, HTTP Request, Data Tables, Context Store, Request Context Respond to Webhook, Validate Schema and Parse Body. A catalogue entry marked Planned is not executable.
 
 ## Data Tables and Context Store
 
@@ -124,3 +124,7 @@ In the editor enter `true` for a boolean or `"active"` including quotes for a st
 Select an array with `arrayPointer` and a sort key with `pointer`; both default to the input/item itself. Set `order` to `asc` (default) or `desc`. Sorting is stable, numeric for number keys and lexicographic for strings. Missing keys, mixed key types, booleans and objects fail instead of silently coercing values. Output is the sorted array.
 
 A useful flow is Manual/Schedule → HTTP Request → Filter → Sort → Map / Transform.
+
+## Parse Body
+
+Decode JSON, XML, text and form data with an explicit validity result. Select the format in the editor; branch on `valid` and validate `/value` separately. See [parsing](parsing.md) and [example 17](../examples/workflows/17-body-parsing.json).

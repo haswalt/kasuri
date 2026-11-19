@@ -206,5 +206,46 @@
         "error": "Expected x-event-type: order.created"
       }
     }
+  },
+  {
+    "file": "workflows/17-body-parsing.json",
+    "outputs": {
+      "json": {
+        "valid": true,
+        "value": {
+          "eventId": "example-17",
+          "amount": 25
+        },
+        "errors": []
+      },
+      "form": {
+        "valid": true,
+        "value": {
+          "eventId": [
+            "example-17"
+          ],
+          "tag": [
+            "one",
+            "two"
+          ]
+        },
+        "errors": []
+      },
+      "text": {
+        "valid": true,
+        "value": "Hello from Kasuri",
+        "errors": []
+      },
+      "validate": {
+        "valid": true,
+        "value": {
+          "eventId": "example-17",
+          "amount": 25
+        },
+        "errors": [],
+        "errorsTruncated": false
+      }
+    },
+    "statuses": {}
   }
 ]

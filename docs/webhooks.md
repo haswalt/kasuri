@@ -132,3 +132,7 @@ All deployments adopt independent deliveries: the old automatic event-ID dedupli
 Management routes retain installation authentication, ownership/membership checks and CSRF protection. Producers need no management cookies or administrator password. A public routing ID is not a management capability. Keep the session-auth SQLite table with backups; sender-supplied management headers cannot grant access.
 
 `pnpm test:runtime` covers public/bearer/query authentication, both HMAC formats, absent/repeated event IDs, independent deliveries across restart, immutable live auth, rotation, bounds, management-session isolation and Webhook → HTTP → Filter execution. No deployment IDs or private keys are shipped with the project.
+
+### Body formats
+
+UTF-8 text and malformed JSON are accepted as workflow input, so the workflow can return its own rejection. Valid JSON keeps its existing decoded input behavior. Use Request Context `raw_body` and [Parse Body](parsing.md) for explicit JSON/XML/text/form parsing and validity branches. Raw body capture is opt-in through node presence; there is no parser mode on the trigger.

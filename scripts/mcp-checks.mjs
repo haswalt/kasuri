@@ -128,6 +128,12 @@ export async function checkMcp(origin, credentials, restart) {
   const simulated = await tool(builder.token, 'runs_simulate', runArgs)
   assert.equal(simulated.isError, false)
   assert.equal(simulated.structuredContent.status, 'succeeded')
+  // Exercise the new internal nodes through the public MCP builder surface.
+  for (const [file,id] of [['17-body-parsing.json','mcp-parser-example'],['15-schema-validation.json','mcp-schema-example'],['13-webhook-response.json','mcp-response-example']]) {
+    const workflow=JSON.parse(readFileSync('examples/workflows/'+file,'utf8'));workflow.id=id
+    const made=await tool(builder.token,'workflows_create',{workflow,idempotencyKey:'create-'+id});assert.equal(made.isError,false)
+    const run=await tool(builder.token,'runs_simulate',{workflowId:id,expectedVersion:1,input:{},idempotencyKey:'simulate-'+id});assert.equal(run.isError,false);assert.equal(run.structuredContent.status,'succeeded')
+  }
   if (restart) {
     origin = (await restart()) || origin
   }

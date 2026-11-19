@@ -1,0 +1,122 @@
+{
+  "schemaVersion": 1,
+  "id": "17-body-parsing",
+  "name": "Parse request body formats",
+  "description": "Decode synthetic JSON, XML, form and text without configuration. Branch on valid before validating value.",
+  "status": "draft",
+  "revision": 0,
+  "updatedAt": "",
+  "nodes": [
+    {
+      "id": "start",
+      "type": "Manual Trigger",
+      "label": "Start",
+      "config": {}
+    },
+    {
+      "id": "sample",
+      "type": "Map / Transform",
+      "label": "Synthetic request formats",
+      "config": {
+        "mapping": {
+          "json": "{\"eventId\":\"example-17\",\"amount\":25}",
+          "xml": "<order id=\"example-17\"><amount>25</amount></order>",
+          "form": "eventId=example-17&tag=one&tag=two",
+          "text": "Hello from Kasuri"
+        }
+      }
+    },
+    {
+      "id": "json",
+      "type": "Parse Body",
+      "label": "Parse json",
+      "config": {
+        "format": "json",
+        "pointer": "/json"
+      }
+    },
+    {
+      "id": "xml",
+      "type": "Parse Body",
+      "label": "Parse xml",
+      "config": {
+        "format": "xml",
+        "pointer": "/xml"
+      }
+    },
+    {
+      "id": "form",
+      "type": "Parse Body",
+      "label": "Parse form",
+      "config": {
+        "format": "form",
+        "pointer": "/form"
+      }
+    },
+    {
+      "id": "text",
+      "type": "Parse Body",
+      "label": "Parse text",
+      "config": {
+        "format": "text",
+        "pointer": "/text"
+      }
+    },
+    {
+      "id": "validate",
+      "type": "Validate Schema",
+      "label": "Validate parsed JSON",
+      "config": {
+        "pointer": "/value",
+        "schema": {
+          "type": "object",
+          "required": [
+            "eventId",
+            "amount"
+          ],
+          "properties": {
+            "eventId": {
+              "type": "string"
+            },
+            "amount": {
+              "type": "number",
+              "minimum": 0
+            }
+          }
+        }
+      }
+    }
+  ],
+  "edges": [
+    {
+      "id": "e0",
+      "source": "start",
+      "target": "sample"
+    },
+    {
+      "id": "to-json",
+      "source": "sample",
+      "target": "json"
+    },
+    {
+      "id": "to-xml",
+      "source": "sample",
+      "target": "xml"
+    },
+    {
+      "id": "to-form",
+      "source": "sample",
+      "target": "form"
+    },
+    {
+      "id": "to-text",
+      "source": "sample",
+      "target": "text"
+    },
+    {
+      "id": "validated",
+      "source": "json",
+      "target": "validate"
+    }
+  ]
+}

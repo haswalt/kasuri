@@ -3,6 +3,7 @@ use connector_sdk::{Connector, Failure, FailureCode, Outcome, Task};
 use serde_json::{Map, Value};
 
 pub mod conditions;
+pub mod parsing;
 pub use connectors_validation as validation;
 pub struct CoreConnector;
 
@@ -56,6 +57,7 @@ impl Connector for CoreConnector {
                 }
                 Outcome::success(Value::Object(output))
             }
+            "Parse Body" => parsing::execute(&node.config, &task.input),
             "Validate Schema" => validation::execute(task),
             "IF / Condition" => match conditions::evaluate(&node.config, &task.input) {
                 Ok(passed) => Outcome::Complete {
@@ -191,6 +193,7 @@ pub fn manifests() -> Vec<connector_sdk::NodeManifest> {
         ("Map / Transform", json!({"type":"object","properties":{"mapping":{"oneOf":[{"type":"object"},{"type":"string","description":"JSON-encoded mapping object"}]}},"required":["mapping"]})),
         ("IF / Condition", conditions::schema()),
         ("Wait / Delay", json!({"type":"object","properties":{"delayMs":{"oneOf":[{"type":"integer","minimum":0},{"type":"string","pattern":"^[0-9]+$"}]}},"required":["delayMs"]})),
+        ("Parse Body", json!({"type":"object","properties":{"format":{"enum":["json","xml","text","form"]},"pointer":{"type":"string"}},"required":["format"],"additionalProperties":false})),
         ("JSON Utilities", json!({"type":"object","properties":{"operation":{"enum":["parse","stringify"]}},"required":["operation"]})),
     ].into_iter().map(|(kind, config_schema)| connector_sdk::NodeManifest {
         kind: kind.into(), version: 1, config_schema,
