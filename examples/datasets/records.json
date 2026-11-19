@@ -1,0 +1,27 @@
+{
+  "schemaVersion": 1,
+  "rows": [
+    {
+      "key": "sample-a",
+      "value": {
+        "count": 1,
+        "active": true,
+        "labels": [
+          "alpha"
+        ]
+      },
+      "expiresAt": null
+    },
+    {
+      "key": "sample-b",
+      "value": {
+        "count": 2,
+        "active": false,
+        "labels": [
+          "beta"
+        ]
+      },
+      "expiresAt": null
+    }
+  ]
+}

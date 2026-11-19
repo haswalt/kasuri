@@ -5,6 +5,10 @@ import { uid } from '../lib/workflows'
 import { go, path, readRoute } from '../lib/navigation'
 import { Button, Dialog, Empty, Icon, PageHeader } from '../design/ui'
 import { styles } from '../design/styles'
+import {DataTransfer} from './DataTransfer'
+import {ConditionBuilder} from './ConditionBuilder'
+import {conditionOperators} from '../lib/conditions'
+import {filterConfig,dataFilters} from '../lib/data-filters'
 export function DataTables({ tableId }: { tableId?: string }) {
   const [tables, setTables] = useState<DataTableSummary[]>([])
   const [tableCursor, setTableCursor] = useState<string | null>(null)
@@ -18,7 +22,7 @@ export function DataTables({ tableId }: { tableId?: string }) {
   const [error, setError] = useState('')
   const [notice, setNotice] = useState('')
   const [formError, setFormError] = useState('')
-  const [dialog, setDialog] = useState<'create' | 'row' | 'delete' | 'rename' | 'filter' | null>(null)
+  const [dialog, setDialog] = useState<'create' | 'row' | 'delete' | 'rename' | 'filter' | 'increment' | null>(null)
   const [name, setName] = useState('')
   const [id, setId] = useState('')
   const [idEdited, setIdEdited] = useState(false)
@@ -29,7 +33,9 @@ export function DataTables({ tableId }: { tableId?: string }) {
   const [rowValue, setRowValue] = useState('{}')
   const [ttl, setTtl] = useState('')
   const [ttlChanged, setTtlChanged] = useState(false)
-  const [filterText, setFilterText] = useState('[]')
+  const [counterField,setCounterField]=useState('count'),[counterAmount,setCounterAmount]=useState('1'),[customCounter,setCustomCounter]=useState(false)
+  const counterFields=[...new Set([...(table?.definition.fields.filter(f=>f.kind==='number').map(f=>f.name)??[]),...Object.entries(selectedRow?.value&&typeof selectedRow.value==='object'&&!Array.isArray(selectedRow.value)?selectedRow.value:{}).filter(([,v])=>typeof v==='number').map(([k])=>k)])]
+  const [filterState,setFilterState]=useState<Record<string,Json>>(filterConfig([]))
   const mounted = useRef(true)
   const workspace = useRef(readRoute().workspaceKey)
   const epoch = useRef(0)
@@ -99,6 +105,10 @@ export function DataTables({ tableId }: { tableId?: string }) {
       setDialog(null); go(path('data/' + id)); return
     }
     if (!tableId || !table) return
+    if(dialog==='increment'&&selectedRow){
+      const amount=Number(counterAmount);if(!Number.isSafeInteger(amount)||!counterAmount.trim())throw Error('Enter a whole number within the safe integer range.')
+      const result=await api.data({operation:'increment',tableId,key:selectedRow.key,field:counterField,amount,expectedVersion:selectedRow.version},uid());if(!active())return;if(result.result.status==='conflict')throw Error('The record changed. Reopen it to increment the current version.');setDialog(null);setNotice('Counter updated.');await refresh();return
+    }
     if (dialog === 'row') {
       const value: Json = JSON.parse(rowValue)
       let ttlMs: number | undefined
@@ -120,8 +130,7 @@ export function DataTables({ tableId }: { tableId?: string }) {
       if (result.result.status === 'conflict') throw Error('The table changed. Refresh before renaming it.')
       setDialog(null); setNotice('Data set renamed.'); await refresh()
     } else if (dialog === 'filter') {
-      const parsed: unknown = JSON.parse(filterText)
-      if (!Array.isArray(parsed)) throw Error('Filters must be a JSON array.')
+      const parsed=dataFilters(filterState)
       // Validate with the server before applying the new view.
       const result = await api.data({ operation: 'query', tableId, query: { limit: 25, filters: parsed as DataFilter[] } })
       if (!active()) return
@@ -143,17 +152,18 @@ export function DataTables({ tableId }: { tableId?: string }) {
       </aside>
       <section className={styles.dataContent}>
         {!tableId ? <Empty icon="database" title="Workspace data, ready for your logic" action={<Button visual="primary" onClick={create}>Create a data set</Button>}>Choose a table for structured records or a context namespace for arbitrary JSON values.</Empty> : table ? <>
-          <div className={styles.dataHeading}><div><h2>{table.definition.name}</h2><small className={styles.mono}>{table.definition.id} · {table.definition.kind === 'context' ? 'Context namespace' : 'Data table'}</small></div><div className={styles.actions}><Button disabled={busy} onClick={() => { setName(table.definition.name); open('rename') }}>Rename</Button><Button disabled={busy} onClick={() => { setFilterText(JSON.stringify(filters, null, 2)); open('filter') }}>Filters{filters.length ? ` (${filters.length})` : ''}</Button><Button visual="primary" disabled={busy} onClick={() => edit()}><Icon name="plus" />Add record</Button></div></div>
+          <div className={styles.dataHeading}><div><h2>{table.definition.name}</h2><small className={styles.mono}>{table.definition.id} · {table.definition.kind === 'context' ? 'Context namespace' : 'Data table'}</small></div><div className={styles.actions}><Button disabled={busy} onClick={() => { setName(table.definition.name); open('rename') }}>Rename</Button><Button disabled={busy} onClick={() => { setFilterState(filterConfig(filters)); open('filter') }}>Filters{filters.length ? ` (${filters.length})` : ''}</Button><Button visual="primary" disabled={busy} onClick={() => edit()}><Icon name="plus" />Add record</Button></div></div>
+          <DataTransfer key={table.definition.id} table={table} onChanged={refresh} />
           <div className={styles.dataFields}>{table.definition.fields.length ? table.definition.fields.map((field) => <span className={styles.chip} key={field.name}>{field.name} · {field.kind}{field.required ? ' · required' : ''}</span>) : <span>{table.definition.kind === 'context' ? 'Values may be any JSON type.' : 'Records may contain any JSON object fields.'}</span>}</div>
           <div className={styles.panel}>
-            <div className={styles.tableScroll}><table><thead><tr><th>Key</th><th>Value</th><th>Version</th><th>Expiry</th><th>Actions</th></tr></thead><tbody>{rows.map((row) => <tr key={row.key}><td className={styles.mono}>{row.key}</td><td><code className={styles.dataValue}>{JSON.stringify(row.value).slice(0, 160)}</code></td><td>{row.version}</td><td>{row.expiresAt ? new Date(row.expiresAt).toLocaleString() : 'No expiry'}</td><td><div className={styles.actions}><Button disabled={busy} aria-label={'Edit record ' + row.key} onClick={() => edit(row)}>Edit</Button><Button tone="danger" disabled={busy} aria-label={'Delete record ' + row.key} onClick={() => { setSelectedRow(row); open('delete') }}>Delete</Button></div></td></tr>)}</tbody></table></div>
+            <div className={styles.tableScroll}><table><thead><tr><th>Key</th><th>Value</th><th>Version</th><th>Expiry</th><th>Actions</th></tr></thead><tbody>{rows.map((row) => <tr key={row.key}><td className={styles.mono}>{row.key}</td><td><code className={styles.dataValue}>{JSON.stringify(row.value).slice(0, 160)}</code></td><td>{row.version}</td><td>{row.expiresAt ? new Date(row.expiresAt).toLocaleString() : 'No expiry'}</td><td><div className={styles.actions}><Button disabled={busy} aria-label={'Edit record ' + row.key} onClick={() => edit(row)}>Edit</Button><Button disabled={busy||!row.value||typeof row.value!=='object'||Array.isArray(row.value)} aria-label={'Increment counter '+row.key} onClick={()=>{setSelectedRow(row);const field=Object.entries(row.value&&typeof row.value==='object'?row.value:{}).find(([,value])=>typeof value==='number')?.[0];setCounterField(field??'count');setCustomCounter(!field);setCounterAmount('1');open('increment')}}>Increment</Button><Button tone="danger" disabled={busy} aria-label={'Delete record ' + row.key} onClick={() => { setSelectedRow(row); open('delete') }}>Delete</Button></div></td></tr>)}</tbody></table></div>
             {!rows.length && !loading && <Empty icon="database" title={filters.length ? 'No matching records on this page' : 'No records on this page'}>Add a record or continue to the next page if more results are available.</Empty>}
             <div className={styles.tableFooter}><small>{rows.length} loaded records{loading ? ' · Loading…' : ''}</small><Button disabled={busy || loading || !cursor} onClick={() => void records(cursor || undefined).catch((e) => setError(String(e)))}>Load more records</Button></div>
           </div>
         </> : loaded ? <Empty icon="warning" title="Data set unavailable">Choose another data set or create one.</Empty> : <p>Loading data set…</p>}
       </section>
     </div>
-    {dialog && <Dialog title={dialog === 'create' ? 'Create data set' : dialog === 'row' ? selectedRow ? 'Edit record' : 'Add record' : dialog === 'delete' ? 'Delete record' : dialog === 'filter' ? 'Filter records' : 'Rename data set'} onClose={close}><form className={styles.settingsFields} onSubmit={(event) => { event.preventDefault(); void perform(submit) }}>
+    {dialog && <Dialog title={dialog === 'create' ? 'Create data set' : dialog === 'row' ? selectedRow ? 'Edit record' : 'Add record' : dialog === 'delete' ? 'Delete record' : dialog==='increment'?'Increment counter':dialog === 'filter' ? 'Filter records' : 'Rename data set'} onClose={close}><form className={styles.settingsFields} onSubmit={(event) => { event.preventDefault(); void perform(submit) }}>
       {dialog === 'create' ? <>
         <label>Name<input required maxLength={160} value={name} onChange={(e) => { setName(e.target.value); if (!idEdited) setId(e.target.value.toLowerCase().replace(/[^a-z0-9_-]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 64) || id) }} /></label>
         <label>Stable ID<input required pattern="[A-Za-z0-9_-]+" maxLength={64} value={id} onChange={(e) => { setIdEdited(true); setId(e.target.value) }} /></label>
@@ -165,7 +175,12 @@ export function DataTables({ tableId }: { tableId?: string }) {
         <label>Value · JSON<textarea className={styles.mono} rows={12} value={rowValue} onChange={(e) => setRowValue(e.target.value)} /></label>
         <label>Time to live · seconds<input type="number" min="0.001" step="any" value={ttl} onChange={(e) => { setTtl(e.target.value); setTtlChanged(true) }} /><small>Leave blank for no expiry.</small></label>
         {selectedRow && <small>Editing version {selectedRow.version}. A conflicting update will preserve the newer record.</small>}
-      </> : dialog === 'delete' ? <p>Permanently delete record “{selectedRow?.key}”? This cannot be undone.</p> : dialog === 'rename' ? <label>Name<input required maxLength={160} value={name} onChange={(e) => setName(e.target.value)} /></label> : <label>Filters · JSON array<textarea className={styles.mono} rows={10} value={filterText} onChange={(e) => setFilterText(e.target.value)} /><small>Example: {`[{"pointer":"/active","operator":"eq","value":true}]`}. Operators: eq, ne, gt, lt, exists.</small></label>}
+      </> : dialog==='increment'?<>
+        <p>Update one integer field atomically, preserving other fields and expiry.</p>
+        <label>Counter field<select value={customCounter?'custom':counterField} onChange={e=>{if(e.target.value==='custom')setCustomCounter(true);else{setCustomCounter(false);setCounterField(e.target.value)}}}>{counterFields.map(field=><option key={field} value={field}>{field}</option>)}<option value="custom">Custom field…</option></select></label>
+        {customCounter&&<label>New field name<input required pattern="[A-Za-z0-9_-]+" maxLength={64} value={counterField} onChange={e=>setCounterField(e.target.value)} /></label>}
+        <label>Amount<input type="number" step="1" required value={counterAmount} onChange={e=>setCounterAmount(e.target.value)} /></label><small>Missing fields start at zero. Editing record version {selectedRow?.version}.</small>
+      </> : dialog === 'delete' ? <p>Permanently delete record “{selectedRow?.key}”? This cannot be undone.</p> : dialog === 'rename' ? <label>Name<input required maxLength={160} value={name} onChange={(e) => setName(e.target.value)} /></label> : <><ConditionBuilder config={filterState} sample={rows[0]?.value??{}} samples={rows.map(r=>r.value)} schema={{type:'object',properties:Object.fromEntries((table?.definition.fields??[]).map((f):[string,Json]=>[f.name,f.kind==='any'?{}:{type:f.kind}]))}} operators={conditionOperators.filter(([op])=>['equals','not_equals','greater_than','less_than','exists'].includes(op))} hideMatch maxRows={16} onChange={setFilterState} /><Button type="button" disabled={busy} onClick={()=>{setFilters([]);setDialog(null)}}>Clear all filters</Button></>}
       {formError && <p className={styles.errorPanel} role="alert">{formError}</p>}
       <div className={styles.actions}><Button type="button" disabled={busy} onClick={close}>Cancel</Button><Button type="submit" visual={dialog === 'delete' ? undefined : 'primary'} tone={dialog === 'delete' ? 'danger' : undefined} disabled={busy}>{busy ? 'Saving…' : dialog === 'delete' ? 'Delete record' : dialog === 'filter' ? 'Apply filters' : dialog === 'create' ? 'Create data set' : 'Save'}</Button></div>
     </form></Dialog>}

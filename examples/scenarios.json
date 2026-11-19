@@ -287,5 +287,18 @@
       "process": "succeeded",
       "join": "succeeded"
     }
+  },
+  {
+    "file": "workflows/21-bulk-import-counter.json",
+    "outputs": {
+      "summary": {
+        "count": 2,
+        "source": "synthetic"
+      }
+    },
+    "statuses": {
+      "import": "succeeded",
+      "increment": "succeeded"
+    }
   }
 ]

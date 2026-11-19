@@ -1,6 +1,7 @@
 //! Runtime-independent Data Tables and Context Store semantics.
 //! Hosts must execute apply() inside one storage transaction, including its receipt.
 mod schema;
+pub mod transfer;
 pub use schema::{command_schema, mutation_schema, query_schema};
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
@@ -112,6 +113,25 @@ impl Default for Query {
     deny_unknown_fields
 )]
 pub enum Command {
+    Increment {
+        table_id: String,
+        key: String,
+        field: String,
+        amount: i64,
+        #[serde(default)]
+        initial: i64,
+        #[serde(default)]
+        expected_version: Option<u64>,
+    },
+    ImportRows {
+        table_id: String,
+        rows: Vec<transfer::ImportRow>,
+        #[serde(default)]
+        mode: transfer::ImportMode,
+        #[serde(default)]
+        expected_data_revision: Option<u64>,
+    },
+
     CreateTable {
         definition: Definition,
     },
@@ -174,6 +194,8 @@ impl Command {
             | Self::InsertIfAbsent { table_id, .. }
             | Self::Put { table_id, .. }
             | Self::Patch { table_id, .. }
+            | Self::Increment { table_id, .. }
+            | Self::ImportRows { table_id, .. }
             | Self::Delete { table_id, .. }
             | Self::Query { table_id, .. } => table_id,
         }
@@ -503,6 +525,83 @@ fn execute(store: &mut impl Store, command: Command, now: u64) -> Result<Value> 
         .ok_or_else(|| error(ErrorCode::NotFound, "Table not found"))?;
     let id = table.definition.id.clone();
     match command {
+        Command::Increment {
+            key,
+            field,
+            amount,
+            initial,
+            expected_version,
+            ..
+        } => {
+            if !valid_key(&key) || !valid_id(&field) {
+                return Err(error(
+                    ErrorCode::InvalidRequest,
+                    "Invalid counter key or field",
+                ));
+            }
+            let previous = store.row(&id, &key)?.filter(|r| r.live(now));
+            if expected_version.is_some_and(|v| previous.as_ref().map(|r| r.version) != Some(v)) {
+                return Ok(json!({"status":"conflict","row":previous}));
+            }
+            let mut value = previous
+                .as_ref()
+                .map_or_else(|| json!({}), |r| r.value.clone());
+            let object = value
+                .as_object_mut()
+                .ok_or_else(|| error(ErrorCode::InvalidRequest, "Counter row must be an object"))?;
+            let current = match object.get(&field) {
+                None => initial,
+                Some(value) => value.as_i64().ok_or_else(|| {
+                    error(
+                        ErrorCode::InvalidRequest,
+                        "Counter must be a signed 64-bit integer",
+                    )
+                })?,
+            };
+            let total = current
+                .checked_add(amount)
+                .ok_or_else(|| error(ErrorCode::InvalidRequest, "Counter overflow"))?;
+            object.insert(field, json!(total));
+            validate_value(&table, &value)?;
+            let row = Row {
+                key,
+                value,
+                version: next_revision(&mut table)?,
+                expires_at: previous.and_then(|r| r.expires_at),
+            };
+            store.save_row(&id, row.clone())?;
+            store.save_table(table)?;
+            Ok(json!({"status":"incremented","row":row}))
+        }
+        Command::ImportRows {
+            rows,
+            mode,
+            expected_data_revision,
+            ..
+        } => {
+            let skipped =
+                transfer::preflight(store, &table, &rows, &mode, expected_data_revision, now)?;
+            let mut imported = 0;
+            for row in rows {
+                if row.expires_at.is_some_and(|v| v <= now) {
+                    continue;
+                }
+                let row = Row {
+                    key: row.key,
+                    value: row.value,
+                    version: next_revision(&mut table)?,
+                    expires_at: row.expires_at,
+                };
+                store.save_row(&id, row)?;
+                imported += 1;
+            }
+            if imported > 0 {
+                store.save_table(table.clone())?
+            }
+            Ok(
+                json!({"status":"imported","imported":imported,"skippedExpired":skipped,"dataRevision":table.data_revision}),
+            )
+        }
         Command::GetTable { .. } => Ok(json!({"table":table})),
         Command::RenameTable {
             name,

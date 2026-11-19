@@ -20,6 +20,8 @@ pub fn command_schema() -> Value {
         variant("get_table",json!({"tableId":id}),vec!["tableId"]),
         variant("get",json!({"tableId":id,"key":key}),vec!["tableId","key"]),
         variant("insert_if_absent",json!({"tableId":id,"key":key,"value":{},"ttlMs":ttl}),vec!["tableId","key","value"]),
+        variant("increment",json!({"tableId":id,"key":key,"field":id,"amount":{"type":"integer"},"initial":{"type":"integer","default":0},"expectedVersion":version}),vec!["tableId","key","field","amount"]),
+        variant("import_rows",json!({"tableId":id,"rows":{"type":"array","minItems":0,"maxItems":100,"items":{"type":"object","properties":{"key":key,"value":{},"expiresAt":{"type":["integer","null"],"minimum":0}},"required":["key","value"],"additionalProperties":false}},"mode":{"enum":["insert","upsert"],"default":"insert"},"expectedDataRevision":version}),vec!["tableId","rows"]),
         variant("put",json!({"tableId":id,"key":key,"value":{},"expectedVersion":version,"ttlMs":ttl}),vec!["tableId","key","value"]),
         variant("patch",json!({"tableId":id,"key":key,"patch":{"type":"object","description":"Replace supplied top-level fields while preserving unmentioned fields and expiry."},"removeFields":{"type":"array","maxItems":100,"items":{"type":"string"}},"expectedVersion":version}),vec!["tableId","key","patch"]),
         variant("delete",json!({"tableId":id,"key":key,"expectedVersion":version}),vec!["tableId","key"]),

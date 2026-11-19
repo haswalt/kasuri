@@ -26,6 +26,7 @@ Every example accepts the default `{}` input. No edits, accounts, API keys, envi
 | [18 Reusable workflow](workflows/18-reusable-workflow.json) | Simple contract | A standalone simulated child with explicit input/output schemas and a durable wait. |
 | [19 Invoke workflow](workflows/19-invoke-workflow.json) | Parent/child | Import and publish example 18 first, then await a result and launch background work. No secrets or configuration edits. |
 | [20 Parallel context](workflows/20-parallel-context.json) | Parallel branches | Record context alongside processing, then join both results. No input or configuration required. |
+| [21 Bulk import and counter](workflows/21-bulk-import-counter.json) | Data operations | Atomically import synthetic records and increment an integer without a read/write race. No configuration required. |
 
 Together these cover every currently implemented node: Manual Trigger, Webhook, Schedule, Map / Transform, IF / Condition, Merge, Wait / Delay, JSON Utilities, Error Handler, HTTP Request, Filter and Sort.
 
@@ -50,3 +51,5 @@ When adding or changing a connector:
 3. Update this table and the live test assertions if the example uses a public API.
 4. Run `pnpm test:web` and `cargo test -p workflow-service --test examples`. Both already run through the project's normal CI test command.
 5. For public HTTP examples, also run `pnpm build:selfhost` followed by `pnpm test:examples:live`. This opt-in check executes the unchanged files through a temporary, isolated Rust/Wasm runtime with actual public HTTPS access. It removes its local test storage afterward. It is separate from deterministic CI because it depends on an external service.
+
+For dashboard import/export, [sample JSON records](datasets/records.json) and equivalent [CSV records](datasets/records.csv) contain public synthetic values. See [transfer format and bounds](../docs/data-transfer.md).

@@ -48,7 +48,8 @@ pub fn access(node: &Node) -> Result<Access, FailureCode> {
         .ok_or(FailureCode::InvalidConfig)?;
     let writes = match operation {
         "get_table" | "get" | "query" => false,
-        "create_table" | "rename_table" | "insert_if_absent" | "put" | "patch" | "delete" => true,
+        "create_table" | "rename_table" | "insert_if_absent" | "put" | "patch" | "delete"
+        | "increment" | "import_rows" => true,
         _ => return Err(FailureCode::InvalidConfig),
     };
     let id = if operation == "create_table" {
@@ -101,6 +102,10 @@ pub fn prepare(node: &Node, input: &Value) -> Result<Prepared, FailureCode> {
         "patch",
         "removeFields",
         "expectedVersion",
+        "expectedDataRevision",
+        "rows",
+        "amount",
+        "initial",
         "ttlMs",
         "query",
     ] {

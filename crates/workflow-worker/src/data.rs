@@ -285,6 +285,148 @@ impl WorkflowWorkspace {
                 .unwrap_or_else(|| storage_error(error))),
         }
     }
+    fn data_transfer(&self, method: Method, url: &Url, bytes: &[u8]) -> Result<Response> {
+        use workflow_data::transfer::{self, ImportMode, ImportRow};
+        let parts: Vec<_> = url.path().trim_matches('/').split('/').collect();
+        if parts.len() != 4 || !matches!(parts[3], "import" | "export") {
+            return api_error(404, "Data transfer not found");
+        }
+        let table_id = parts[2].to_string();
+        if table_id.is_empty()
+            || table_id.len() > 64
+            || !table_id
+                .bytes()
+                .all(|b| b.is_ascii_alphanumeric() || b == b'-' || b == b'_')
+        {
+            return api_error(400, "Invalid table ID");
+        }
+        let time = now();
+        let result = if parts[3] == "export" && method == Method::Get {
+            let query: std::collections::HashMap<_, _> = url.query_pairs().into_owned().collect();
+            let format = query.get("format").cloned().unwrap_or("json".into());
+            let cursor = query.get("cursor").cloned();
+            let expected = match query
+                .get("dataRevision")
+                .map(|v| v.parse::<u64>())
+                .transpose()
+            {
+                Ok(value) => value,
+                Err(_) => return api_error(400, "Invalid data revision"),
+            };
+            self.data_transaction("api-export".into(),time,move |store|{
+                let table=store.table(&table_id)?.ok_or_else(||workflow_data::error(ErrorCode::NotFound,"Table not found"))?;
+                if expected.is_some_and(|v|v!=table.data_revision){return Err(workflow_data::error(ErrorCode::Conflict,"Data changed during export; restart the export"))}
+                let page=workflow_data::apply(store,Command::Query{table_id:table_id.clone(),query:workflow_data::Query{cursor,limit:100,filters:vec![]}},None,time)?;
+                let rows:Vec<Row>=serde_json::from_value(page["rows"].clone()).map_err(storage_error)?;
+                let rows:Vec<ImportRow>=rows.into_iter().map(|r|ImportRow{key:r.key,value:r.value,expires_at:r.expires_at}).collect();
+                let content=transfer::encode(&format,&rows)?;
+                Ok(json!({"tableId":table_id,"format":format,"content":content,"count":rows.len(),"nextCursor":page["nextCursor"],"dataRevision":table.data_revision,"tableVersion":table.version}))
+            })
+        } else if parts[3] == "import" && method == Method::Post {
+            #[derive(Deserialize)]
+            #[serde(rename_all = "camelCase", deny_unknown_fields)]
+            struct Input {
+                format: String,
+                content: String,
+                #[serde(default)]
+                mode: ImportMode,
+                expected_data_revision: u64,
+                #[serde(default)]
+                commit: bool,
+                #[serde(default)]
+                idempotency_key: Option<String>,
+            }
+            let query: std::collections::HashMap<_, _> = url.query_pairs().into_owned().collect();
+            let input: Input = if let Some(format) = query.get("format") {
+                let content = match String::from_utf8(bytes.to_vec()) {
+                    Ok(text) => text,
+                    Err(_) => return api_error(400, "Import file must be UTF-8"),
+                };
+                let expected_data_revision = match query
+                    .get("expectedDataRevision")
+                    .and_then(|v| v.parse::<u64>().ok())
+                {
+                    Some(v) => v,
+                    None => return api_error(400, "expectedDataRevision is required"),
+                };
+                let mode = match query.get("mode").map(String::as_str).unwrap_or("insert") {
+                    "insert" => ImportMode::Insert,
+                    "upsert" => ImportMode::Upsert,
+                    _ => return api_error(400, "Invalid import mode"),
+                };
+                let commit = match query.get("commit").map(String::as_str).unwrap_or("false") {
+                    "true" => true,
+                    "false" => false,
+                    _ => return api_error(400, "Invalid import commit flag"),
+                };
+                Input {
+                    format: format.clone(),
+                    content,
+                    expected_data_revision,
+                    mode,
+                    commit,
+                    idempotency_key: query.get("idempotencyKey").cloned(),
+                }
+            } else {
+                match serde_json::from_slice(bytes) {
+                    Ok(input) => input,
+                    Err(_) => {
+                        return api_error(
+                            400,
+                            "Expected format, content, mode and expectedDataRevision",
+                        );
+                    }
+                }
+            };
+            let rows = match transfer::parse(&input.format, &input.content) {
+                Ok(rows) => rows,
+                Err(error) => return api_error(status(&error), &error.message),
+            };
+            if !input.commit {
+                self.data_transaction("api-import-preview".into(),time,move |store|{
+                    let table=store.table(&table_id)?.ok_or_else(||workflow_data::error(ErrorCode::NotFound,"Table not found"))?;
+                    let skipped=transfer::preflight(store,&table,&rows,&input.mode,Some(input.expected_data_revision),time)?;
+                    Ok(json!({"status":"preview","rows":rows.len(),"skippedExpired":skipped,"dataRevision":table.data_revision}))
+                })
+            } else {
+                if input
+                    .idempotency_key
+                    .as_ref()
+                    .is_none_or(|v| !(8..=128).contains(&v.len()))
+                {
+                    return api_error(
+                        400,
+                        "Import commit requires an 8-128 character idempotencyKey",
+                    );
+                }
+                self.execute_data(
+                    vec![Command::ImportRows {
+                        table_id,
+                        rows,
+                        mode: input.mode,
+                        expected_data_revision: Some(input.expected_data_revision),
+                    }],
+                    false,
+                    input.idempotency_key,
+                    "browser".into(),
+                    "api-import".into(),
+                    Some(self.load()?),
+                    time,
+                )
+                .map(|execution| execution.result)
+            }
+        } else {
+            return api_error(405, "Unsupported data transfer method");
+        };
+        match result {
+            Ok(value) => {
+                let mut response = Response::from_json(&value)?;
+                response.headers_mut().set("Cache-Control", "no-store")?;
+                Ok(response)
+            }
+            Err(error) => api_error(status(&error), &error.message),
+        }
+    }
     fn execute_data(
         &self,
         commands: Vec<Command>,
@@ -304,7 +446,7 @@ impl WorkflowWorkspace {
             let replayed=if let Some(key)=receipt.as_deref(){store.receipt(key)?.is_some()}else{false};
             let ids:BTreeSet<String>=commands.iter().map(|c|c.table_id().to_string()).collect();
             let before:Vec<_>=if workspace.is_some(){ids.iter().map(|id|store.table(id)).collect::<workflow_data::Result<_>>()?}else{vec![]};
-            let operations:Vec<_>=commands.iter().map(|command|match command {Command::CreateTable{..}=>"create table",Command::RenameTable{..}=>"rename table",Command::InsertIfAbsent{..}=>"insert if absent",Command::Put{..}=>"store row",Command::Patch{..}=>"patch row",Command::Delete{..}=>"delete row",Command::Get{..}|Command::GetTable{..}|Command::Query{..}=>"read"}).collect();
+            let operations:Vec<_>=commands.iter().map(|command|match command {Command::CreateTable{..}=>"create table",Command::RenameTable{..}=>"rename table",Command::InsertIfAbsent{..}=>"insert if absent",Command::Put{..}=>"store row",Command::Patch{..}=>"patch row",Command::Delete{..}=>"delete row",Command::Increment{..}=>"increment counter",Command::ImportRows{..}=>"import rows",Command::Get{..}|Command::GetTable{..}|Command::Query{..}=>"read"}).collect();
             let result=if batch {workflow_data::apply_batch(store,commands,receipt.as_deref().ok_or_else(||invalid("Batches require an idempotencyKey"))?,time)?}else{workflow_data::apply(store,commands.into_iter().next().unwrap(),receipt.as_deref(),time)?};
             let after:Vec<_>=if workspace.is_some(){ids.iter().map(|id|store.table(id)).collect::<workflow_data::Result<_>>()?}else{vec![]};
             if !replayed&&before!=after&&let Some(workspace)=&mut workspace {
@@ -329,6 +471,9 @@ impl WorkflowWorkspace {
         bytes: &[u8],
     ) -> Result<Option<Response>> {
         let path = url.path();
+        if path.starts_with("/api/tables/") {
+            return self.data_transfer(method, url, bytes).map(Some);
+        }
         if path != "/api/data" && path != "/api/tables" {
             return Ok(None);
         }

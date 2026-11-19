@@ -1,0 +1,113 @@
+{
+  "schemaVersion": 1,
+  "id": "21-bulk-import-counter",
+  "name": "Bulk records and atomic counter",
+  "description": "Create a synthetic context namespace, import records with a data-revision precondition, and increment a counter atomically. No input or secrets.",
+  "status": "draft",
+  "revision": 0,
+  "updatedAt": "",
+  "nodes": [
+    {
+      "id": "start",
+      "type": "Manual Trigger",
+      "label": "Start",
+      "config": {}
+    },
+    {
+      "id": "create",
+      "type": "Context Store",
+      "label": "Ensure example counters",
+      "config": {
+        "command": {
+          "operation": "create_table",
+          "definition": {
+            "id": "example-counters",
+            "name": "Example counters",
+            "kind": "context"
+          }
+        }
+      }
+    },
+    {
+      "id": "import",
+      "type": "Context Store",
+      "label": "Import synthetic records atomically",
+      "config": {
+        "command": {
+          "operation": "import_rows",
+          "tableId": "example-counters",
+          "mode": "upsert",
+          "expectedDataRevision": {
+            "$input": "/table/dataRevision"
+          },
+          "rows": [
+            {
+              "key": "requests",
+              "value": {
+                "count": 0,
+                "source": "synthetic"
+              }
+            },
+            {
+              "key": "metadata",
+              "value": {
+                "purpose": "Public example"
+              }
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": "increment",
+      "type": "Context Store",
+      "label": "Atomic counter",
+      "config": {
+        "command": {
+          "operation": "increment",
+          "tableId": "example-counters",
+          "key": "requests",
+          "field": "count",
+          "amount": 2
+        }
+      }
+    },
+    {
+      "id": "summary",
+      "type": "Map / Transform",
+      "label": "Inspect precise result",
+      "config": {
+        "mapping": {
+          "count": {
+            "$input": "/row/value/count"
+          },
+          "source": {
+            "$input": "/row/value/source"
+          }
+        }
+      }
+    }
+  ],
+  "edges": [
+    {
+      "id": "0",
+      "source": "start",
+      "target": "create"
+    },
+    {
+      "id": "1",
+      "source": "create",
+      "target": "import"
+    },
+    {
+      "id": "2",
+      "source": "import",
+      "target": "increment"
+    },
+    {
+      "id": "3",
+      "source": "increment",
+      "target": "summary"
+    }
+  ]
+}

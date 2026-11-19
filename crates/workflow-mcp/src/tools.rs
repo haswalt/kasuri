@@ -664,7 +664,7 @@ fn compact_data(value: Value) -> Value {
     if let Some(results) = value["results"].as_array() {
         return json!({"results":results.iter().cloned().map(compact_data).collect::<Vec<_>>()});
     }
-    json!({"status":value["status"],"inserted":value["inserted"],"deleted":value["deleted"],"rowVersion":value["row"]["version"],"expiresAt":value["row"]["expiresAt"],"tableId":value["table"]["definition"]["id"],"version":value["table"]["version"],"dataRevision":value["table"]["dataRevision"],"detailsTool":if value["table"].is_object(){"data_table_get"}else{"data_get"}})
+    json!({"status":value["status"],"imported":value["imported"],"skippedExpired":value["skippedExpired"],"inserted":value["inserted"],"deleted":value["deleted"],"rowVersion":value["row"]["version"],"expiresAt":value["row"]["expiresAt"],"tableId":value["table"]["definition"]["id"],"version":value["table"]["version"],"dataRevision":value.get("dataRevision").or_else(||value.pointer("/table/dataRevision")),"detailsTool":if value.get("imported").is_some(){"data_query"}else if value["table"].is_object(){"data_table_get"}else{"data_get"}})
 }
 fn content(result: Result<Value, Value>) -> Value {
     let error = result.is_err();

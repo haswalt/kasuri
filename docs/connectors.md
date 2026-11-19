@@ -136,3 +136,5 @@ Publish a reusable workflow with Execute Workflow Trigger, then call it using Ex
 ## Parallel execution
 
 Split / Parallel explicitly enables bounded concurrent branches. Join waits for all parents and either returns active outputs or collects per-branch errors. Existing multi-edge graphs remain serial. See [parallel semantics](parallel.md) and [example 20](../examples/workflows/20-parallel-context.json).
+
+Data Tables and Context Store also support `increment` and transactional `import_rows`. Their existing scopes, receipt semantics and simulation isolation apply; [example 21](../examples/workflows/21-bulk-import-counter.json) demonstrates both. The dashboard provides JSON/CSV transfer and guided filter/counter controls; see [data transfer](data-transfer.md).

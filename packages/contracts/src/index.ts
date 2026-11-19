@@ -18,7 +18,10 @@ export type DataTableSummary = { id: string; name: string; kind: DataKind; field
 export type DataRow = { key: string; value: Json; version: number; expiresAt: number | null }
 export type DataFilter = { pointer: string; operator: 'eq' | 'ne' | 'gt' | 'lt' | 'exists'; value?: Json }
 export type DataQuery = { cursor?: string; limit?: number; filters?: DataFilter[] }
+export type ImportRow = {key:string;value:Json;expiresAt?:number|null}
 export type DataCommand =
+  | {operation:"increment";tableId:string;key:string;field:string;amount:number;initial?:number;expectedVersion?:number}
+  | {operation:"import_rows";tableId:string;rows:ImportRow[];mode?:"insert"|"upsert";expectedDataRevision?:number}
   | { operation: 'create_table'; definition: DataDefinition }
   | { operation: 'rename_table'; tableId: string; name: string; expectedVersion: number }
   | { operation: 'get_table'; tableId: string }
@@ -28,5 +31,5 @@ export type DataCommand =
   | { operation: 'patch'; tableId: string; key: string; patch: Record<string, Json>; removeFields?: string[]; expectedVersion?: number }
   | { operation: 'delete'; tableId: string; key: string; expectedVersion?: number }
   | { operation: 'query'; tableId: string; query?: DataQuery }
-export type DataResult = { status?: string; table?: DataTable; row?: DataRow | null; rows?: DataRow[]; nextCursor?: string | null; scanned?: number; inserted?: boolean; deleted?: boolean; results?: DataResult[] }
+export type DataResult = { imported?:number;skippedExpired?:number;dataRevision?:number; status?: string; table?: DataTable; row?: DataRow | null; rows?: DataRow[]; nextCursor?: string | null; scanned?: number; inserted?: boolean; deleted?: boolean; results?: DataResult[] }
 export type DataResponse = { result: DataResult; replayed: boolean }

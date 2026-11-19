@@ -11,13 +11,14 @@ import type {
 async function request<T>(
   path: string,
   method = 'GET',
-  body?: unknown
+  body?: unknown,
+  raw=false
 ): Promise<T> {
   const response = await fetch(`/api/${path}`, {
     method,
     credentials: 'same-origin',
-    headers: { 'X-Kasuri-Workspace': readRoute().workspaceKey, ...(body === undefined ? {} : { 'Content-Type': 'application/json' }) },
-    ...(body === undefined ? {} : { body: JSON.stringify(body) })
+    headers: { 'X-Kasuri-Workspace': readRoute().workspaceKey, ...(body === undefined ? {} : { 'Content-Type': raw?'text/plain;charset=utf-8':'application/json' }) },
+    ...(body === undefined ? {} : { body: raw?body as string:JSON.stringify(body) })
   })
   if (response.status === 401)
     throw new Error(
@@ -33,6 +34,8 @@ async function request<T>(
 export type WorkflowRevision = { workflowId: string; revision: number; graph: Workflow; fingerprint: string; publishedAt: string; publishedBy: string; legacyBaseline: boolean }
 export type WorkspaceMembership = { id: string; name: string }
 export const api = {
+  exportData: (id:string,format:"json"|"csv",cursor?:string,revision?:number) => request<{content:string;count:number;nextCursor:string|null;dataRevision:number}>(`tables/${id}/export?`+new URLSearchParams({format,...(cursor?{cursor}:{}),...(revision===undefined?{}:{dataRevision:String(revision)})})),
+  importData: (id:string,input:{format:"json"|"csv";content:string;mode:"insert"|"upsert";expectedDataRevision:number;commit?:boolean;idempotencyKey?:string}) => request<{status:string;rows?:number;imported?:number;skippedExpired:number;dataRevision:number}>(`tables/${id}/import?`+new URLSearchParams({format:input.format,mode:input.mode,expectedDataRevision:String(input.expectedDataRevision),commit:String(input.commit??false),...(input.idempotencyKey?{idempotencyKey:input.idempotencyKey}:{})}),"POST",input.content,true),
   dataTables: (cursor?: string) => request<{tables: DataTableSummary[]; nextCursor: string | null}>('tables?limit=100' + (cursor ? '&cursor=' + encodeURIComponent(cursor) : '')),
   data: (command: DataCommand, idempotencyKey?: string) => request<DataResponse>('data', 'POST', {command, ...(idempotencyKey ? {idempotencyKey} : {})}),
   dataBatch: (commands: DataCommand[], idempotencyKey: string) => request<DataResponse>('data', 'POST', {commands, idempotencyKey}),
