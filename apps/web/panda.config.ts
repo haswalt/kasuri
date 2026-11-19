@@ -21,6 +21,7 @@ import { palette } from './theme/recipes/palette.ts'
 import { canvas } from './theme/recipes/canvas.ts'
 import { runDebugger } from './theme/recipes/debugger.ts'
 import { login } from './theme/recipes/login.ts'
+import { data } from './theme/recipes/data.ts'
 import { shared } from './theme/recipes/shared.ts'
 
 export default defineConfig({
@@ -48,6 +49,7 @@ export default defineConfig({
     },
     recipes: { button, statusPill, categoryTile, workflowNode, connectorPort },
     slotRecipes: {
+      data,
       shell,
       inspector,
       menu,

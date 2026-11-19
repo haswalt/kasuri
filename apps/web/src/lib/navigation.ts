@@ -3,6 +3,7 @@ export type Route = {
   workspaceKey: string
   page: string
   workflowId?: string
+  tableId?: string
   runId?: string
   section: string
   mode: 'build' | 'simulate'
@@ -23,6 +24,7 @@ export function readRoute(): Route {
       page === 'workflows' && parts[offset + 2] === 'edit'
         ? parts[offset + 1]
         : undefined,
+    tableId: page === 'data' ? parts[offset + 1] : undefined,
     runId: page === 'runs' ? parts[offset + 1] : undefined,
     section: parts[offset + 1] || 'profile',
     mode: query.get('mode') === 'simulate' ? 'simulate' : 'build',

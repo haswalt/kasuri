@@ -5,7 +5,8 @@ import type {
   RunMode,
   Workflow,
   Workspace,
-  WebhookEndpoint
+  WebhookEndpoint,
+  DataCommand, DataResponse, DataTableSummary
 } from '../../../../packages/contracts/src/index'
 async function request<T>(
   path: string,
@@ -32,6 +33,9 @@ async function request<T>(
 export type WorkflowRevision = { workflowId: string; revision: number; graph: Workflow; fingerprint: string; publishedAt: string; publishedBy: string; legacyBaseline: boolean }
 export type WorkspaceMembership = { id: string; name: string }
 export const api = {
+  dataTables: (cursor?: string) => request<{tables: DataTableSummary[]; nextCursor: string | null}>('tables?limit=100' + (cursor ? '&cursor=' + encodeURIComponent(cursor) : '')),
+  data: (command: DataCommand, idempotencyKey?: string) => request<DataResponse>('data', 'POST', {command, ...(idempotencyKey ? {idempotencyKey} : {})}),
+  dataBatch: (commands: DataCommand[], idempotencyKey: string) => request<DataResponse>('data', 'POST', {commands, idempotencyKey}),
   trash: () => request<{workflows: Workflow[]}>('workflows/trash'),
   revisions: (id: string) => request<{revisions: WorkflowRevision[]; needsReview: boolean}>(`workflows/${id}/revisions`),
   restoreRevision: (id: string, revision: number, expectedVersion?: number) => request<Workflow>(`workflows/${id}/revisions/${revision}/restore`, 'POST', {expectedVersion}),

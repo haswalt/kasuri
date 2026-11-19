@@ -9,3 +9,23 @@ export type NodeManifest = { kind: string; version: number; configSchema: Record
 export type Workspace = { workflows: Workflow[]; runs: Run[]; connectors: NodeManifest[] }
 
 export type WebhookEndpoint = { configured: boolean; endpointId?: string | null; active: boolean; authentication: string; path?: string; token?: string }
+
+export type DataKind = 'table' | 'context'
+export type DataField = { name: string; kind: 'string' | 'number' | 'boolean' | 'object' | 'array' | 'any'; required?: boolean }
+export type DataDefinition = { id: string; name: string; kind: DataKind; fields: DataField[] }
+export type DataTable = { definition: DataDefinition; version: number; dataRevision: number }
+export type DataTableSummary = { id: string; name: string; kind: DataKind; fieldCount: number; version: number; dataRevision: number }
+export type DataRow = { key: string; value: Json; version: number; expiresAt: number | null }
+export type DataFilter = { pointer: string; operator: 'eq' | 'ne' | 'gt' | 'lt' | 'exists'; value?: Json }
+export type DataQuery = { cursor?: string; limit?: number; filters?: DataFilter[] }
+export type DataCommand =
+  | { operation: 'create_table'; definition: DataDefinition }
+  | { operation: 'rename_table'; tableId: string; name: string; expectedVersion: number }
+  | { operation: 'get_table'; tableId: string }
+  | { operation: 'get'; tableId: string; key: string }
+  | { operation: 'insert_if_absent'; tableId: string; key: string; value: Json; ttlMs?: number }
+  | { operation: 'put'; tableId: string; key: string; value: Json; expectedVersion?: number; ttlMs?: number }
+  | { operation: 'delete'; tableId: string; key: string; expectedVersion?: number }
+  | { operation: 'query'; tableId: string; query?: DataQuery }
+export type DataResult = { status?: string; table?: DataTable; row?: DataRow | null; rows?: DataRow[]; nextCursor?: string | null; scanned?: number; inserted?: boolean; deleted?: boolean; results?: DataResult[] }
+export type DataResponse = { result: DataResult; replayed: boolean }

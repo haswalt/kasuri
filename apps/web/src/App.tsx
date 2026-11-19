@@ -34,6 +34,7 @@ import {
   category,
   csvCell
 } from './design/ui-model'
+import { DataTables } from './components/DataTables'
 import { WorkflowTrash } from './components/WorkflowTrash'
 import { WorkflowHistory } from './components/WorkflowHistory'
 import { Settings } from './components/Settings'
@@ -46,6 +47,7 @@ const WorkflowEditor = lazy(() =>
 const nav = [
   ['workflows', 'Workflows', 'diamond'],
   ['runs', 'Runs', 'runs'],
+  ['data', 'Data tables', 'database'],
   ['connectors', 'Connectors', 'grid'],
   ['connections', 'Connections', 'key'],
   ['mcp', 'MCP server', 'plug'],
@@ -1432,6 +1434,8 @@ function App() {
                   </small>
                 </div>
               </>
+            ) : route.page === 'data' ? (
+              <DataTables key={route.tableId || 'index'} tableId={route.tableId} />
             ) : route.page === 'settings' ? (
               <Settings
                 workspaceName={workspaceLabel}

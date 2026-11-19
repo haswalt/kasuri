@@ -1,6 +1,7 @@
 // Typed, named parts from the application's multi-part recipes.
 // Component definitions and variants live in theme/recipes.
 import {
+  data,
   canvas,
   catalogue,
   dashboard,
@@ -18,6 +19,7 @@ import {
 } from '../../styled-system/recipes'
 
 export const styles = {
+  ...data(),
   ...canvas(),
   ...catalogue(),
   ...dashboard(),

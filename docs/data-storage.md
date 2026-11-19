@@ -1,6 +1,6 @@
 # Persistent workflow data foundations
 
-Status: the runtime-independent `workflow-data` crate, SQLite host and owner management APIs are implemented and tested on native Rust and real workerd. Management UI/MCP tools and workflow connector integration are subsequent increments. Data Tables and Context Store are not advertised as available connectors until those paths work end to end, including isolated simulations and importable examples.
+Status: the runtime-independent `workflow-data` crate, SQLite host and owner management APIs are implemented and tested on native Rust and real workerd. The dashboard supports table/context creation, row editing/deletion with version checks, TTL, filters, keyset pagination and renaming. MCP tools and workflow connector integration are subsequent increments. Data Tables and Context Store are not advertised as available connectors until those paths work end to end, including isolated simulations and importable examples.
 
 Data Tables and Context Store share one storage model. A table holds keyed JSON objects with optional declared field types and required fields; a context namespace holds arbitrary keyed JSON values. Hosts scope stores to the selected workspace and verify membership before access.
 
