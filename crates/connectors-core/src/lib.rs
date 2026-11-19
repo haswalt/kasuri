@@ -4,7 +4,9 @@ use serde_json::{Map, Value};
 
 pub mod collections;
 pub mod conditions;
+pub mod expressions;
 pub mod parsing;
+pub mod routing;
 pub use connectors_validation as validation;
 pub struct CoreConnector;
 
@@ -34,8 +36,10 @@ impl Connector for CoreConnector {
             | "Schedule"
             | "Split / Parallel"
             | "Join"
-            | "Merge"
             | "Error Handler" => Outcome::success(task.input.clone()),
+            "Expressions" => expressions::execute(task),
+            "Switch / Router" => routing::switch(&node.config, &task.input),
+            "Merge" => routing::merge(&node.config, &task.input),
             "Map / Transform" => {
                 let Some(Value::Object(mapping)) = node.config.get("mapping").and_then(config_json)
                 else {
@@ -201,7 +205,9 @@ pub fn manifests() -> Vec<connector_sdk::NodeManifest> {
         ("Sort", json!({"type":"object","properties":{"arrayPointer":{"type":"string"},"pointer":{"type":"string"},"order":{"enum":["asc","desc"]}}})),
         ("Split / Parallel", json!({"type":"object","properties":{"concurrency":{"enum":[2,4,8],"default":4}},"additionalProperties":false})),
         ("Join", json!({"type":"object","properties":{"policy":{"enum":["all","collect"]}},"additionalProperties":false})),
-        ("Merge", json!({"type":"object","properties":{}})),
+        ("Merge", routing::merge_schema()),
+        ("Expressions", expressions::schema()),
+        ("Switch / Router", routing::switch_schema()),
         ("Error Handler", json!({"type":"object","properties":{}})),
         ("Map / Transform", json!({"type":"object","properties":{"mapping":{"oneOf":[{"type":"object"},{"type":"string","description":"JSON-encoded mapping object"}]}},"required":["mapping"]})),
         ("IF / Condition", conditions::schema()),
@@ -210,7 +216,7 @@ pub fn manifests() -> Vec<connector_sdk::NodeManifest> {
         ("JSON Utilities", json!({"type":"object","properties":{"operation":{"enum":["parse","stringify"]}},"required":["operation"]})),
     ].into_iter().map(|(kind, config_schema)| connector_sdk::NodeManifest {
         kind: kind.into(), version: 1, config_schema,
-        output_ports: if kind == "IF / Condition" { vec!["true".into(),"false".into(),"error".into()] } else { vec!["success".into(),"error".into()] },
+        output_ports: if kind == "IF / Condition" { vec!["true".into(),"false".into(),"error".into()] } else if kind == "Switch / Router" { vec!["fallback".into(),"error".into()] } else { vec!["success".into(),"error".into()] },
         has_external_side_effects: false,
     }).chain(std::iter::once(validation::manifest())).collect()
 }

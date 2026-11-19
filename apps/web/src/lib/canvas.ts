@@ -2,7 +2,8 @@ import type { Workflow, WorkflowNode } from './workflows.ts'
 import { uid } from './workflows.ts'
 export type Point = { x: number; y: number }
 export const isTrigger = (type: string) => ['Manual Trigger', 'Webhook', 'Schedule', 'Execute Workflow Trigger'].includes(type)
-export const ports = (type: string) => type === 'IF / Condition' ? ['true', 'false', 'error'] : ['success', 'error']
+export { ports } from './node-ports.ts'
+import { ports } from './node-ports.ts'
 export const NODE_WIDTH = 200
 export const NODE_HEIGHT = 56
 export const NODE_GAP = 112
@@ -32,7 +33,7 @@ export function connectionError(workflow: Workflow, source: string, target: stri
   if (!from || !to) return 'Both steps must exist.'
   if (source === target) return 'A step cannot connect to itself.'
   if (isTrigger(to.type)) return 'Triggers cannot have incoming connections.'
-  if (!ports(from.type).includes(port)) return 'Choose a valid output port.'
+  if (!ports(from.type,from.config).includes(port)) return 'Choose a valid output port.'
   const edges = workflow.edges.filter(e => e.id !== excludeEdgeId)
   if (edges.some(e => e.source === source && e.target === target && (e.sourcePort ?? 'success') === port)) return 'That connection already exists.'
   const seen = new Set<string>(); const pending = [target]
@@ -54,7 +55,7 @@ export function connect(workflow: Workflow, source: string, target: string, port
 export function addCanvasNode(workflow: Workflow, type: string, position: Point, anchor?: { edgeId?: string; nodeId?: string }): { workflow: Workflow; nodeId: string; message: string } {
   if (workflow.nodes.length >= 100) throw new Error('A workflow supports at most 100 nodes.')
   if (isTrigger(type) && workflow.nodes.some(n => isTrigger(n.type))) throw new Error('Change the existing trigger instead of adding a second one.')
-  const node: WorkflowNode = { id: uid(), type, label: type, position, config: type==='Aggregate'?{operation:'collect'}:type==='Split / Batch'?{batchSize:10}:type === 'Parse Body' ? {format:'json'} : type === 'Wait / Delay' ? { delayMs: '1000' } : type === 'Schedule' ? { cron: '* * * * *', timezone: 'UTC' } : type === 'JSON Utilities' ? { operation: 'stringify' } : {} }
+  const node: WorkflowNode = { id: uid(), type, label: type, position, config: type==='Expressions'?{fields:{value:{op:'input',path:''}}}:type==='Switch / Router'?{rules:[{port:'route_1',condition:{match:'all',conditions:[{field:'$',operator:'exists'}]}}]}:type==='Aggregate'?{operation:'collect'}:type==='Split / Batch'?{batchSize:10}:type === 'Parse Body' ? {format:'json'} : type === 'Wait / Delay' ? { delayMs: '1000' } : type === 'Schedule' ? { cron: '* * * * *', timezone: 'UTC' } : type === 'JSON Utilities' ? { operation: 'stringify' } : {} }
   let next: Workflow = { ...workflow, status: 'draft', nodes: [...workflow.nodes, node] }
   if (isTrigger(type)) {
     const target = workflow.nodes.find(n => !workflow.edges.some(e => e.target === n.id))
@@ -70,11 +71,11 @@ export function addCanvasNode(workflow: Workflow, type: string, position: Point,
     next.nodes = next.nodes.map(n => downstream.has(n.id) ? { ...n, position: { x: positions.get(n.id)!.x, y: positions.get(n.id)!.y + shift } } : n)
     next.edges = workflow.edges.filter(e => e.id !== edge.id)
     next = connect(next, edge.source, node.id, edge.sourcePort ?? 'success', edge.id)
-    next = connect(next, node.id, edge.target, type === 'IF / Condition' ? 'true' : 'success')
+    next = connect(next, node.id, edge.target, ports(type,node.config)[0])
     return { workflow: next, nodeId: node.id, message: 'Inserted into the connection.' }
   }
   const positions = layout(workflow)
-  const available = workflow.nodes.flatMap(n => ports(n.type).filter(p => p !== 'error' && !workflow.edges.some(e => e.source === n.id && (e.sourcePort ?? 'success') === p)).map(port => ({ node: n, port })))
+  const available = workflow.nodes.flatMap(n => ports(n.type,n.config).filter(p => p !== 'error' && !workflow.edges.some(e => e.source === n.id && (e.sourcePort ?? 'success') === p)).map(port => ({ node: n, port })))
   available.sort((a, b) => {
     if (a.node.id === anchor?.nodeId && b.node.id !== anchor?.nodeId) return -1
     if (b.node.id === anchor?.nodeId && a.node.id !== anchor?.nodeId) return 1

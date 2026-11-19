@@ -42,7 +42,7 @@ function inferredSchema(value:Json, depth=0): Json {
   if(typeof value==='object')return {type:'object',properties:Object.fromEntries(Object.entries(value).slice(0,60).map(([k,v])=>[k,inferredSchema(v,depth+1)]))}
   return {type:typeof value}
 }
-export function workflowInputHints(workflow: Workflow, nodeId: string | undefined, run: Run | null, fixture: string): InputHints {
+export function workflowInputHints(workflow: Workflow, nodeId: string | undefined, run: Run | null, fixture: string, outputOf=false): InputHints {
   let initial: Json={};try {initial=JSON.parse(fixture)}catch { /* The input editor reports invalid JSON. */ }
   const cache=new Map<string,InputHints>(),visiting=new Set<string>()
   function output(id:string,depth=0):InputHints {
@@ -53,7 +53,9 @@ export function workflowInputHints(workflow: Workflow, nodeId: string | undefine
     const incoming=workflow.edges.find(e=>e.target===id)
     const parent=incoming?output(incoming.source,depth+1):{sample:initial}
     let hint:InputHints=parent
-    if(node.type==='Split / Batch')hint={sample:null,schema:{type:'object',properties:{batches:{type:'array',items:{type:'array'}},total:{type:'integer'},batchSize:{type:'integer'}}}}
+    if(node.type==='Expressions')hint={sample:null,schema:{type:'object',properties:Object.fromEntries(Object.keys(object(node.config.fields)).map(key=>[key,{}]))}}
+    else if(node.type==='Merge'&&node.config.operation)hint={sample:null,schema:node.config.operation==='select'?{}:{type:'array'}}
+    else if(node.type==='Split / Batch')hint={sample:null,schema:{type:'object',properties:{batches:{type:'array',items:{type:'array'}},total:{type:'integer'},batchSize:{type:'integer'}}}}
     else if(node.type==='Each / Loop')hint={sample:null,schema:{type:'object',properties:{items:{type:'array',items:{type:'object',properties:{index:{type:'integer'},itemId:{type:'string'},runId:{type:'string'},status:{enum:['succeeded','failed','cancelled']},output:{},error:{type:'string'}}}},total:{type:'integer'},succeeded:{type:'integer'},failed:{type:'integer'}}}}
     else if(node.type==='Aggregate')hint={sample:null,schema:node.config.operation==='collect'?{type:'array'}:{type:'number'}}
     else if(node.type==='Join') {
@@ -85,6 +87,7 @@ export function workflowInputHints(workflow: Workflow, nodeId: string | undefine
     const result=observed===undefined?hint:{...hint,sample:observed}
     visiting.delete(id);cache.set(id,result);return result
   }
+  if(outputOf&&nodeId)return output(nodeId)
   const source=workflow.edges.find(e=>e.target===nodeId)?.source
   return source?output(source):{sample:initial}
 }

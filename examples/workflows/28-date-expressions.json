@@ -1,0 +1,65 @@
+{
+  "schemaVersion": 1,
+  "id": "28-date-expressions",
+  "name": "Calculate a UTC date without a host clock",
+  "description": "Synthetic, offline example. Import and simulate with an empty input; no configuration required.",
+  "status": "draft",
+  "revision": 0,
+  "updatedAt": "",
+  "nodes": [
+    {
+      "id": "start",
+      "type": "Manual Trigger",
+      "label": "Start",
+      "config": {}
+    },
+    {
+      "id": "date",
+      "type": "Expressions",
+      "label": "Date",
+      "config": {
+        "fields": {
+          "next": {
+            "op": "date_iso",
+            "args": [
+              {
+                "op": "date_add_ms",
+                "args": [
+                  {
+                    "op": "date_parse",
+                    "args": [
+                      {
+                        "op": "literal",
+                        "value": "2026-01-01T01:00:00+01:00"
+                      }
+                    ]
+                  },
+                  {
+                    "op": "literal",
+                    "value": 60000
+                  }
+                ]
+              }
+            ]
+          },
+          "missing": {
+            "op": "exists",
+            "args": [
+              {
+                "op": "input",
+                "path": "/absent"
+              }
+            ]
+          }
+        }
+      }
+    }
+  ],
+  "edges": [
+    {
+      "id": "0",
+      "source": "start",
+      "target": "date"
+    }
+  ]
+}

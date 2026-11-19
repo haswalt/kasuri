@@ -246,3 +246,9 @@ Implement the provider-independent Rust principal/authorization boundary describ
 ### Self-hosted horizontal execution (documented limitation; implementation outstanding)
 
 The supported package remains one workerd process per local storage volume. [Self-hosting scaling guidance](self-hosting.md#scaling-and-availability) distinguishes in-process branch concurrency, vertical sizing, restart recovery and independent installations from shared multi-worker execution. A future delivery must select an ownership/fencing and shared-state/scheduling architecture, verify it against the pinned runtime, and prove multi-process recovery before enabling Kubernetes replicas/HPA. No distributed-execution guarantee is inferred from the current Docker/Kubernetes packaging.
+
+### Expressions and routing (completed)
+
+Added a shared bounded Rust expression evaluator with typed output fields, arithmetic/text/date operations, explicit interpolation, missing/null handling, Boolean groups and graph-ancestor references pinned in tasks. The guided editor selects operations, upstream steps and known fields. Switch / Router exposes stable named outputs with ordered first-match/fallback behavior; Merge adds explicit source ordering for append, by-key full outer combination and branch selection while retaining empty-config semantics. Public examples 26–28 require only import and simulation. Native workspace and frontend tests, real/simulated Wasm runs, restart recovery, invalid-reference rejection, MCP simulation and browser-built arithmetic/routing cover this delivery. No arbitrary Code execution is introduced.
+
+Next infrastructure priority is third-party platform authentication as specified above; data schema/index administration, runtime sandbox feasibility and distributed self-host execution remain outstanding.

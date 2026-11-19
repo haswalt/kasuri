@@ -1,0 +1,197 @@
+{
+  "schemaVersion": 1,
+  "id": "26-expressions-router",
+  "name": "Compute a total and route by value",
+  "description": "Synthetic, offline example. Import and simulate with an empty input; no configuration required.",
+  "status": "draft",
+  "revision": 0,
+  "updatedAt": "",
+  "nodes": [
+    {
+      "id": "start",
+      "type": "Manual Trigger",
+      "label": "Start",
+      "config": {}
+    },
+    {
+      "id": "source",
+      "type": "Map / Transform",
+      "label": "Source",
+      "config": {
+        "mapping": {
+          "price": 12,
+          "quantity": 3,
+          "name": "  sample  "
+        }
+      }
+    },
+    {
+      "id": "calculate",
+      "type": "Expressions",
+      "label": "Calculate",
+      "config": {
+        "fields": {
+          "total": {
+            "op": "multiply",
+            "args": [
+              {
+                "op": "input",
+                "path": "/price"
+              },
+              {
+                "op": "input",
+                "path": "/quantity"
+              }
+            ]
+          },
+          "label": {
+            "op": "concat",
+            "args": [
+              {
+                "op": "upper",
+                "args": [
+                  {
+                    "op": "trim",
+                    "args": [
+                      {
+                        "op": "input",
+                        "path": "/name"
+                      }
+                    ]
+                  }
+                ]
+              },
+              {
+                "op": "literal",
+                "value": " x "
+              },
+              {
+                "op": "to_text",
+                "args": [
+                  {
+                    "op": "input",
+                    "path": "/quantity"
+                  }
+                ]
+              }
+            ]
+          },
+          "originalPrice": {
+            "op": "node",
+            "path": "/price",
+            "nodeId": "source"
+          },
+          "optional": {
+            "op": "coalesce",
+            "args": [
+              {
+                "op": "input",
+                "path": "/missing"
+              },
+              {
+                "op": "literal",
+                "value": "default"
+              }
+            ]
+          }
+        }
+      }
+    },
+    {
+      "id": "route",
+      "type": "Switch / Router",
+      "label": "Route",
+      "config": {
+        "rules": [
+          {
+            "port": "large",
+            "condition": {
+              "match": "all",
+              "conditions": [
+                {
+                  "field": "total",
+                  "operator": "greater_than",
+                  "value": 30,
+                  "valueType": "number"
+                }
+              ]
+            }
+          }
+        ]
+      }
+    },
+    {
+      "id": "accepted",
+      "type": "Map / Transform",
+      "label": "Accepted",
+      "config": {
+        "mapping": {
+          "status": "accepted",
+          "total": {
+            "$input": "/total"
+          }
+        }
+      }
+    },
+    {
+      "id": "small",
+      "type": "Map / Transform",
+      "label": "Small",
+      "config": {
+        "mapping": {
+          "status": "small"
+        }
+      }
+    },
+    {
+      "id": "chosen",
+      "type": "Merge",
+      "label": "Chosen",
+      "config": {
+        "operation": "select",
+        "sources": [
+          "accepted"
+        ]
+      }
+    }
+  ],
+  "edges": [
+    {
+      "id": "0",
+      "source": "start",
+      "target": "source"
+    },
+    {
+      "id": "1",
+      "source": "source",
+      "target": "calculate"
+    },
+    {
+      "id": "2",
+      "source": "calculate",
+      "target": "route"
+    },
+    {
+      "id": "3",
+      "source": "route",
+      "target": "accepted",
+      "sourcePort": "large"
+    },
+    {
+      "id": "4",
+      "source": "route",
+      "target": "small",
+      "sourcePort": "fallback"
+    },
+    {
+      "id": "5",
+      "source": "accepted",
+      "target": "chosen"
+    },
+    {
+      "id": "6",
+      "source": "small",
+      "target": "chosen"
+    }
+  ]
+}

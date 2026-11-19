@@ -169,6 +169,7 @@ dependencies = [
 name = "connectors-core"
 version = "0.1.0"
 dependencies = [
+ "chrono",
  "connector-sdk",
  "connectors-validation",
  "roxmltree",

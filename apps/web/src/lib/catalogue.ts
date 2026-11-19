@@ -1,4 +1,5 @@
 export const catalogue = [
+  {"name":"Expressions","category":"Core platform"},
   {"name":"Aggregate","category":"Core platform"},
   {"name":"Split / Parallel","category":"Core platform"},
   {"name":"Join","category":"Core platform"},

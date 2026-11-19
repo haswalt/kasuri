@@ -484,6 +484,44 @@ impl Workspace {
         }
         let manifests = manifests();
         for node in &document.graph.nodes {
+            if node.kind == "Expressions" {
+                let refs = connectors_core::expressions::validate(&node.config)
+                    .map_err(|_| error(400, "Invalid or over-budget expression tree"))?;
+                let mut ancestors = std::collections::BTreeSet::new();
+                let mut pending = vec![node.id.clone()];
+                while let Some(id) = pending.pop() {
+                    for edge in document.graph.edges.iter().filter(|e| e.target == id) {
+                        if ancestors.insert(edge.source.clone()) {
+                            pending.push(edge.source.clone());
+                        }
+                    }
+                }
+                if refs.iter().any(|id| !ancestors.contains(id)) {
+                    return Err(error(400, "Expressions can reference upstream nodes only"));
+                }
+            }
+            if node.kind == "Switch / Router" {
+                connectors_core::routing::validate_switch(&node.config)
+                    .map_err(|_| error(400, "Invalid Switch routes or conditions"))?;
+            }
+            if node.kind == "Merge" {
+                connectors_core::routing::validate_merge(&node.config)
+                    .map_err(|_| error(400, "Invalid Merge policy"))?;
+                if node
+                    .config
+                    .get("sources")
+                    .and_then(Value::as_array)
+                    .is_some_and(|sources| {
+                        sources.iter().any(|id| {
+                            !document.graph.edges.iter().any(|e| {
+                                e.target == node.id && Some(e.source.as_str()) == id.as_str()
+                            })
+                        })
+                    })
+                {
+                    return Err(error(400, "Merge sources must be connected input nodes"));
+                }
+            }
             if node.kind == "Validate Schema" {
                 connectors_core::validation::validate(&node.config)
                     .map_err(|_| error(400, "Invalid or unsupported validation schema"))?;
@@ -603,7 +641,7 @@ impl Workspace {
                 let mut node = node.clone();
                 node.config.remove("query");
                 node.config.remove("body");
-                connectors_http::validate(&Task{id:"validate".into(),idempotency_key:"validate".into(),node,input:Value::Null,attempt:1,deadline_ms:1}).map_err(|_|error(400,"Invalid HTTP request: use HTTPS, a supported auth configuration and one attempt for writes"))?;
+                connectors_http::validate(&Task{context:Value::Null,id:"validate".into(),idempotency_key:"validate".into(),node,input:Value::Null,attempt:1,deadline_ms:1}).map_err(|_|error(400,"Invalid HTTP request: use HTTPS, a supported auth configuration and one attempt for writes"))?;
             }
             if !manifests
                 .iter()

@@ -1,0 +1,115 @@
+{
+  "schemaVersion": 1,
+  "id": "27-merge-collections",
+  "name": "Append collections and combine records by key",
+  "description": "Synthetic, offline example. Import and simulate with an empty input; no configuration required.",
+  "status": "draft",
+  "revision": 0,
+  "updatedAt": "",
+  "nodes": [
+    {
+      "id": "start",
+      "type": "Manual Trigger",
+      "label": "Start",
+      "config": {}
+    },
+    {
+      "id": "catalogue",
+      "type": "Map / Transform",
+      "label": "Catalogue",
+      "config": {
+        "mapping": {
+          "items": [
+            {
+              "id": "a",
+              "name": "Alpha"
+            },
+            {
+              "id": "b",
+              "name": "Beta"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": "stock",
+      "type": "Map / Transform",
+      "label": "Stock",
+      "config": {
+        "mapping": {
+          "items": [
+            {
+              "id": "b",
+              "stock": 5
+            },
+            {
+              "id": "c",
+              "stock": 2
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": "combined",
+      "type": "Merge",
+      "label": "Combined",
+      "config": {
+        "operation": "by_key",
+        "sources": [
+          "catalogue",
+          "stock"
+        ],
+        "arrayPointer": "/items",
+        "keyPointer": "/id",
+        "conflict": "fail"
+      }
+    },
+    {
+      "id": "appended",
+      "type": "Merge",
+      "label": "Appended",
+      "config": {
+        "operation": "append",
+        "sources": [
+          "stock",
+          "catalogue"
+        ],
+        "arrayPointer": "/items"
+      }
+    }
+  ],
+  "edges": [
+    {
+      "id": "0",
+      "source": "start",
+      "target": "catalogue"
+    },
+    {
+      "id": "1",
+      "source": "start",
+      "target": "stock"
+    },
+    {
+      "id": "2",
+      "source": "catalogue",
+      "target": "combined"
+    },
+    {
+      "id": "3",
+      "source": "stock",
+      "target": "combined"
+    },
+    {
+      "id": "4",
+      "source": "catalogue",
+      "target": "appended"
+    },
+    {
+      "id": "5",
+      "source": "stock",
+      "target": "appended"
+    }
+  ]
+}

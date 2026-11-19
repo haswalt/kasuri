@@ -57,3 +57,13 @@ When adding or changing a connector:
 5. For public HTTP examples, also run `pnpm build:selfhost` followed by `pnpm test:examples:live`. This opt-in check executes the unchanged files through a temporary, isolated Rust/Wasm runtime with actual public HTTPS access. It removes its local test storage afterward. It is separate from deterministic CI because it depends on an external service.
 
 For dashboard import/export, [sample JSON records](datasets/records.json) and equivalent [CSV records](datasets/records.csv) contain public synthetic values. See [transfer format and bounds](../docs/data-transfer.md).
+
+### Expressions and routing
+
+| Example | Demonstrates |
+| --- | --- |
+| [26-expressions-router](workflows/26-expressions-router.json) | Typed arithmetic/text, prior-output references, named routing and selected-branch Merge. |
+| [27-merge-collections](workflows/27-merge-collections.json) | Explicit append order and full outer combination by key. |
+| [28-date-expressions](workflows/28-date-expressions.json) | RFC 3339 parsing, millisecond arithmetic, UTC formatting and missing-value checks. |
+
+These examples need only import and simulation with `{}`; they contain synthetic data and no credentials.

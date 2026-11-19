@@ -204,6 +204,18 @@ impl Workflow {
             }
             let valid_port = if source.kind == "IF / Condition" {
                 matches!(edge.source_port.as_str(), "true" | "false" | "error")
+            } else if source.kind == "Switch / Router" {
+                matches!(edge.source_port.as_str(), "fallback" | "error")
+                    || source
+                        .config
+                        .get("rules")
+                        .and_then(serde_json::Value::as_array)
+                        .is_some_and(|rules| {
+                            rules.iter().any(|r| {
+                                r.get("port").and_then(serde_json::Value::as_str)
+                                    == Some(edge.source_port.as_str())
+                            })
+                        })
             } else {
                 matches!(edge.source_port.as_str(), "success" | "error")
             };

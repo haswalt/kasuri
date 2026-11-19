@@ -1,3 +1,4 @@
+import { ports } from './node-ports.ts'
 import type { Workflow, WorkflowNode } from '../../../../packages/contracts/src/index'
 export type { Workflow, WorkflowNode, Run } from '../../../../packages/contracts/src/index'
 export const uid = () => crypto.randomUUID()
@@ -7,7 +8,7 @@ export function createWorkflow(name = 'Untitled workflow'): Workflow {
 export function appendNode(workflow: Workflow, type: string): Workflow {
   const node = { id: uid(), type, label: type, config: {} }
   const last = workflow.nodes.at(-1)
-  return { ...workflow, status: 'draft', nodes: [...workflow.nodes, node], edges: last ? [...workflow.edges, { id: uid(), source: last.id, target: node.id, sourcePort: last.type === 'IF / Condition' ? 'true' : 'success' }] : [] }
+  return { ...workflow, status: 'draft', nodes: [...workflow.nodes, node], edges: last ? [...workflow.edges, { id: uid(), source: last.id, target: node.id, sourcePort: ports(last.type,last.config)[0] }] : [] }
 }
 export function removeNode(workflow: Workflow, id: string): Workflow {
   const incoming = workflow.edges.filter(e => e.target === id)
@@ -31,7 +32,7 @@ export function validateWorkflow(workflow: Workflow): string[] {
     const source = nodes.get(edge.source)
     if (!source || !nodes.has(edge.target)) { errors.push('An edge references a missing node.'); continue }
     const port = edge.sourcePort ?? 'success'
-    if (!(source.type === 'IF / Condition' ? ['true', 'false', 'error'] : ['success', 'error']).includes(port)) errors.push('An edge uses an incompatible output port.')
+    if (!ports(source.type,source.config).includes(port)) errors.push('An edge uses an incompatible output port.')
     const key = JSON.stringify([edge.source, edge.target, port])
     if (connections.has(key)) errors.push('Duplicate connection.')
     connections.add(key)

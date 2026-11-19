@@ -7,6 +7,7 @@ fn execute(kind: &str, config: Value, input: Value) -> Outcome {
         serde_json::from_value(json!({"id":"test","type":kind,"label":"Test","config":config}))
             .unwrap();
     CoreConnector.execute(&Task {
+        context: Value::Null,
         id: "task".into(),
         idempotency_key: "effect".into(),
         node,
@@ -111,7 +112,7 @@ fn unsupported_nodes_never_execute_code_or_perform_http() {
 #[test]
 fn manifests_only_advertise_implemented_versioned_nodes() {
     let manifests = connectors_core::manifests();
-    assert_eq!(manifests.len(), 17);
+    assert_eq!(manifests.len(), 19);
     assert!(
         manifests
             .iter()

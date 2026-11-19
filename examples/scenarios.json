@@ -346,5 +346,72 @@
     "statuses": {
       "each": "succeeded"
     }
+  },
+  {
+    "file": "workflows/26-expressions-router.json",
+    "outputs": {
+      "calculate": {
+        "total": 36,
+        "label": "SAMPLE x 3",
+        "originalPrice": 12,
+        "optional": "default"
+      },
+      "chosen": {
+        "status": "accepted",
+        "total": 36
+      }
+    },
+    "statuses": {
+      "small": "skipped"
+    }
+  },
+  {
+    "file": "workflows/27-merge-collections.json",
+    "outputs": {
+      "combined": [
+        {
+          "id": "a",
+          "name": "Alpha"
+        },
+        {
+          "id": "b",
+          "name": "Beta",
+          "stock": 5
+        },
+        {
+          "id": "c",
+          "stock": 2
+        }
+      ],
+      "appended": [
+        {
+          "id": "b",
+          "stock": 5
+        },
+        {
+          "id": "c",
+          "stock": 2
+        },
+        {
+          "id": "a",
+          "name": "Alpha"
+        },
+        {
+          "id": "b",
+          "name": "Beta"
+        }
+      ]
+    },
+    "statuses": {}
+  },
+  {
+    "file": "workflows/28-date-expressions.json",
+    "outputs": {
+      "date": {
+        "next": "2026-01-01T00:01:00.000Z",
+        "missing": false
+      }
+    },
+    "statuses": {}
   }
 ]

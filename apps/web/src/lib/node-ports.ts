@@ -1,0 +1,2 @@
+import type { WorkflowNode } from '../../../../packages/contracts/src/index'
+export const ports = (type: string, config: WorkflowNode['config']={}) => type === 'IF / Condition' ? ['true', 'false', 'error'] : type==='Switch / Router'?[...new Set((Array.isArray(config.rules)?config.rules:[]).flatMap(r=>r&&typeof r==='object'&&!Array.isArray(r)&&typeof r.port==='string'?[r.port]:[])), 'fallback','error']:['success', 'error']

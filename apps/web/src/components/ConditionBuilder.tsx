@@ -7,8 +7,8 @@ import { fieldChoices, inputValue, schemaAt, valueChoices } from '../lib/input-h
 import type { InputHints } from '../lib/input-hints'
 import { conditionOperators, conditionProblem, emptyCondition, numericCondition, readConditions, unaryCondition } from '../lib/conditions'
 import type { Condition, ValueType } from '../lib/conditions'
-type Props = { config: Record<string, Json>; sample: Json; schema?: Json; samples?: Json[]; operators?: typeof conditionOperators[number][]; hideMatch?:boolean; maxRows?:number; onChange: (config: Record<string, Json>) => void }
-export function ConditionBuilder({ config, sample, schema, samples = [sample], operators = [...conditionOperators], hideMatch=false, maxRows=32, onChange }: Props) {
+type Props = { config: Record<string, Json>; sample: Json; schema?: Json; samples?: Json[]; operators?: typeof conditionOperators[number][]; hideMatch?:boolean;resultHint?:string; maxRows?:number; onChange: (config: Record<string, Json>) => void }
+export function ConditionBuilder({ config, sample, schema, samples = [sample], operators = [...conditionOperators], hideMatch=false, maxRows=32, resultHint, onChange }: Props) {
   const { rows, match, error } = readConditions(config)
   const hints: InputHints = {sample,schema}
   const fields = [...new Set([...fieldChoices(hints),...samples.flatMap(sample=>fieldChoices({sample}))])].slice(0,100)
@@ -51,6 +51,6 @@ export function ConditionBuilder({ config, sample, schema, samples = [sample], o
       <Button visual="ghost" disabled={rows.length === 1} onClick={() => commit(rows.filter((_, i) => i !== index))} aria-label={`Remove condition ${index + 1}`}>Remove condition</Button>
     </fieldset>)}
     <Button disabled={rows.length >= maxRows} onClick={() => commit([...rows, emptyCondition()])}>Add condition</Button>
-    <p className={styles.muted}>{hideMatch?"All filters must match. Choose fields from the schema or loaded records; custom paths remain available.":"Matching input follows true; other input follows false. Use a field path, a JSON Pointer, or $ for the whole input. Values keep their selected type."}</p>
+    <p className={styles.muted}>{resultHint??(hideMatch?"All filters must match. Choose fields from the schema or loaded records; custom paths remain available.":"Matching input follows true; other input follows false. Use a field path, a JSON Pointer, or $ for the whole input. Values keep their selected type.")}</p>
   </section>
 }

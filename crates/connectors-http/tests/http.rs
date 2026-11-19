@@ -3,6 +3,7 @@ use connectors_http::*;
 use serde_json::{Value, json};
 fn task(config: Value) -> Task {
     Task {
+        context: Value::Null,
         id: "task".into(),
         idempotency_key: "stable".into(),
         node: serde_json::from_value(

@@ -13,6 +13,7 @@ import {
   MarkerType,
   ConnectionLineType,
   useReactFlow,
+  useUpdateNodeInternals,
   useNodesState,
   useEdgesState
 } from '@xyflow/react'
@@ -32,7 +33,10 @@ import {
 import { Tile, Icon } from '../design/ui'
 
 type CanvasNode = Node<{ node: WorkflowNode; status?: string }, 'workflow'>
-function WorkflowCard({ data, selected }: NodeProps<CanvasNode>) {
+function WorkflowCard({ data, selected, id }: NodeProps<CanvasNode>) {
+  const updateNodeInternals=useUpdateNodeInternals()
+  const portKey=ports(data.node.type,data.node.config).join('|')
+  useEffect(()=>{updateNodeInternals(id)},[id,portKey,updateNodeInternals])
   return (
     <div
       className={workflowNode({
@@ -58,7 +62,7 @@ function WorkflowCard({ data, selected }: NodeProps<CanvasNode>) {
         </small>
         <strong>{data.node.label}</strong>
       </div>
-      {ports(data.node.type).map((port, i, all) => (
+      {ports(data.node.type,data.node.config).map((port, i, all) => (
         <div
           key={port}
           className={styles.flowPort}

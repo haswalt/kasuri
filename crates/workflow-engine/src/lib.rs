@@ -158,6 +158,63 @@ pub struct Run {
 }
 
 impl Run {
+    /// Only graph ancestors are visible, including skipped ancestors as missing values.
+    fn expression_context(&self, node: &workflow_schema::Node) -> Value {
+        let mut ancestors = std::collections::BTreeSet::new();
+        let mut pending = vec![node.id.clone()];
+        while let Some(id) = pending.pop() {
+            for edge in self.workflow.edges.iter().filter(|e| e.target == id) {
+                if ancestors.insert(edge.source.clone()) {
+                    pending.push(edge.source.clone());
+                }
+            }
+        }
+        fn references(
+            value: &Value,
+            ids: &mut std::collections::BTreeSet<String>,
+            trigger: &mut bool,
+        ) {
+            if let Some(o) = value.as_object() {
+                if o.get("op").and_then(Value::as_str) == Some("literal") {
+                    return;
+                }
+                if o.get("op").and_then(Value::as_str) == Some("node") {
+                    if let Some(id) = o.get("nodeId").and_then(Value::as_str) {
+                        ids.insert(id.into());
+                    }
+                }
+                if o.get("op").and_then(Value::as_str) == Some("trigger") {
+                    *trigger = true;
+                }
+                for v in o.values() {
+                    references(v, ids, trigger);
+                }
+            } else if let Some(a) = value.as_array() {
+                for v in a {
+                    references(v, ids, trigger);
+                }
+            }
+        }
+        let mut ids = std::collections::BTreeSet::new();
+        let mut trigger = false;
+        references(&Value::Object(node.config.clone()), &mut ids, &mut trigger);
+        let outputs: serde_json::Map<String, Value> = ids
+            .intersection(&ancestors)
+            .filter_map(|id| {
+                if let Some(NodeState::Succeeded { output, .. }) = self.nodes.get(id) {
+                    Some((id.clone(), output.clone()))
+                } else {
+                    None
+                }
+            })
+            .collect();
+        let mut context =
+            json!({"nodes":outputs,"run":{"id":self.id,"startedAtMs":self.started_at_ms}});
+        if trigger {
+            context["trigger"] = self.input.clone();
+        }
+        context
+    }
     pub fn new(
         id: impl Into<String>,
         workflow: Workflow,
@@ -297,7 +354,7 @@ impl Run {
                     attempts,
                 } => {
                     check_value(output)?;
-                    if !Self::valid_port(&node.kind, port) {
+                    if !Self::valid_port(node, port) {
                         return Err(error("Invalid checkpoint output port"));
                     }
                     Some(*attempts)
@@ -371,9 +428,20 @@ impl Run {
     fn task_id(&self, node_id: &str, attempt: u32) -> String {
         json!([self.id, node_id, attempt]).to_string()
     }
-    fn valid_port(kind: &str, port: &str) -> bool {
-        if kind == "IF / Condition" {
+    fn valid_port(node: &workflow_schema::Node, port: &str) -> bool {
+        if node.kind == "IF / Condition" {
             matches!(port, "true" | "false" | "error")
+        } else if node.kind == "Switch / Router" {
+            matches!(port, "fallback" | "error")
+                || node
+                    .config
+                    .get("rules")
+                    .and_then(Value::as_array)
+                    .is_some_and(|rules| {
+                        rules
+                            .iter()
+                            .any(|r| r.get("port").and_then(Value::as_str) == Some(port))
+                    })
         } else {
             matches!(port, "success" | "error")
         }
@@ -529,7 +597,7 @@ impl Run {
                             })
                             .collect(),
                     )
-                } else if node.kind == "Join" {
+                } else if node.kind == "Join" || (node.kind == "Merge" && !node.config.is_empty()) {
                     Value::Object(active.into_iter().collect())
                 } else if parents.is_empty() {
                     self.input.clone()
@@ -544,6 +612,11 @@ impl Run {
                     idempotency_key: self.effect_key(&node.id),
                     node: node.clone(),
                     input,
+                    context: if node.kind == "Expressions" {
+                        self.expression_context(node)
+                    } else {
+                        Value::Null
+                    },
                     attempt,
                     deadline_ms: now_ms.saturating_add(node.timeout_ms).min(self.deadline()),
                 };
@@ -620,7 +693,7 @@ impl Run {
         let state = match outcome {
             Outcome::Complete { output, port } => {
                 check_value(&output)?;
-                if !Self::valid_port(&task.node.kind, &port) {
+                if !Self::valid_port(&task.node, &port) {
                     return Err(error("Connector returned an invalid output port"));
                 }
                 NodeState::Succeeded {
@@ -634,7 +707,10 @@ impl Run {
                 let until_ms = now_ms
                     .checked_add(delay_ms)
                     .ok_or_else(|| error("Wait duration overflow"))?;
-                if task.node.kind == "IF / Condition" {
+                if matches!(
+                    task.node.kind.as_str(),
+                    "IF / Condition" | "Switch / Router"
+                ) {
                     return Err(error("Condition node cannot return a wait outcome"));
                 }
                 NodeState::Waiting {

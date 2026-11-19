@@ -11,6 +11,9 @@ pub struct Task {
     pub idempotency_key: String,
     pub node: Node,
     pub input: Value,
+    /// Bounded, approved expression references, persisted with the task.
+    #[serde(default, skip_serializing_if = "Value::is_null")]
+    pub context: Value,
     pub attempt: u32,
     pub deadline_ms: u64,
 }

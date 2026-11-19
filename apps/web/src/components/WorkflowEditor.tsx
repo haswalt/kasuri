@@ -3,10 +3,12 @@ import { styles } from '../design/styles'
 import { useCallback, useEffect, useState } from 'react'
 import type { Workflow } from '../lib/workflows'
 import { removeNode, validateWorkflow } from '../lib/workflows'
-import { connect, connectionError, ports } from '../lib/canvas'
+import { connect, connectionError, ports, isTrigger } from '../lib/canvas'
 import { InvocationBuilder } from './InvocationBuilder'
 import { CollectionBuilder } from './CollectionBuilder'
 import { workflowInputHints } from '../lib/input-hints'
+import { ExpressionBuilder } from './ExpressionBuilder'
+import { RoutingBuilder } from './RoutingBuilder'
 import { ConditionBuilder } from './ConditionBuilder'
 import { WorkflowCanvas } from './WorkflowCanvas'
 import { fields } from '../lib/catalogue'
@@ -156,7 +158,7 @@ export function WorkflowEditor({
   }
   function addConnection() {
     if (!node) return
-    for (const port of ports(node.type))
+    for (const port of ports(node.type,node.config))
       for (const target of workflow.nodes)
         if (!connectionError(workflow, node.id, target.id, port)) {
           update(connect(workflow, node.id, target.id, port))
@@ -542,13 +544,13 @@ export function WorkflowEditor({
               </div>
               <div className={styles.inspectorScroll}>
                 <label>From node
-                  <select value={edge.source} onChange={(e) => editConnection(e.target.value, edge.target, ports(workflow.nodes.find((n) => n.id === e.target.value)!.type)[0])}>
+                  <select value={edge.source} onChange={(e) => editConnection(e.target.value, edge.target, ports(workflow.nodes.find((n) => n.id === e.target.value)!.type,workflow.nodes.find((n) => n.id === e.target.value)!.config)[0])}>
                     {workflow.nodes.map((n) => <option key={n.id} value={n.id}>{n.label}</option>)}
                   </select>
                 </label>
                 <label>Output
                   <select value={edge.sourcePort || 'success'} onChange={(e) => editConnection(edge.source, edge.target, e.target.value)}>
-                    {ports(workflow.nodes.find((n) => n.id === edge.source)!.type).map((p) => <option key={p}>{p}</option>)}
+                    {ports(workflow.nodes.find((n) => n.id === edge.source)!.type,workflow.nodes.find((n) => n.id === edge.source)!.config).map((p) => <option key={p}>{p}</option>)}
                   </select>
                 </label>
                 <label>To node
@@ -627,7 +629,7 @@ export function WorkflowEditor({
                         </select>
                       </label>
                     )}
-                    {node.type==='Each / Loop'||node.type==='Execute Workflow'||node.type==='Execute Workflow Trigger' ? <InvocationBuilder node={node} workflow={workflow} hints={inputHints} onChange={config=>editNode({config})} /> : node.type === 'IF / Condition' ? <ConditionBuilder config={node.config} sample={inputHints.sample} schema={inputHints.schema} onChange={config => editNode({ config })} /> : node.type==='Filter'||node.type==='Sort'||node.type==='Split / Batch'||node.type==='Aggregate' ? <CollectionBuilder kind={node.type} config={node.config} hints={inputHints} onChange={config=>editNode({config})} /> : parameterKeys.map((key) => {
+                    {node.type==='Expressions'?<ExpressionBuilder config={node.config} workflow={workflow} nodeId={node.id} hints={inputHints} nodeHints={id=>workflowInputHints(workflow,id,result,input,true)} triggerHints={workflowInputHints(workflow,workflow.nodes.find(n=>isTrigger(n.type))?.id,result,input)} onChange={config=>editNode({config})}/>:node.type==='Switch / Router'||node.type==='Merge'?<RoutingBuilder kind={node.type} config={node.config} hints={inputHints} workflow={workflow} nodeId={node.id} nodeHints={id=>workflowInputHints(workflow,id,result,input,true)} onChange={config=>editNode({config})}/>:node.type==='Each / Loop'||node.type==='Execute Workflow'||node.type==='Execute Workflow Trigger' ? <InvocationBuilder node={node} workflow={workflow} hints={inputHints} onChange={config=>editNode({config})} /> : node.type === 'IF / Condition' ? <ConditionBuilder config={node.config} sample={inputHints.sample} schema={inputHints.schema} onChange={config => editNode({ config })} /> : node.type==='Filter'||node.type==='Sort'||node.type==='Split / Batch'||node.type==='Aggregate' ? <CollectionBuilder kind={node.type} config={node.config} hints={inputHints} onChange={config=>editNode({config})} /> : parameterKeys.map((key) => {
                       const meta = fields[node.type]?.find((f) => f.key === key)
                       const property = (
                         (manifest?.configSchema.properties || {}) as Record<
@@ -853,7 +855,7 @@ export function WorkflowEditor({
                                 changeEdge(edge.id, edge.target, e.target.value)
                               }
                             >
-                              {ports(node.type).map((p) => (
+                              {ports(node.type,node.config).map((p) => (
                                 <option key={p}>{p}</option>
                               ))}
                             </select>

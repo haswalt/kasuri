@@ -1,6 +1,6 @@
 # Implemented connectors
 
-The runtime advertises 25 node types: Manual Trigger, Webhook, Schedule, Map / Transform, IF / Condition, Merge, Wait / Delay, JSON Utilities, Error Handler, Filter, Sort, HTTP Request, Data Tables, Context Store, Request Context Respond to Webhook, Validate Schema, Parse Body, Execute Workflow Trigger, Execute Workflow, Split / Parallel, Join, Split / Batch, Each / Loop and Aggregate. A catalogue entry marked Planned is not executable.
+The runtime advertises 27 node types: Manual Trigger, Webhook, Schedule, Map / Transform, IF / Condition, Merge, Wait / Delay, JSON Utilities, Error Handler, Filter, Sort, HTTP Request, Data Tables, Context Store, Request Context Respond to Webhook, Validate Schema, Parse Body, Execute Workflow Trigger, Execute Workflow, Split / Parallel, Join, Split / Batch, Each / Loop, Aggregate, Expressions and Switch / Router. A catalogue entry marked Planned is not executable.
 
 ## Data Tables and Context Store
 
@@ -142,3 +142,7 @@ Data Tables and Context Store also support `increment` and transactional `import
 ## Item processing
 
 Split / Batch creates explicit ordered batches. Each / Loop runs a pinned reusable workflow per item with bounded concurrency, stable identities and child-node retries. Aggregate collects, counts or sums ordered results. See [item semantics and examples](items.md).
+
+## Expressions and routing
+
+Expressions builds typed fields from bounded Rust operations and approved upstream references. Switch / Router selects one named route or fallback. Merge supports explicit append, by-key and branch-selection policies while preserving empty-config behavior. See [configuration and semantics](expressions.md) and public examples 26–28.
