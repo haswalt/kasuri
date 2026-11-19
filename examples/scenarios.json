@@ -300,5 +300,51 @@
       "import": "succeeded",
       "increment": "succeeded"
     }
+  },
+  {
+    "file": "workflows/22-batch-aggregate.json",
+    "outputs": {
+      "count": 3,
+      "sum": 21,
+      "merge": {
+        "count": 3,
+        "sum": 21
+      }
+    },
+    "statuses": {}
+  },
+  {
+    "file": "workflows/23-item-worker.json",
+    "outputs": {
+      "result": {
+        "item": {},
+        "processed": true
+      }
+    },
+    "statuses": {}
+  },
+  {
+    "file": "workflows/24-each-items.json",
+    "dependencies": [
+      "workflows/23-item-worker.json"
+    ],
+    "outputs": {
+      "total": 6
+    },
+    "statuses": {
+      "each": "succeeded"
+    }
+  },
+  {
+    "file": "workflows/25-collect-item-errors.json",
+    "dependencies": [
+      "workflows/23-item-worker.json"
+    ],
+    "outputs": {
+      "total": 7
+    },
+    "statuses": {
+      "each": "succeeded"
+    }
   }
 ]

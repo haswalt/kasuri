@@ -1,4 +1,5 @@
 export const catalogue = [
+  {"name":"Aggregate","category":"Core platform"},
   {"name":"Split / Parallel","category":"Core platform"},
   {"name":"Join","category":"Core platform"},
   { "name": "Execute Workflow Trigger", "category": "Core platform" },
@@ -144,7 +145,7 @@ export const catalogue = [
     "category": "Utilities, data processing, security and monitoring"
   },
   {
-    "name": "Loop",
+    "name": "Each / Loop",
     "category": "Utilities, data processing, security and monitoring"
   },
   {
@@ -215,6 +216,9 @@ export const catalogue = [
 
 export const fields: Record<string, { key: string; label: string; placeholder: string }[]> = {
   "Data Tables": [{ key: "command", label: "Data command (JSON)", placeholder: '{ "operation": "get", "tableId": "records", "key": "example" }' }],
+  "Split / Batch": [{key:"arrayPointer",label:"Input array",placeholder:""},{key:"batchSize",label:"Items per batch",placeholder:"10"}],
+  "Aggregate": [{key:"arrayPointer",label:"Input array",placeholder:""},{key:"operation",label:"Operation",placeholder:"collect"},{key:"pointer",label:"Item value",placeholder:""},{key:"missing",label:"Missing values",placeholder:"fail"}],
+  "Each / Loop": [{key:"workflowId",label:"Workflow",placeholder:""},{key:"revision",label:"Revision",placeholder:""},{key:"arrayPointer",label:"Items",placeholder:""},{key:"concurrency",label:"Item concurrency",placeholder:"1"},{key:"failurePolicy",label:"Failures",placeholder:"fail"}],
   "Execute Workflow": [{key:"workflowId",label:"Workflow",placeholder:""},{key:"revision",label:"Published revision",placeholder:""},{key:"mode",label:"Completion",placeholder:"await"},{key:"inputPointer",label:"Input JSON Pointer",placeholder:""}],
   "Execute Workflow Trigger": [{key:"outputNodeId",label:"Output node",placeholder:""},{key:"inputSchema",label:"Input schema (JSON)",placeholder:"{}"},{key:"outputSchema",label:"Output schema (JSON)",placeholder:"{}"}],
   "Split / Parallel": [{key:"concurrency",label:"Maximum simultaneous tasks",placeholder:"4"}],

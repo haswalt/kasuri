@@ -1,0 +1,62 @@
+{
+  "schemaVersion": 1,
+  "id": "23-item-worker",
+  "name": "Reusable item worker",
+  "description": "A reusable item workflow. Simulates alone from {}. Publish before importing examples 24/25.",
+  "status": "draft",
+  "revision": 0,
+  "updatedAt": "",
+  "nodes": [
+    {
+      "id": "start",
+      "type": "Execute Workflow Trigger",
+      "label": "Receive one item",
+      "config": {
+        "outputNodeId": "result",
+        "inputSchema": {
+          "type": "object"
+        },
+        "outputSchema": {
+          "type": "object",
+          "required": [
+            "item",
+            "processed"
+          ]
+        }
+      }
+    },
+    {
+      "id": "wait",
+      "type": "Wait / Delay",
+      "label": "Independent item work",
+      "config": {
+        "delayMs": 50
+      }
+    },
+    {
+      "id": "result",
+      "type": "Map / Transform",
+      "label": "Tag the original item",
+      "config": {
+        "mapping": {
+          "item": {
+            "$input": ""
+          },
+          "processed": true
+        }
+      }
+    }
+  ],
+  "edges": [
+    {
+      "id": "a",
+      "source": "start",
+      "target": "wait"
+    },
+    {
+      "id": "b",
+      "source": "wait",
+      "target": "result"
+    }
+  ]
+}

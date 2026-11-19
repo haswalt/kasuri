@@ -20,6 +20,7 @@ import { checkStorage } from './storage-checks.mjs'
 import { checkWorkspaces } from './workspace-checks.mjs'
 import { checkMcp } from './mcp-checks.mjs'
 import { checkDataTransfer } from './data-transfer-checks.mjs'
+import { checkItems } from './items-checks.mjs'
 import { checkParallel } from './parallel-checks.mjs'
 import { checkInvocations } from './invocation-checks.mjs'
 import { checkParsing } from './parsing-checks.mjs'
@@ -112,6 +113,8 @@ try {
   if (process.argv.includes('--validation-only')) {
     await checkParsing(origin, 'test:runtime-check', async () => {await stop();start();await healthy(origin)})
     await checkValidation(origin, 'test:runtime-check', async () => {await stop();start();await healthy(origin)})
+  } else if (process.argv.includes('--items-only')) {
+    await checkItems(origin, 'test:runtime-check', async () => {await stop();start();await healthy(origin)})
   } else if (process.argv.includes('--data-transfer-only')) {
     await checkDataTransfer(origin, 'test:runtime-check', async () => {await stop();start();await healthy(origin)})
   } else if (process.argv.includes('--parallel-only')) {
@@ -133,6 +136,7 @@ try {
       await healthy(origin)
     })
   } else {
+    await checkItems(origin, 'test:runtime-check', async () => {await stop();start();await healthy(origin)})
     await checkDataTransfer(origin, 'test:runtime-check', async () => {await stop();start();await healthy(origin)})
     await checkParallel(origin, 'test:runtime-check', async () => {await stop();start();await healthy(origin)})
     await checkInvocations(origin, 'test:runtime-check', async () => {await stop();start();await healthy(origin)})

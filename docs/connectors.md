@@ -1,6 +1,6 @@
 # Implemented connectors
 
-The runtime advertises 22 node types: Manual Trigger, Webhook, Schedule, Map / Transform, IF / Condition, Merge, Wait / Delay, JSON Utilities, Error Handler, Filter, Sort, HTTP Request, Data Tables, Context Store, Request Context Respond to Webhook, Validate Schema, Parse Body, Execute Workflow Trigger, Execute Workflow, Split / Parallel and Join. A catalogue entry marked Planned is not executable.
+The runtime advertises 25 node types: Manual Trigger, Webhook, Schedule, Map / Transform, IF / Condition, Merge, Wait / Delay, JSON Utilities, Error Handler, Filter, Sort, HTTP Request, Data Tables, Context Store, Request Context Respond to Webhook, Validate Schema, Parse Body, Execute Workflow Trigger, Execute Workflow, Split / Parallel, Join, Split / Batch, Each / Loop and Aggregate. A catalogue entry marked Planned is not executable.
 
 ## Data Tables and Context Store
 
@@ -138,3 +138,7 @@ Publish a reusable workflow with Execute Workflow Trigger, then call it using Ex
 Split / Parallel explicitly enables bounded concurrent branches. Join waits for all parents and either returns active outputs or collects per-branch errors. Existing multi-edge graphs remain serial. See [parallel semantics](parallel.md) and [example 20](../examples/workflows/20-parallel-context.json).
 
 Data Tables and Context Store also support `increment` and transactional `import_rows`. Their existing scopes, receipt semantics and simulation isolation apply; [example 21](../examples/workflows/21-bulk-import-counter.json) demonstrates both. The dashboard provides JSON/CSV transfer and guided filter/counter controls; see [data transfer](data-transfer.md).
+
+## Item processing
+
+Split / Batch creates explicit ordered batches. Each / Loop runs a pinned reusable workflow per item with bounded concurrency, stable identities and child-node retries. Aggregate collects, counts or sums ordered results. See [item semantics and examples](items.md).

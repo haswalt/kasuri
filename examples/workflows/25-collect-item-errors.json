@@ -1,0 +1,74 @@
+{
+  "schemaVersion": 1,
+  "id": "25-collect-item-errors",
+  "name": "Collect item errors without repeating successes",
+  "description": "Import and publish example 23 first, then import this caller. Processes each synthetic item durably and sums the ordered outputs.",
+  "status": "draft",
+  "revision": 0,
+  "updatedAt": "",
+  "nodes": [
+    {
+      "id": "start",
+      "type": "Manual Trigger",
+      "label": "Start",
+      "config": {}
+    },
+    {
+      "id": "prepare",
+      "type": "Map / Transform",
+      "label": "Synthetic items",
+      "config": {
+        "mapping": {
+          "items": [
+            {
+              "amount": 2
+            },
+            "invalid item",
+            {
+              "amount": 5
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": "each",
+      "type": "Each / Loop",
+      "label": "Process each item",
+      "config": {
+        "workflowId": "23-item-worker",
+        "arrayPointer": "/items",
+        "concurrency": 2,
+        "failurePolicy": "collect"
+      }
+    },
+    {
+      "id": "total",
+      "type": "Aggregate",
+      "label": "Sum successful amounts",
+      "config": {
+        "arrayPointer": "/items",
+        "pointer": "/output/item/amount",
+        "operation": "sum",
+        "missing": "skip"
+      }
+    }
+  ],
+  "edges": [
+    {
+      "id": "a",
+      "source": "start",
+      "target": "prepare"
+    },
+    {
+      "id": "b",
+      "source": "prepare",
+      "target": "each"
+    },
+    {
+      "id": "c",
+      "source": "each",
+      "target": "total"
+    }
+  ]
+}

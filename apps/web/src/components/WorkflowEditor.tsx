@@ -627,7 +627,7 @@ export function WorkflowEditor({
                         </select>
                       </label>
                     )}
-                    {node.type==='Execute Workflow'||node.type==='Execute Workflow Trigger' ? <InvocationBuilder node={node} workflow={workflow} hints={inputHints} onChange={config=>editNode({config})} /> : node.type === 'IF / Condition' ? <ConditionBuilder config={node.config} sample={inputHints.sample} schema={inputHints.schema} onChange={config => editNode({ config })} /> : node.type==='Filter'||node.type==='Sort' ? <CollectionBuilder kind={node.type} config={node.config} hints={inputHints} onChange={config=>editNode({config})} /> : parameterKeys.map((key) => {
+                    {node.type==='Each / Loop'||node.type==='Execute Workflow'||node.type==='Execute Workflow Trigger' ? <InvocationBuilder node={node} workflow={workflow} hints={inputHints} onChange={config=>editNode({config})} /> : node.type === 'IF / Condition' ? <ConditionBuilder config={node.config} sample={inputHints.sample} schema={inputHints.schema} onChange={config => editNode({ config })} /> : node.type==='Filter'||node.type==='Sort'||node.type==='Split / Batch'||node.type==='Aggregate' ? <CollectionBuilder kind={node.type} config={node.config} hints={inputHints} onChange={config=>editNode({config})} /> : parameterKeys.map((key) => {
                       const meta = fields[node.type]?.find((f) => f.key === key)
                       const property = (
                         (manifest?.configSchema.properties || {}) as Record<
@@ -797,7 +797,7 @@ export function WorkflowEditor({
                   <>
                     <h3>Execution</h3>
                     <label>
-                      Timeout (milliseconds)
+                      {node.type==='Each / Loop'?'Collection deadline (milliseconds)':'Timeout (milliseconds)'}
                       <input
                         type="number"
                         min={1}
@@ -812,7 +812,7 @@ export function WorkflowEditor({
                         }
                       />
                     </label>
-                    {[
+                    {node.type==='Each / Loop'?<p className={styles.muted}>Configure per-item retries on the selected child workflow nodes. Whole-collection retries are disabled.{node.retry?.maxAttempts!==undefined&&node.retry.maxAttempts!==1&&<Button onClick={()=>editNode({retry:{maxAttempts:1,delayMs:1000,maxDelayMs:60000}})}>Use child retry policy</Button>}</p>:[
                       ['maxAttempts', 'Maximum attempts', 1],
                       ['delayMs', 'Retry delay (ms)', 1000],
                       ['maxDelayMs', 'Maximum retry delay (ms)', 60000]

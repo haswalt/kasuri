@@ -2,6 +2,7 @@
 use connector_sdk::{Connector, Failure, FailureCode, Outcome, Task};
 use serde_json::{Map, Value};
 
+pub mod collections;
 pub mod conditions;
 pub mod parsing;
 pub use connectors_validation as validation;
@@ -61,6 +62,9 @@ impl Connector for CoreConnector {
                     output.insert(key, value);
                 }
                 Outcome::success(Value::Object(output))
+            }
+            "Split / Batch" | "Aggregate" => {
+                collections::execute(&node.kind, &node.config, &task.input)
             }
             "Parse Body" => parsing::execute(&node.config, &task.input),
             "Validate Schema" => validation::execute(task),
@@ -192,6 +196,8 @@ pub fn manifests() -> Vec<connector_sdk::NodeManifest> {
         ("Webhook", json!({"type":"object","properties":{"authentication":{"enum":["none","bearer","query","hmac_sha256","hmac"]},"signingSecret":{"type":"string"},"queryParameter":{"type":"string","default":"key"},"contextHeaders":{"type":"array","items":{"type":"string"}},"contextQuery":{"type":"array","items":{"type":"string"}}}})),
         ("Schedule", json!({"type":"object","properties":{"cron":{"type":"string"}}})),
         ("Filter", { let mut schema = conditions::schema(); schema["properties"]["arrayPointer"] = json!({"type":"string"}); schema }),
+        ("Split / Batch",json!({"type":"object","properties":{"arrayPointer":{"type":"string"},"batchSize":{"type":"integer","minimum":1,"maximum":100,"default":10}},"additionalProperties":false})),
+        ("Aggregate",json!({"type":"object","properties":{"arrayPointer":{"type":"string"},"operation":{"enum":["collect","count","sum"]},"pointer":{"type":"string"},"missing":{"enum":["fail","skip"]}},"required":["operation"],"additionalProperties":false})),
         ("Sort", json!({"type":"object","properties":{"arrayPointer":{"type":"string"},"pointer":{"type":"string"},"order":{"enum":["asc","desc"]}}})),
         ("Split / Parallel", json!({"type":"object","properties":{"concurrency":{"enum":[2,4,8],"default":4}},"additionalProperties":false})),
         ("Join", json!({"type":"object","properties":{"policy":{"enum":["all","collect"]}},"additionalProperties":false})),

@@ -87,6 +87,8 @@ export function RunDetails({
     onStep(index)
   }
   const node = detail.nodes[cursor]
+  const iteration=node?detail.iterations?.[node.id]:undefined
+  const relatedChildren=detail.children?.filter(child=>child.itemIndex===undefined||child.itemIndex===null)??[]
   const handleKey = (e: KeyboardEvent<HTMLElement>) => {
     if (e.defaultPrevented) return
     if ((e.target as HTMLElement).closest('input,textarea,select')) return
@@ -126,8 +128,9 @@ export function RunDetails({
           )}
         </div>
       </header>
+
       {detail.parent && <p className={styles.muted}>Invoked by run <a href={path("runs/"+encodeURIComponent(detail.parent.runId))}>{detail.parent.runId}</a> · node {detail.parent.nodeId}</p>}
-      {!!detail.children?.length && <section aria-label="Child workflow runs">{detail.children.map(child=><p key={child.runId}>{child.workflowId} · v{child.revision} · {child.awaited?"Awaited":"Background"} · {child.status} · <a href={path("runs/"+encodeURIComponent(child.runId))}>{child.runId}</a></p>)}</section>}
+      {!!relatedChildren.length && <section aria-label="Child workflow runs">{relatedChildren.map(child=><p key={child.runId}>{child.itemIndex!==null&&child.itemIndex!==undefined?`Item ${child.itemIndex+1} · `:''}{child.workflowId} · v{child.revision} · {child.awaited?"Awaited":"Background"} · {child.status} · <a href={path("runs/"+encodeURIComponent(child.runId))}>{child.runId}</a></p>)}</section>}
       {error && (
         <div className={styles.errorPanel} role="alert">
           <p>{error}</p>
@@ -223,6 +226,7 @@ export function RunDetails({
                   <strong className={styles.mono}>{node.attempts}</strong>
                 </div>
               </div>
+              {iteration&&<section className={styles.itemResults} aria-label="Item processing results"><h3>{iteration.items.length} items · input order</h3><table><thead><tr><th>Item</th><th>Status</th><th>Result</th></tr></thead><tbody>{iteration.items.map(item=><tr key={item.itemId}><td title={item.itemId}>{item.index+1}</td><td>{item.status}{item.runId&&<> · <a href={path('runs/'+encodeURIComponent(item.runId))}>Child run</a></>}</td><td><code>{item.error??(item.output===undefined?'—':JSON.stringify(item.output))}</code></td></tr>)}</tbody></table></section>}
               <div className={styles.ioGrid}>
                 <div>
                   <div className={styles.wellLabel}>

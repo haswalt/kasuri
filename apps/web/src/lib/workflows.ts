@@ -68,7 +68,7 @@ export function parseWorkflow(text: string, validate = true, known:Workflow[]=[]
   const source=typeof value.id==='string'&&/^[A-Za-z0-9_-]{1,160}$/.test(value.id)?value.id:undefined
   const workflow: Workflow = { ...value, importedFrom:source, id: uid(), status: 'draft', revision: 0, updatedAt: new Date().toISOString() }
   for(const node of workflow.nodes){
-    if(node.type!=='Execute Workflow'||typeof node.config.workflowId!=='string')continue
+    if(!['Execute Workflow','Each / Loop'].includes(node.type)||typeof node.config.workflowId!=='string')continue
     // Retained revision numbers are installation-local and need explicit selection.
     if(node.config.revision!==undefined)continue
     const target=node.config.workflowId

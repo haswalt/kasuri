@@ -5,23 +5,31 @@ use std::collections::{BTreeMap, BTreeSet};
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Parent {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub item_id: Option<String>,
     pub run_id: String,
     pub node_id: String,
     pub root_id: String,
     pub depth: u32,
     pub awaited: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub item_index: Option<usize>,
 }
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Child {
+    #[serde(default)]
+    pub collected: bool,
     pub node_id: String,
     pub run_id: String,
     pub workflow_id: String,
     pub revision: u32,
     pub awaited: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub item_index: Option<usize>,
     pub status: RunStatus,
 }
-fn contract(
+pub(crate) fn contract(
     config: &serde_json::Map<String, Value>,
     key: &str,
     value: Option<&Value>,
@@ -63,6 +71,8 @@ pub fn validate_node(node: &workflow_schema::Node, graph: &Workflow) -> Result<(
         }
         contract(&node.config, "inputSchema", None)?;
         contract(&node.config, "outputSchema", None)?;
+    } else if node.kind == "Each / Loop" {
+        crate::items::validate(node)?;
     } else {
         if node.config.keys().any(|k| {
             !matches!(
@@ -96,7 +106,7 @@ pub fn validate_node(node: &workflow_schema::Node, graph: &Workflow) -> Result<(
     }
     Ok(())
 }
-fn target_key(node: &workflow_schema::Node) -> String {
+pub(crate) fn target_key(node: &workflow_schema::Node) -> String {
     json!([node.config.get("workflowId"), node.config.get("revision")]).to_string()
 }
 impl Workspace {
@@ -118,7 +128,11 @@ impl Workspace {
             if !path.insert(graph.id.clone()) {
                 return Err(error(400, "Recursive workflow invocation is not supported"));
             }
-            for node in graph.nodes.iter().filter(|n| n.kind == "Execute Workflow") {
+            for node in graph
+                .nodes
+                .iter()
+                .filter(|n| matches!(n.kind.as_str(), "Execute Workflow" | "Each / Loop"))
+            {
                 validate_node(node, graph)?;
                 let id = node.config["workflowId"].as_str().unwrap();
                 let mut doc = ws.live_document(id)?;
@@ -156,7 +170,7 @@ impl Workspace {
         visit(self, graph, &mut BTreeSet::new(), &mut targets, 0)?;
         Ok(targets)
     }
-    fn run_index(&self, id: &str) -> Option<usize> {
+    pub(crate) fn run_index(&self, id: &str) -> Option<usize> {
         self.runs
             .iter()
             .position(|r| r.restore().is_ok_and(|r| r.id() == id))
@@ -172,10 +186,12 @@ impl Workspace {
                     .parent
                     .as_ref()
                     .is_some_and(|p| p.root_id == run.id() || p.run_id == run.id())
-                    || r.children.iter().any(|c| c.awaited && c.run_id == run.id()))
+                    || r.children
+                        .iter()
+                        .any(|c| c.awaited && !c.collected && c.run_id == run.id()))
         })
     }
-    fn child_output(record: &RunRecord) -> Result<Value, ApiError> {
+    pub(crate) fn child_output(record: &RunRecord) -> Result<Value, ApiError> {
         let run = record.restore()?;
         let trigger = run
             .workflow()
@@ -197,7 +213,7 @@ impl Workspace {
         contract(&trigger.config, "outputSchema", Some(&output))?;
         Ok(output)
     }
-    fn cancel_child(&mut self, id: &str) -> Result<bool, ApiError> {
+    pub(crate) fn cancel_child(&mut self, id: &str) -> Result<bool, ApiError> {
         let Some(index) = self.run_index(id) else {
             return Ok(false);
         };
@@ -218,7 +234,14 @@ impl Workspace {
     }
     /// All transitions commit with the workspace before any child network/data effect.
     pub fn settle_invocations(&mut self, now: u64) -> Result<(), ApiError> {
-        for _ in 0..128 {
+        let item_work = self.runs.iter().any(|r| {
+            r.external
+                .iter()
+                .chain(r.pending.iter())
+                .any(|e| e.task.node.kind == "Each / Loop")
+        });
+        // Bound synchronous collection work; remaining progress is alarm-backed.
+        for _ in 0..if item_work { 8 } else { 128 } {
             let mut changed = false;
             for record in &mut self.runs {
                 if record.parent.is_some()
@@ -355,6 +378,7 @@ impl Workspace {
                     self.runs[index].wake_at = Some(wake.max(now.saturating_add(1)));
                 }
             }
+            changed |= self.settle_items(now)?;
             if !changed {
                 break;
             }
@@ -373,7 +397,7 @@ impl Workspace {
         }
         Ok(())
     }
-    fn finish_invocation(
+    pub(crate) fn finish_invocation(
         &mut self,
         id: &str,
         task: &Task,
@@ -403,6 +427,15 @@ impl Workspace {
         record.advance(now)
     }
     fn create_child(&mut self, index: usize, task: &Task, now: u64) -> Result<Child, ApiError> {
+        self.create_item_child(index, task, now, None)
+    }
+    pub(crate) fn create_item_child(
+        &mut self,
+        index: usize,
+        task: &Task,
+        now: u64,
+        item_index: Option<usize>,
+    ) -> Result<Child, ApiError> {
         let record = &self.runs[index];
         let parent_run = record.restore()?;
         let graph = record
@@ -436,7 +469,17 @@ impl Workspace {
             .run_index(&root_id)
             .ok_or_else(|| error(409, "Invocation root is unavailable"))?;
         if depth > 4
-            || self.runs[root_index].child_count >= 16
+            || self.runs[root_index].child_count
+                >= if self.runs[root_index]
+                    .invocation_targets
+                    .values()
+                    .chain(std::iter::once(self.runs[root_index].restore()?.workflow()))
+                    .any(|g| g.nodes.iter().any(|n| n.kind == "Each / Loop"))
+                {
+                    256
+                } else {
+                    16
+                }
             || self
                 .runs
                 .iter()
@@ -472,11 +515,15 @@ impl Workspace {
             root_id,
             depth,
             awaited,
+            item_index,
+            item_id: item_index
+                .map(|_| format!("item-{:x}", Sha256::digest(task.idempotency_key.as_bytes()))),
         };
         let mut child_record = RunRecord {
             invocation_targets: record.invocation_targets.clone(),
             parent: Some(parent.clone()),
             children: vec![],
+            iterations: BTreeMap::new(),
             child_count: 0,
             external: None,
             pending: Vec::new(),
@@ -497,6 +544,8 @@ impl Workspace {
             revision: graph.revision,
             awaited,
             status: child_record.status()?,
+            item_index,
+            collected: false,
         };
         self.runs[root_index].child_count += 1;
         self.runs[index].children.push(child.clone());

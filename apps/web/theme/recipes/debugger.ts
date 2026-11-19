@@ -4,6 +4,7 @@ export const runDebugger = defineSlotRecipe({
   className: 'debugger',
   slots: [
     'runModal',
+    'itemResults',
     'debugger',
     'debuggerHeader',
     'debuggerMeta',
@@ -22,6 +23,13 @@ export const runDebugger = defineSlotRecipe({
     'runDetailPage'
   ],
   base: {
+    itemResults: {
+      maxHeight:'240px', overflow:'auto', marginBottom:'20px',
+      '& h3':{fontSize:'12px',marginBottom:'10px'},
+      '& table':{width:'100%',borderCollapse:'collapse',fontSize:'11px'},
+      '& th, & td':{padding:'8px',textAlign:'left',borderBottom:'1px solid {colors.line}',verticalAlign:'top'},
+      '& code':{whiteSpace:'pre-wrap',overflowWrap:'anywhere'},
+    },
     runModal: {
       '&&': {
         width: '1180px',

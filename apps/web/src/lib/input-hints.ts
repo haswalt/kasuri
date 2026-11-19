@@ -53,7 +53,10 @@ export function workflowInputHints(workflow: Workflow, nodeId: string | undefine
     const incoming=workflow.edges.find(e=>e.target===id)
     const parent=incoming?output(incoming.source,depth+1):{sample:initial}
     let hint:InputHints=parent
-    if(node.type==='Join') {
+    if(node.type==='Split / Batch')hint={sample:null,schema:{type:'object',properties:{batches:{type:'array',items:{type:'array'}},total:{type:'integer'},batchSize:{type:'integer'}}}}
+    else if(node.type==='Each / Loop')hint={sample:null,schema:{type:'object',properties:{items:{type:'array',items:{type:'object',properties:{index:{type:'integer'},itemId:{type:'string'},runId:{type:'string'},status:{enum:['succeeded','failed','cancelled']},output:{},error:{type:'string'}}}},total:{type:'integer'},succeeded:{type:'integer'},failed:{type:'integer'}}}}
+    else if(node.type==='Aggregate')hint={sample:null,schema:node.config.operation==='collect'?{type:'array'}:{type:'number'}}
+    else if(node.type==='Join') {
       const sample:Record<string,Json>={},properties:Record<string,Json>={}
       for(const edge of workflow.edges.filter(e=>e.target===id)) {const branch=output(edge.source,depth+1);sample[edge.source]=node.config.policy==='collect'?{status:'succeeded',output:branch.sample}:branch.sample;properties[edge.source]=node.config.policy==='collect'?{type:'object',properties:{status:{enum:['succeeded','failed','skipped']},output:branch.schema??{},error:{type:'string'}}}:branch.schema??inferredSchema(branch.sample)}
       hint={sample,schema:{type:'object',properties}}

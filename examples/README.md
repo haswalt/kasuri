@@ -2,7 +2,7 @@
 
 Download a JSON file from [workflows](workflows/) (use GitHub's **Download raw file**), open your Kasuri installation, choose **Workflows → Import JSON**, and select it. The files are ordinary workflow exports committed with the project, not preloaded workspace data or an application demo mode.
 
-Every example accepts the default `{}` input. No accounts, API keys, environment variables or installation-specific URLs are required. For example 19, import and publish the reusable workflow 18 first; importing the caller automatically binds both calls to that imported child, without ID edits. The other examples can immediately use **Run now** or **Simulate → Play**. Imported workflows are drafts with fresh IDs, so importing does not activate recurring jobs or webhook endpoints.
+Every example accepts the default `{}` input. No accounts, API keys, environment variables or installation-specific URLs are required. For example 19, import and publish the reusable workflow 18 first; for examples 24/25, import and publish 23 first; importing the caller automatically binds both calls to that imported child, without ID edits. The other examples can immediately use **Run now** or **Simulate → Play**. Imported workflows are drafts with fresh IDs, so importing does not activate recurring jobs or webhook endpoints.
 
 | Example | Level | What to inspect |
 | --- | --- | --- |
@@ -27,6 +27,10 @@ Every example accepts the default `{}` input. No accounts, API keys, environment
 | [19 Invoke workflow](workflows/19-invoke-workflow.json) | Parent/child | Import and publish example 18 first, then await a result and launch background work. No secrets or configuration edits. |
 | [20 Parallel context](workflows/20-parallel-context.json) | Parallel branches | Record context alongside processing, then join both results. No input or configuration required. |
 | [21 Bulk import and counter](workflows/21-bulk-import-counter.json) | Data operations | Atomically import synthetic records and increment an integer without a read/write race. No configuration required. |
+| [22 Batch and aggregate](workflows/22-batch-aggregate.json) | Collection adapters | Split six values into three batches and sum the original values exactly. |
+| [23 Item worker](workflows/23-item-worker.json) | Reusable child | Tag one input object; runs independently from {}. Publish before importing 24/25. |
+| [24 Each items](workflows/24-each-items.json) | Durable items | Process three items with concurrency two, then aggregate ordered results. |
+| [25 Collect item errors](workflows/25-collect-item-errors.json) | Failure handling | Reject an invalid item, preserve successful results and aggregate them explicitly. |
 
 Together these cover every currently implemented node: Manual Trigger, Webhook, Schedule, Map / Transform, IF / Condition, Merge, Wait / Delay, JSON Utilities, Error Handler, HTTP Request, Filter and Sort.
 

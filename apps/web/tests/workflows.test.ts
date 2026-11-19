@@ -72,3 +72,9 @@ test('public reusable-workflow examples bind both calls without ID edits',()=>{
  const pinned=JSON.parse(text);pinned.nodes.find((n:{type:string})=>n.type==='Execute Workflow').config.revision=1
  assert.equal(parseWorkflow(JSON.stringify(pinned),true,[child]).nodes.find(n=>n.type==='Execute Workflow')?.config.workflowId,'18-reusable-workflow')
 })
+
+test('Each imports bind to the imported item workflow without hand-editing IDs',()=>{
+ const child=parseWorkflow(readFileSync(new URL('../../../examples/workflows/23-item-worker.json',import.meta.url),'utf8'))
+ const parent=parseWorkflow(readFileSync(new URL('../../../examples/workflows/24-each-items.json',import.meta.url),'utf8'),true,[child])
+ assert.equal(parent.nodes.find(n=>n.type==='Each / Loop')?.config.workflowId,child.id)
+})

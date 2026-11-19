@@ -111,7 +111,7 @@ fn unsupported_nodes_never_execute_code_or_perform_http() {
 #[test]
 fn manifests_only_advertise_implemented_versioned_nodes() {
     let manifests = connectors_core::manifests();
-    assert_eq!(manifests.len(), 15);
+    assert_eq!(manifests.len(), 17);
     assert!(
         manifests
             .iter()

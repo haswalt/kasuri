@@ -1,0 +1,99 @@
+{
+  "schemaVersion": 1,
+  "id": "22-batch-aggregate",
+  "name": "Batch and aggregate an explicit collection",
+  "description": "Split six synthetic values into three batches and sum the original values, without implicit per-item execution. No input or configuration.",
+  "status": "draft",
+  "revision": 0,
+  "updatedAt": "",
+  "nodes": [
+    {
+      "id": "start",
+      "type": "Manual Trigger",
+      "label": "Start",
+      "config": {}
+    },
+    {
+      "id": "prepare",
+      "type": "Map / Transform",
+      "label": "Synthetic collection",
+      "config": {
+        "mapping": {
+          "values": [
+            1,
+            2,
+            3,
+            4,
+            5,
+            6
+          ]
+        }
+      }
+    },
+    {
+      "id": "batch",
+      "type": "Split / Batch",
+      "label": "Two values per batch",
+      "config": {
+        "arrayPointer": "/values",
+        "batchSize": 2
+      }
+    },
+    {
+      "id": "count",
+      "type": "Aggregate",
+      "label": "Count batches",
+      "config": {
+        "arrayPointer": "/batches",
+        "operation": "count"
+      }
+    },
+    {
+      "id": "sum",
+      "type": "Aggregate",
+      "label": "Exact numeric total",
+      "config": {
+        "arrayPointer": "/values",
+        "operation": "sum"
+      }
+    },
+    {
+      "id": "merge",
+      "type": "Merge",
+      "label": "Inspect both summaries",
+      "config": {}
+    }
+  ],
+  "edges": [
+    {
+      "id": "0",
+      "source": "start",
+      "target": "prepare"
+    },
+    {
+      "id": "1",
+      "source": "prepare",
+      "target": "batch"
+    },
+    {
+      "id": "2",
+      "source": "batch",
+      "target": "count"
+    },
+    {
+      "id": "3",
+      "source": "prepare",
+      "target": "sum"
+    },
+    {
+      "id": "4",
+      "source": "count",
+      "target": "merge"
+    },
+    {
+      "id": "5",
+      "source": "sum",
+      "target": "merge"
+    }
+  ]
+}

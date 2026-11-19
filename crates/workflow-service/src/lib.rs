@@ -3,6 +3,7 @@
 mod audit;
 mod http_api;
 pub mod invocation;
+mod items;
 mod publication;
 mod webhook_response;
 use chrono::{DateTime, SecondsFormat, Utc};
@@ -98,6 +99,8 @@ pub struct RunRecord {
     #[serde(default)]
     pub children: Vec<invocation::Child>,
     #[serde(default)]
+    pub iterations: std::collections::BTreeMap<String, items::Iteration>,
+    #[serde(default)]
     pub child_count: u32,
     #[serde(default)]
     pub external: Option<ExternalTask>,
@@ -146,7 +149,7 @@ impl RunRecord {
             value
         }).collect();
         Ok(
-            json!({"id":run.id(),"workflowId":run.workflow().id,"name":run.workflow().name,"revision":run.workflow().revision,"createdAt":iso(self.created_at),"mode":self.mode,"status":self.status()?,"nodes":nodes,"webhookResponse":if summary {self.webhook_response.as_ref().map(|w|json!({"delivery":w.delivery,"deadlineMs":w.deadline_ms,"closedAt":w.closed_at}))}else{self.webhook_response.as_ref().map(|w|json!(w))},"parent":self.parent,"children":self.children,"context":if summary {Value::Null}else{self.trigger_context.clone()},"input":if summary {Value::Null}else{state["input"].clone()},"error":self.host_error.clone().map(Value::String).unwrap_or_else(||state["failure"].clone()),"wakeAt":self.wake_at}),
+            json!({"id":run.id(),"workflowId":run.workflow().id,"name":run.workflow().name,"revision":run.workflow().revision,"createdAt":iso(self.created_at),"mode":self.mode,"status":self.status()?,"nodes":nodes,"webhookResponse":if summary {self.webhook_response.as_ref().map(|w|json!({"delivery":w.delivery,"deadlineMs":w.deadline_ms,"closedAt":w.closed_at}))}else{self.webhook_response.as_ref().map(|w|json!(w))},"parent":self.parent,"children":self.children,"iterations":if summary {Value::Null}else{json!(self.iterations)},"context":if summary {Value::Null}else{self.trigger_context.clone()},"input":if summary {Value::Null}else{state["input"].clone()},"error":self.host_error.clone().map(Value::String).unwrap_or_else(||state["failure"].clone()),"wakeAt":self.wake_at}),
         )
     }
     fn advance(&mut self, now: u64) -> Result<(), ApiError> {
@@ -171,9 +174,16 @@ impl RunRecord {
                 return Ok(());
             }
             if connectors_data::handles(&external.task.node.kind)
-                || external.task.node.kind == "Execute Workflow"
+                || matches!(
+                    external.task.node.kind.as_str(),
+                    "Execute Workflow" | "Each / Loop"
+                )
             {
-                self.wake_at = Some(now.saturating_add(1));
+                self.wake_at = Some(if external.task.node.kind == "Each / Loop" {
+                    external.task.deadline_ms
+                } else {
+                    now.saturating_add(1)
+                });
                 return Ok(());
             }
             if now < external.task.deadline_ms {
@@ -217,7 +227,7 @@ impl RunRecord {
             });
             match dispatch {
                 Dispatch::Task(task) => {
-                    if task.node.kind == "Execute Workflow"
+                    if matches!(task.node.kind.as_str(), "Execute Workflow" | "Each / Loop")
                         || connectors_data::handles(&task.node.kind)
                         || (task.node.kind == "HTTP Request" && self.mode != Mode::Simulation)
                     {
@@ -332,7 +342,15 @@ impl RunRecord {
         if run.status() == RunStatus::Running && self.wake_at.is_none() {
             self.wake_at = Some(clock.saturating_add(1));
         }
-        if run.status() == RunStatus::Running && self.pending.iter().any(|e| !e.dispatched) {
+        if run.status() == RunStatus::Running
+            && self.pending.iter().any(|e| {
+                !e.dispatched
+                    && !matches!(
+                        e.task.node.kind.as_str(),
+                        "Execute Workflow" | "Each / Loop"
+                    )
+            })
+        {
             self.wake_at = Some(self.wake_at.unwrap_or(u64::MAX).min(now.saturating_add(1)));
         }
         if matches!(
@@ -516,9 +534,13 @@ impl Workspace {
             }
             if matches!(
                 node.kind.as_str(),
-                "Execute Workflow" | "Execute Workflow Trigger"
+                "Execute Workflow" | "Execute Workflow Trigger" | "Each / Loop"
             ) {
                 invocation::validate_node(node, &document.graph)?;
+            }
+            if matches!(node.kind.as_str(), "Split / Batch" | "Aggregate") {
+                connectors_core::collections::validate(&node.kind, &node.config)
+                    .map_err(|_| error(400, "Invalid collection configuration"))?;
             }
             if node.kind == "Parse Body" {
                 connectors_core::parsing::validate(&node.config)
@@ -651,6 +673,7 @@ impl Workspace {
             invocation_targets,
             parent: None,
             children: Vec::new(),
+            iterations: std::collections::BTreeMap::new(),
             child_count: 0,
             external: None,
             pending: Vec::new(),
@@ -1324,8 +1347,10 @@ impl Workspace {
             }
             let run_id = record.restore()?.id().to_string();
             for external in record.external.iter_mut().chain(record.pending.iter_mut()) {
-                if external.task.node.kind != "Execute Workflow"
-                    && !connectors_data::handles(&external.task.node.kind)
+                if !matches!(
+                    external.task.node.kind.as_str(),
+                    "Execute Workflow" | "Each / Loop"
+                ) && !connectors_data::handles(&external.task.node.kind)
                     && !external.dispatched
                     && now < external.task.deadline_ms
                 {
@@ -1512,6 +1537,8 @@ pub fn schedule(workflow: &Workflow, after: u64) -> Result<Option<Schedule>, Api
 
 pub fn manifests() -> Vec<connector_sdk::NodeManifest> {
     let mut manifests = connectors_core::manifests();
+    manifests.push(connector_sdk::NodeManifest{kind:"Each / Loop".into(),version:1,config_schema:json!({"type":"object","properties":{"workflowId":{"type":"string"},"revision":{"type":"integer","minimum":1},"arrayPointer":{"type":"string"},"concurrency":{"enum":[1,2,4]},"failurePolicy":{"enum":["fail","collect"]}},"required":["workflowId"],"additionalProperties":false}),output_ports:vec!["success".into(),"error".into()],has_external_side_effects:true});
+
     manifests.push(connector_sdk::NodeManifest{kind:"Execute Workflow Trigger".into(),version:1,config_schema:json!({"type":"object","properties":{"outputNodeId":{"type":"string"},"inputSchema":{},"outputSchema":{}},"required":["outputNodeId"],"additionalProperties":false}),output_ports:vec!["success".into(),"error".into()],has_external_side_effects:false});
     manifests.push(connector_sdk::NodeManifest{kind:"Execute Workflow".into(),version:1,config_schema:json!({"type":"object","properties":{"workflowId":{"type":"string"},"revision":{"type":"integer","minimum":1},"mode":{"enum":["await","background"]},"inputPointer":{"type":"string"}},"required":["workflowId"],"additionalProperties":false}),output_ports:vec!["success".into(),"error".into()],has_external_side_effects:true});
 
