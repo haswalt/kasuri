@@ -42,16 +42,17 @@ pub async fn main(req: Request, env: Env, _ctx: Context) -> Result<Response> {
         return id.get_stub()?.fetch_with_request(req).await;
     }
     // Webhooks use their own event authentication and never inherit browser cookies.
-    if url.path().starts_with("/api/hooks/") {
+    if url.path().starts_with("/api/hooks/") || url.path().starts_with("/hooks/") {
         let parts: Vec<_> = url.path().trim_matches('/').split('/').collect();
-        if parts.len() != 5
-            || parts[2].len() != 64
-            || !parts[2].bytes().all(|b| b.is_ascii_hexdigit())
-        {
+        let workspace = match parts.as_slice() {
+            ["hooks", workspace, _] | ["api", "hooks", workspace, _, _] => *workspace,
+            _ => return api_error(404, "Webhook not found"),
+        };
+        if workspace.len() != 64 || !workspace.bytes().all(|b| b.is_ascii_hexdigit()) {
             return api_error(404, "Webhook not found");
         }
         let namespace = env.durable_object("WORKSPACES")?;
-        let id = match namespace.id_from_string(parts[2]) {
+        let id = match namespace.id_from_string(workspace) {
             Ok(id) => id,
             Err(_) => return api_error(404, "Webhook not found"),
         };
@@ -214,7 +215,7 @@ impl DurableObject for WorkflowWorkspace {
         if mcp::public_workspace(&path).is_some() {
             return self.mcp_public(req).await;
         }
-        if path.starts_with("/api/hooks/") {
+        if path.starts_with("/api/hooks/") || path.starts_with("/hooks/") {
             return self.incoming_webhook(req).await;
         }
         let token = req.headers().get("X-Kasuri-Session")?.unwrap_or_default();

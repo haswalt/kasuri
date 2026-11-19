@@ -3,7 +3,7 @@
 Kasuri serves its MCP management endpoint directly from Rust/Wasm on Cloudflare Workers and self-hosted workerd. No TypeScript API, separate MCP service or alternative workflow engine is involved. Open **MCP server** in your installation and copy the displayed endpoint. It has the deployment's origin and a workspace-specific route:
 
 ```text
-https://kasuri.example/mcp/<workspace-id>/mcp
+https://kasuri.example/mcp/<workspace-id>
 ```
 
 The routing ID is not a password. Every MCP request needs its own scoped bearer credential. Browser cookies, Basic authentication passwords and MCP session identifiers do not grant agent access. Different workspace routes and deployment origins have separate audiences; a token issued for one is rejected at another. No credentials or personal deployment details are shipped with the repository.
@@ -85,3 +85,5 @@ Protocol references: [MCP 2025 transport](https://modelcontextprotocol.io/specif
 Draft saves preserve the published graph, webhook authentication and schedule. `lifecycle.publishedRevision`, `lifecycle.enabled` and `hasUnpublishedChanges` describe these independent states. History starts with this storage version; legacy active/paused definitions become explicitly marked current baselines, while edited legacy drafts with unavailable live definitions require explicit review and publication. History currently shares the bounded workspace checkpoint budget.
 
 Workflow trash is recoverable. Archiving stops future triggers and scheduling, retains definitions/history/runs, and leaves in-flight runs to finish. Restoring never reactivates triggers. The `delete` scope is explicit; existing Operator/Builder grants are not expanded. No permanent-delete tool is exposed.
+
+The earlier `/mcp/<workspace-id>/mcp` URL and its protected-resource discovery URL remain compatibility aliases. Existing bearer/OAuth grants stay bound to their original audience, and existing OAuth clients may refresh against that same audience through the unchanged issuer. New portal credentials and discovery use the canonical single-`mcp` path. No credential-bearing POST is redirected, and tokens are not silently accepted across both audience URLs.

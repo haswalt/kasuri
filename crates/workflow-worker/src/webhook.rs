@@ -92,8 +92,7 @@ impl WorkflowWorkspace {
             Ok(mut value) => {
                 if let Some(endpoint) = value["endpointId"].as_str() {
                     let endpoint = endpoint.to_string();
-                    value["path"] =
-                        json!(format!("/api/hooks/{}/{id}/{endpoint}", self.state.id()));
+                    value["path"] = json!(format!("/hooks/{}/{endpoint}", self.state.id()));
                 }
                 Response::from_json(&value)?
             }
@@ -104,11 +103,15 @@ impl WorkflowWorkspace {
     pub(crate) async fn incoming_webhook(&self, mut req: Request) -> Result<Response> {
         let path = req.url()?.path().to_string();
         let parts: Vec<_> = path.trim_matches('/').split('/').collect();
-        if parts.len() != 5
-            || parts[0] != "api"
-            || parts[1] != "hooks"
-            || parts[2] != self.state.id().to_string()
-        {
+        let own_id = self.state.id().to_string();
+        let (workspace_id, legacy_workflow, endpoint) = match parts.as_slice() {
+            ["hooks", workspace, endpoint] => (*workspace, None, *endpoint),
+            ["api", "hooks", workspace, workflow, endpoint] => {
+                (*workspace, Some(*workflow), *endpoint)
+            }
+            _ => return api_error(404, "Webhook not found"),
+        };
+        if workspace_id != own_id {
             return api_error(404, "Webhook not found");
         }
         if req.method() != Method::Post {
@@ -139,16 +142,14 @@ impl WorkflowWorkspace {
         }
         // Reload after all network/body awaits. Authentication headers never enter workflow input.
         let mut workspace = self.load()?;
-        let id = parts[3];
-        let endpoint = parts[4];
-        let registration = match workspace
-            .webhooks
-            .iter()
-            .find(|w| w.workflow_id == id && w.endpoint_id == endpoint)
-        {
+        let registration = match workspace.webhooks.iter().find(|w| {
+            w.endpoint_id == endpoint && legacy_workflow.is_none_or(|id| w.workflow_id == id)
+        }) {
             Some(r) => r,
             None => return api_error(404, "Webhook not found"),
         };
+        let id = registration.workflow_id.clone();
+        let id = id.as_str();
         let doc = match workspace.live_document(id) {
             Ok(doc) => doc,
             Err(_) => return api_error(404, "Webhook not found"),

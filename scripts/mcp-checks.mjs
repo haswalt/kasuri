@@ -30,7 +30,7 @@ export async function checkMcp(origin, credentials, restart) {
   const status = await owner('mcp')
   const endpoint = status.endpoint
   assert.ok(endpoint.startsWith(origin + '/mcp/'))
-  assert.ok(endpoint.endsWith('/mcp'))
+  assert.match(new URL(endpoint).pathname, /^\/mcp\/[a-f0-9]{64}$/)
   const anonymous = await boundedFetch(endpoint, { headers: { cookie } })
   assert.equal(anonymous.status, 401)
   const metadata = anonymous.headers
@@ -408,6 +408,22 @@ export async function checkMcp(origin, credentials, restart) {
   assert.notEqual(rotated.refresh_token, access.refresh_token)
   await oauth(discovery.token_endpoint, refresh, 400)
   await rpc(rotated.access_token, 'ping', {}, 401)
+  const legacyEndpoint=endpoint+'/mcp'
+  const legacyMetadata=origin+'/.well-known/oauth-protected-resource'+new URL(legacyEndpoint).pathname
+  assert.equal((await (await boundedFetch(legacyMetadata)).json()).resource,legacyEndpoint)
+  const legacyAuthorize=new URL(authUrl)
+  legacyAuthorize.searchParams.set('resource',legacyEndpoint)
+  legacyAuthorize.searchParams.set('state','legacy-client-state')
+  const legacyRequest=await boundedFetch(legacyAuthorize,{redirect:'manual'})
+  assert.equal(legacyRequest.status,302)
+  const legacyId=new URL(legacyRequest.headers.get('location')).searchParams.get('authorize')
+  const legacyConsent=await owner('mcp/oauth/'+legacyId+'/approve','POST',{scopes:['read']})
+  const legacyAccess=await oauth(discovery.token_endpoint,{...exchange,resource:legacyEndpoint,code:new URL(legacyConsent.redirect).searchParams.get('code')})
+  const legacyRpc=await boundedFetch(legacyEndpoint,{method:'POST',headers:{Authorization:'Bearer '+legacyAccess.access_token,'Content-Type':'application/json',Accept:'application/json, text/event-stream'},body:JSON.stringify({jsonrpc:'2.0',id:1,method:'ping'})})
+  assert.equal(legacyRpc.status,200)
+  await rpc(legacyAccess.access_token,'ping',{},401)
+  const legacyRefresh=await oauth(discovery.token_endpoint,{grant_type:'refresh_token',client_id:client.client_id,resource:legacyEndpoint,refresh_token:legacyAccess.refresh_token})
+  assert.ok(legacyRefresh.access_token)
   await owner('mcp/credentials/' + builder.id, 'DELETE')
   await rpc(builder.token, 'ping', {}, 401)
   assert.equal(

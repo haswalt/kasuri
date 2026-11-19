@@ -16,6 +16,7 @@ This plan combines the reported product issues with the supplied n8n migration g
 - Completed: recoverable workflow trash and restore across UI/REST/MCP; archived workflows stop new triggers and remain out of normal lists, in-flight runs finish, and restoration leaves triggers paused. MCP destructive management has a separate `delete` scope and Manager profile without expanding existing roles.
 - Completed: semantic management-only audit with named entities, safe field/node change summaries, before/after state references and a detail dialog; reads, run events, no-ops and duplicate MCP transport events are excluded. Workspace catalogue changes are recorded in the Personal owner workspace.
 - Completed: HTTP API v2 removes the public unversioned-write compatibility bypass. Existing graph writes require `version`; publication/activation and run requests require `expectedVersion`. Raw HTTP regression tests cover missing, malformed and stale values.
+- Completed: canonical single-`mcp` endpoint and `/hooks/<workspace>/<hook>` ingress outside `/api`, with direct legacy aliases and preserved OAuth audiences/refresh flows.
 - Remaining in lifecycle delivery: additional history/diff polish. Stable public routing keys and the bounded JavaScript feasibility spike are also outstanding foundations.
 
 ## Outcomes and boundaries

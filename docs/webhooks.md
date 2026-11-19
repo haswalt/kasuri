@@ -6,7 +6,7 @@ Webhook triggers accept external JSON events and start durable runs of published
 
 1. Add or select a Webhook trigger and save the workflow.
 2. In the trigger inspector, choose **Generate endpoint and token**. Copy the POST URL and bearer token; the token is shown only in that response and is stored server-side as a hash.
-3. Publish the workflow. Draft and paused workflows do not accept events.
+3. Publish the workflow. Unpublished and paused workflows do not accept events. Saving changes to an active workflow preserves its currently published trigger.
 4. Send an authenticated JSON POST with a unique `X-Kasuri-Event-Id`.
 
 ```sh
@@ -56,7 +56,7 @@ This is Kasuri's generic signing format. Provider-specific formats such as GitHu
 
 ## Lifecycle, retries and limits
 
-- Publishing/resuming enables deliveries. Pausing, or saving a new draft, disables them. A running workflow is not cancelled merely because its trigger is paused.
+- Publishing changed content activates its new immutable definition; resuming enables the existing published trigger. An unchanged publish preserves pause state. Draft saves preserve the live graph and authentication. Pausing or archiving stops new deliveries while existing runs finish.
 - Endpoint metadata reports the current activation state. Changing a trigger away from Webhook also disables its endpoint.
 - Within a 24-hour window, the same endpoint and event ID with identical raw payload bytes returns the original run ID with `duplicate: true`, including after a restart. Reusing that ID with different bytes returns `409 Conflict`.
 - Endpoint rotation starts a new deduplication scope. A replay after rotation or expiration can create a new run; inbound deduplication does not guarantee exactly-once external side effects.
@@ -66,7 +66,7 @@ This is Kasuri's generic signing format. Provider-specific formats such as GitHu
 
 ## Browser session protection
 
-Management cookies contain a workspace routing ID plus an independent random session token, whose hash is stored separately in SQLite. Knowing the workspace routing ID present in a webhook URL does not authorize access to workflows or run history. Sender-supplied management headers are overwritten at the public Worker boundary.
+Management cookies identify a browser ownership session using an independent random token whose hash is stored separately in SQLite. The selected workspace is carried per request and must belong to that owner session. Knowing the workspace routing ID present in a webhook URL does not authorize access to workflows or run history. Sender-supplied management headers are overwritten at the public Worker boundary.
 
 Existing browser capabilities are upgraded on their next authorized management request. Keep the session-auth SQLite table when restoring backups. Versions predating this protection must not serve management requests for workspaces with exposed webhook routing IDs.
 
@@ -76,8 +76,10 @@ Existing browser capabilities are upgraded on their next authorized management r
 | --- | --- | --- |
 | GET | `/api/workflows/:id/webhook` | Read endpoint metadata and relative URL; no token |
 | POST | `/api/workflows/:id/webhook/rotate` | Create/rotate the endpoint; return a bearer token once |
-| POST | Generated `/api/hooks/...` URL | Deliver an authenticated external event |
+| POST | Generated `/hooks/<workspace-id>/<hook-id>` URL | Deliver an authenticated external event |
 
 Management routes retain installation authentication, workspace-session checks and cross-site request protection. The event route uses webhook authentication instead. No public deployment URLs, account IDs or webhook secrets are shipped in the repository.
 
 `pnpm test:runtime` verifies bearer/HMAC authentication, tampered/expired signatures, restart-safe deduplication, rotation, activation/pause, size limits, management-session isolation and a real Webhook → HTTP → Filter run against a test upstream.
+
+Generated URLs now use `/hooks/<workspace-id>/<hook-id>`, outside the platform management API. Previously generated `/api/hooks/<workspace-id>/<workflow-id>/<hook-id>` URLs remain direct compatibility aliases with the same authentication, pause/rotation checks and durable event handling. Renaming a workspace or workflow does not change its endpoint. The current opaque workspace routing IDs remain stable; a separate friendly public-key registry is planned.

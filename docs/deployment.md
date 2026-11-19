@@ -55,4 +55,4 @@ HTTP Request allows public HTTPS by default. Optionally restrict it with `HTTP_A
 
 ## Webhook triggers
 
-Generated webhook endpoints are served by the same Worker under `/api/hooks/...`, authenticated independently of browser management access. No new bindings or Durable Object class migrations are required. See [webhook setup, lifecycle and session migration](webhooks.md).
+Generated webhook endpoints are served by the same Worker under `/hooks/<workspace-id>/<hook-id>` (with earlier `/api/hooks/...` URLs retained as compatibility aliases), authenticated independently of browser management access. No new bindings or Durable Object class migrations are required. See [webhook setup, lifecycle and session migration](webhooks.md).

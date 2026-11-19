@@ -12,10 +12,11 @@ use workflow_service::MAX_BODY_BYTES;
 pub(crate) fn public_workspace(path: &str) -> Option<&str> {
     let p: Vec<_> = path.trim_matches('/').split('/').collect();
     match p.as_slice() {
-        ["mcp", id, "mcp"] | ["oauth", id, "register" | "authorize" | "token" | "revoke"] => {
-            Some(id)
-        }
-        [".well-known", "oauth-protected-resource", "mcp", id, "mcp"]
+        ["mcp", id]
+        | ["mcp", id, "mcp"]
+        | ["oauth", id, "register" | "authorize" | "token" | "revoke"] => Some(id),
+        [".well-known", "oauth-protected-resource", "mcp", id]
+        | [".well-known", "oauth-protected-resource", "mcp", id, "mcp"]
         | [".well-known", "oauth-authorization-server", "oauth", id] => Some(id),
         _ => None,
     }
@@ -126,14 +127,25 @@ impl WorkflowWorkspace {
         let origin = self.mcp_origin(url)?;
         let id = self.state.id();
         Ok((
-            format!("{origin}/mcp/{id}/mcp"),
+            format!("{origin}/mcp/{id}"),
             format!("{origin}/oauth/{id}"),
-            format!("{origin}/.well-known/oauth-protected-resource/mcp/{id}/mcp"),
+            format!("{origin}/.well-known/oauth-protected-resource/mcp/{id}"),
         ))
     }
     pub(crate) async fn mcp_public(&self, mut req: Request) -> Result<Response> {
         let url = req.url()?;
-        let (resource, issuer, metadata) = self.mcp_urls(&url)?;
+        let (mut resource, issuer, mut metadata) = self.mcp_urls(&url)?;
+        let legacy_resource = format!("{resource}/mcp");
+        if url.path() == format!("/mcp/{}/mcp", self.state.id())
+            || url.path()
+                == format!(
+                    "/.well-known/oauth-protected-resource/mcp/{}/mcp",
+                    self.state.id()
+                )
+        {
+            resource = legacy_resource.clone();
+            metadata = format!("{metadata}/mcp");
+        }
         if public_workspace(url.path()) != Some(self.state.id().to_string().as_str()) {
             return api_error(404, "MCP workspace not found");
         }
@@ -212,6 +224,13 @@ impl WorkflowWorkspace {
                     return api_error(415, "Unsupported content type");
                 }
             };
+            // OAuth issuers remain stable. Accept the exact old alias as an explicit
+            // audience, never silently broaden a grant to both endpoint URLs.
+            let oauth_resource = if input["resource"].as_str() == Some(legacy_resource.as_str()) {
+                legacy_resource.as_str()
+            } else {
+                resource.as_str()
+            };
             // All request body awaits precede the single synchronous load/modify/save.
             let mut ws = self.load()?;
             let mut auth: Auth = if ws.management.is_null() {
@@ -278,7 +297,7 @@ impl WorkflowWorkspace {
                     Err(e) => oauth_error(e)?,
                 }
             } else if url.path().ends_with("/authorize") && req.method() == Method::Get {
-                match auth.authorize(&input, &resource, time, &mut entropy) {
+                match auth.authorize(&input, oauth_resource, time, &mut entropy) {
                     Ok(id) => {
                         let origin = self.mcp_origin(&url)?;
                         let workspace = self.browser_workspace_key()?;
@@ -289,7 +308,7 @@ impl WorkflowWorkspace {
                     Err(e) => oauth_error(e)?,
                 }
             } else if url.path().ends_with("/token") && req.method() == Method::Post {
-                match auth.exchange(&input, &resource, time, &mut entropy) {
+                match auth.exchange(&input, oauth_resource, time, &mut entropy) {
                     Ok(v) => json(&v, 200)?,
                     Err(e) => oauth_error(e)?,
                 }

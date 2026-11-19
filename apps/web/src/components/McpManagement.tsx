@@ -232,7 +232,7 @@ export function McpManagement({ authorizeId }: { authorizeId: string | null }) {
           <div className={styles.infoBox}>
             Reader can inspect and audit. Builder adds draft editing and
             simulations. Operator also permits publishing, real execution and
-            run control. Credential administration stays in the owner portal.
+            run control. Manager adds recoverable workflow trash. Credential administration stays in the owner portal.
           </div>
           {Boolean(data?.unusedClients) && (
             <Button
