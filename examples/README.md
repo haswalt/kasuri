@@ -17,6 +17,7 @@ Every example accepts the default `{}` input. No edits, accounts, API keys, envi
 | [09 Webhook acknowledgement](workflows/09-webhook.json) | Trigger | Try immediately with Run now or Simulate. Real inbound events additionally require generating this installation's endpoint in the trigger inspector and publishing (public by default); see [webhook instructions](../docs/webhooks.md). |
 | [10 Context cache](workflows/10-context-cache.json) | Persistent data | Explicitly creates a context namespace, caches a synthetic value, reads it and waits past TTL. Simulation advances virtual time and leaves live context unchanged. |
 | [11 Atomic event claim](workflows/11-table-claim.json) | Persistent data | Explicitly creates a typed table and demonstrates inserted/existing claim outcomes. Resets only its fixed synthetic key for repeatable experimentation; do not reset real deduplication keys. |
+| [12 Request Context](workflows/12-request-context.json) | Immutable input | Replaces an intermediate payload, then recovers the original trigger body independently of that transform. |
 
 Together these cover every currently implemented node: Manual Trigger, Webhook, Schedule, Map / Transform, IF / Condition, Merge, Wait / Delay, JSON Utilities, Error Handler, HTTP Request, Filter and Sort.
 

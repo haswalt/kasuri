@@ -637,7 +637,7 @@ export function WorkflowEditor({
                           'headers',
                           'query',
                           'simulationResponse'
-                        ].includes(key) || property?.type === 'object'
+                        ].includes(key) || property?.type === 'object' || property?.type === 'array'
                       return (
                         <label key={key}>
                           {meta?.label || key}

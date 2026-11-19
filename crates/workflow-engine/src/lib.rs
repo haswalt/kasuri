@@ -165,6 +165,10 @@ impl Run {
         run.checkpoint()?;
         Ok(run)
     }
+    /// The immutable original trigger input, separate from intermediate outputs.
+    pub fn input(&self) -> &Value {
+        &self.input
+    }
     pub fn id(&self) -> &str {
         &self.id
     }

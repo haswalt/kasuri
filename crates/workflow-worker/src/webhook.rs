@@ -242,6 +242,21 @@ impl WorkflowWorkspace {
         if !authenticated {
             return api_error(401, "Webhook authentication failed");
         }
+        let context = match connectors_webhook::context::capture(
+            &trigger.config,
+            "POST",
+            &path,
+            req.headers().entries(),
+            req.url()?
+                .query_pairs()
+                .map(|(key, value)| (key.into_owned(), value.into_owned())),
+        ) {
+            Ok(context) => context,
+            Err(connectors_webhook::context::ContextError::BudgetExceeded) => {
+                return api_error(413, "Selected request metadata exceeds context budget");
+            }
+            Err(_) => return api_error(400, "Invalid request context selection"),
+        };
         let payload = match serde_json::from_slice(&body) {
             Ok(v) => v,
             Err(_) => return api_error(400, "Invalid JSON payload"),
@@ -251,7 +266,7 @@ impl WorkflowWorkspace {
             .durable_object("WORKSPACES")?
             .unique_id()?
             .to_string();
-        match workspace.receive_webhook(id, endpoint, payload, now(), &run_id) {
+        match workspace.receive_webhook_context(id, endpoint, payload, now(), &run_id, context) {
             Ok(value) => {
                 self.save(&mut workspace).await?;
                 let mut response = Response::from_json(&value)?.with_status(202);

@@ -31,22 +31,29 @@ export async function checkWebhooks(origin,restart){
  assert.equal((await fetch(origin+endpoint.path,{method:'POST',headers:{'Content-Type':'application/json','X-Kasuri-Timestamp':modernTime,'X-Kasuri-Signature':modernSignature},body:'{}'})).status,401)
  await api('workflows/incoming-check/pause','POST')
  // An independent public JSON endpoint requires neither credentials nor event ID.
- const publicDoc={schemaVersion:1,id:'public-hook',name:'Public hook',status:'draft',updatedAt:'',nodes:[{id:'start',type:'Webhook',label:'Public incoming',config:{}}],edges:[]}
+ const publicDoc={schemaVersion:1,id:'public-hook',name:'Public hook',status:'draft',updatedAt:'',nodes:[{id:'start',type:'Webhook',label:'Public incoming',config:{contextHeaders:['x-business-event','authorization','cookie','x-kasuri-signature'],contextQuery:['topic','secret_key']}},{id:'request',type:'Request Context',label:'Read request metadata',config:{part:'metadata'}}],edges:[{id:'context-edge',source:'start',target:'request'}]}
  const saved=await api('workflows/public-hook','PUT',publicDoc);assert.equal(saved.nodes[0].config.authentication,'none')
  let publicEndpoint=await api('workflows/public-hook/webhook/rotate','POST');assert.equal(publicEndpoint.token,undefined);await api('workflows/public-hook/publish','POST')
  const post=async(path=publicEndpoint.path,headers={})=>fetch(origin+path,{method:'POST',headers:{'Content-Type':'application/json',...headers},body:'{"event":"same"}'})
  const publicFirst=await post();assert.equal(publicFirst.status,202);const publicRun=(await publicFirst.json()).runId
  const publicRepeat=await post();assert.equal(publicRepeat.status,202);assert.notEqual((await publicRepeat.json()).runId,publicRun)
  origin=await restart()||origin;assert.equal((await post()).status,202)
- publicDoc.nodes[0].config={authentication:'query',queryParameter:'secret_key'};await api('workflows/public-hook','PUT',publicDoc)
+ publicDoc.nodes[0].config={...publicDoc.nodes[0].config,authentication:'query',queryParameter:'secret_key'};await api('workflows/public-hook','PUT',publicDoc)
  // Rotate while public live config remains active: key must be available for draft auth.
  publicEndpoint=await api('workflows/public-hook/webhook/rotate','POST');assert.ok(publicEndpoint.token);await api('workflows/public-hook/publish','POST')
  assert.equal((await post()).status,401);assert.equal((await post(publicEndpoint.path+'?secret_key=wrong')).status,401)
  const keyed=publicEndpoint.path+'?secret_key='+encodeURIComponent(publicEndpoint.token)
- const keyedResponse=await post(keyed);assert.equal(keyedResponse.status,202);const keyedRun=await api('runs/'+(await keyedResponse.json()).runId)
+ const keyedResponse=await post(keyed+'&topic=one&topic=two',{'X-Business-Event':'order-1',Authorization:'Bearer private-header',Cookie:'private-cookie','X-Kasuri-Signature':'private-signature'});assert.equal(keyedResponse.status,202);const keyedRun=await api('runs/'+(await keyedResponse.json()).runId)
  assert.equal(JSON.stringify(keyedRun).includes(publicEndpoint.token),false)
+ assert.equal(JSON.stringify(keyedRun).includes('private-header'),false);assert.equal(JSON.stringify(keyedRun).includes('private-cookie'),false);assert.equal(JSON.stringify(keyedRun).includes('private-signature'),false)
+ const captured=keyedRun.nodes.find(n=>n.id==='request').output
+ assert.deepEqual(captured.request.headers,{'x-business-event':'order-1'});assert.deepEqual(captured.request.query,{topic:['one','two']})
+ assert.equal(captured.request.path,publicEndpoint.path);assert.equal(captured.request.method,'POST')
+ assert.equal((await post(keyed,{'X-Business-Event':'x'.repeat(4097)})).status,413)
+ origin=await restart()||origin;assert.deepEqual((await api('runs/'+keyedRun.id)).context,keyedRun.context)
+
  assert.equal((await post(keyed+'&secret_key=wrong')).status,401)
  assert.equal((await post(publicEndpoint.path,{Authorization:'Bearer '+publicEndpoint.token})).status,401)
  await api('workflows/public-hook/pause','POST')
- console.log('Webhook checks passed: optional authentication, independent deliveries, bearer/query keys, legacy and event-free HMAC, immutable live auth, rotation, bounds, restart persistence and session isolation.')
+ console.log('Webhook checks passed: optional authentication, independent deliveries, bearer/query keys, legacy and event-free HMAC, immutable live auth, rotation, bounds, immutable selected request context, credential exclusion, restart persistence and session isolation.')
 }

@@ -194,7 +194,7 @@ pub fn manifests() -> Vec<connector_sdk::NodeManifest> {
     use serde_json::json;
     [
         ("Manual Trigger", json!({"type":"object","properties":{}})),
-        ("Webhook", json!({"type":"object","properties":{"authentication":{"enum":["none","bearer","query","hmac_sha256","hmac"]},"signingSecret":{"type":"string"},"queryParameter":{"type":"string","default":"key"}}})),
+        ("Webhook", json!({"type":"object","properties":{"authentication":{"enum":["none","bearer","query","hmac_sha256","hmac"]},"signingSecret":{"type":"string"},"queryParameter":{"type":"string","default":"key"},"contextHeaders":{"type":"array","items":{"type":"string"}},"contextQuery":{"type":"array","items":{"type":"string"}}}})),
         ("Schedule", json!({"type":"object","properties":{"cron":{"type":"string"}}})),
         ("Filter", json!({"type":"object","properties":{"arrayPointer":{"type":"string"},"pointer":{"type":"string"},"equals":{}},"required":["pointer","equals"]})),
         ("Sort", json!({"type":"object","properties":{"arrayPointer":{"type":"string"},"pointer":{"type":"string"},"order":{"enum":["asc","desc"]}}})),

@@ -316,3 +316,43 @@ fn webhook_defaults_are_public_but_legacy_auth_requires_an_explicit_published_ch
         .unwrap();
     assert_eq!(ws.webhook_info("flow").unwrap()["authentication"], "none");
 }
+
+#[test]
+fn request_context_is_pinned_across_waits_and_reads_original_body() {
+    let mut ws = Workspace::default();
+    let mut doc = document("Webhook");
+    doc["nodes"].as_array_mut().unwrap().push(json!({"id":"request","type":"Request Context","label":"Request","config":{"part":"metadata"}}));
+    doc["edges"]
+        .as_array_mut()
+        .unwrap()
+        .push(json!({"id":"ctx","source":"wait","target":"request"}));
+    save(&mut ws, &doc);
+    ws.configure_webhook("flow", "endpoint".into(), "hash".into())
+        .unwrap();
+    ws.handle("POST", "/api/workflows/flow/publish", b"", 0, "")
+        .unwrap();
+    let context = json!({"trigger":"webhook","request":{"method":"POST","path":"/hooks/test","headers":{"x-business-event":"event"},"query":{}}});
+    ws.receive_webhook_context(
+        "flow",
+        "endpoint",
+        json!({"original":true}),
+        0,
+        "context-run",
+        context.clone(),
+    )
+    .unwrap();
+    let mut ws = Workspace::from_json(&ws.checkpoint().unwrap()).unwrap();
+    ws.alarm(1000).unwrap();
+    let run = ws.runs[0].view(false).unwrap();
+    assert_eq!(run["context"], context);
+    assert_eq!(
+        run["nodes"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|n| n["id"] == "request")
+            .unwrap()["output"],
+        context
+    );
+    assert_eq!(ws.runs[0].view(true).unwrap()["context"], Value::Null);
+}

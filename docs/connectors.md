@@ -1,10 +1,14 @@
 # Implemented connectors
 
-The runtime advertises 14 node types: Manual Trigger, Webhook, Schedule, Map / Transform, IF / Condition, Merge, Wait / Delay, JSON Utilities, Error Handler, Filter, Sort, HTTP Request, Data Tables and Context Store. A catalogue entry marked Planned is not executable.
+The runtime advertises 15 node types: Manual Trigger, Webhook, Schedule, Map / Transform, IF / Condition, Merge, Wait / Delay, JSON Utilities, Error Handler, Filter, Sort, HTTP Request, Data Tables, Context Store and Request Context. A catalogue entry marked Planned is not executable.
 
 ## Data Tables and Context Store
 
 Use typed `command` JSON for explicit dataset creation, reads, writes, atomic claims, version checks, TTL and queries. Simulations use isolated snapshots; real runs persist their effects transactionally with checkpoints. See [data semantics](data-storage.md) and [importable examples](../examples/README.md).
+
+## Request Context
+
+Read immutable trigger metadata, original body, selected headers or query fields. Webhook capture is opt-in and excludes consumed credentials. Context survives waits/restarts and stays separate from persistent Context Store values. See [capture configuration](webhooks.md#request-context) and [example 12](../examples/workflows/12-request-context.json).
 
 ## Webhook
 

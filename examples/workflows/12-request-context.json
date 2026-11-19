@@ -1,0 +1,62 @@
+{
+  "schemaVersion": 1,
+  "id": "12-request-context",
+  "name": "Recover original trigger input",
+  "description": "Request Context reads immutable trigger input after another node transforms its payload. Import and run with empty input.",
+  "status": "draft",
+  "revision": 0,
+  "updatedAt": "",
+  "nodes": [
+    {
+      "id": "start",
+      "type": "Manual Trigger",
+      "label": "Start",
+      "config": {}
+    },
+    {
+      "id": "transform",
+      "type": "Map / Transform",
+      "label": "Replace intermediate payload",
+      "config": {
+        "mapping": {
+          "temporary": true
+        }
+      }
+    },
+    {
+      "id": "original",
+      "type": "Request Context",
+      "label": "Read original trigger body",
+      "config": {
+        "part": "body"
+      }
+    },
+    {
+      "id": "result",
+      "type": "Map / Transform",
+      "label": "Done",
+      "config": {
+        "mapping": {
+          "message": "Original trigger input recovered"
+        }
+      }
+    }
+  ],
+  "edges": [
+    {
+      "id": "a",
+      "source": "start",
+      "target": "transform"
+    },
+    {
+      "id": "b",
+      "source": "transform",
+      "target": "original"
+    },
+    {
+      "id": "c",
+      "source": "original",
+      "target": "result"
+    }
+  ]
+}

@@ -48,7 +48,7 @@ Signature checks bind the timestamp and payload and compare signatures in consta
 
 ## Delivery and retries
 
-The accepted JSON value becomes workflow input directly. Authentication headers, consumed query credentials, signatures and cookies are not copied into run inputs. Request metadata/context nodes, configurable methods/parsers/CORS and custom webhook responses remain planned.
+The accepted JSON value becomes workflow input directly. Authentication headers, consumed query credentials, signatures and cookies are not copied into run inputs. Use **Request Context** to read the immutable trigger body or selected metadata after other nodes transform the payload. Configurable methods/parsers/CORS and custom webhook responses remain planned.
 
 A successful response is `202 Accepted`:
 
@@ -61,6 +61,27 @@ Acceptance means the run is durably saved, not that every node succeeded. Inspec
 Engine effect recovery remains idempotent: recovering one persisted data task does not repeat its write. This is separate from deciding whether two incoming events represent the same business event. Timestamp windows limit signature age, but do not make repeated authenticated requests duplicates.
 
 Payloads must be JSON and at most 32 KiB. Invalid credentials/signatures return `401`; inactive/rotated endpoints return `404`; unsupported methods/content types return `405`/`415`; oversized bodies return `413`; invalid JSON returns `400`. Active-run/checkpoint budgets still apply and can reject a delivery with `429`/`413`. Retry according to the workflow's business policy rather than assuming an event ID suppresses another run.
+
+## Request Context
+
+The Request Context node has a `part` setting:
+
+| Part | Result |
+| --- | --- |
+| `metadata` (default) | `{ "trigger": "webhook", "request": { "method": "POST", "path": "/hooks/...", "headers": {}, "query": {} } }` |
+| `body` | Original trigger input, unchanged by intermediate transforms |
+| `headers` | Captured headers keyed by lowercase names |
+| `query` | Captured query names mapped to arrays of values, preserving repeated parameters |
+
+Webhook configuration chooses what is recorded. Default headers are `content-type` and optional `x-kasuri-event-id`; no query fields are recorded by default. To record selected business metadata:
+
+```json
+{"authentication":"none","contextHeaders":["content-type","x-business-event-id"],"contextQuery":["topic"]}
+```
+
+The editor also accepts these lists as JSON text. Header names are case-insensitive; query names are case-sensitive. Authorization/cookie/signature and credential-shaped names are excluded even if listed. A consumed query-auth parameter is always excluded, including custom names. Paths never contain the raw query string. Full incoming headers/URLs are not stored. Selected metadata is limited to 32 header/query names per list, eight values per query name, 4 KiB per value and 16 KiB total; over-budget selected values reject the delivery with `413` rather than silently truncating an event key.
+
+Metadata is pinned in the run before execution and survives waits/restarts. Detailed run reads include the captured `context`; summary lists do not. This is request context, separate from persistent Context Store values. Manual/simulation/scheduled runs expose their trigger kind and `request: null`; header/query parts return empty objects, while `body` still reads their original input. Simulations never read ambient browser headers or production requests.
 
 ## Upgrade behavior
 

@@ -143,5 +143,15 @@
       }
     },
     "statuses": {}
+  },
+  {
+    "file": "workflows/12-request-context.json",
+    "outputs": {
+      "original": {},
+      "result": {
+        "message": "Original trigger input recovered"
+      }
+    },
+    "statuses": {}
   }
 ]

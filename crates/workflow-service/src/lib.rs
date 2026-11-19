@@ -90,6 +90,8 @@ pub struct RunRecord {
     pub external: Option<ExternalTask>,
     #[serde(default)]
     pub logical_clock: u64,
+    #[serde(default)]
+    pub trigger_context: Value,
     pub checkpoint: String,
     pub mode: Mode,
     pub created_at: u64,
@@ -127,7 +129,7 @@ impl RunRecord {
             value
         }).collect();
         Ok(
-            json!({"id":run.id(),"workflowId":run.workflow().id,"name":run.workflow().name,"revision":run.workflow().revision,"createdAt":iso(self.created_at),"mode":self.mode,"status":self.status()?,"nodes":nodes,"input":if summary {Value::Null}else{state["input"].clone()},"error":self.host_error.clone().map(Value::String).unwrap_or_else(||state["failure"].clone()),"wakeAt":self.wake_at}),
+            json!({"id":run.id(),"workflowId":run.workflow().id,"name":run.workflow().name,"revision":run.workflow().revision,"createdAt":iso(self.created_at),"mode":self.mode,"status":self.status()?,"nodes":nodes,"context":if summary {Value::Null}else{self.trigger_context.clone()},"input":if summary {Value::Null}else{state["input"].clone()},"error":self.host_error.clone().map(Value::String).unwrap_or_else(||state["failure"].clone()),"wakeAt":self.wake_at}),
         )
     }
     fn advance(&mut self, now: u64) -> Result<(), ApiError> {
@@ -181,7 +183,28 @@ impl RunRecord {
                         self.wake_at = Some(now.saturating_add(1));
                         break;
                     }
-                    let outcome = if task.node.kind == "HTTP Request" {
+                    let outcome = if task.node.kind == "Request Context" {
+                        let part = task
+                            .node
+                            .config
+                            .get("part")
+                            .and_then(Value::as_str)
+                            .unwrap_or("metadata");
+                        Outcome::success(match part {
+                            "body" => run.input().clone(),
+                            "headers" => self
+                                .trigger_context
+                                .pointer("/request/headers")
+                                .cloned()
+                                .unwrap_or_else(|| json!({})),
+                            "query" => self
+                                .trigger_context
+                                .pointer("/request/query")
+                                .cloned()
+                                .unwrap_or_else(|| json!({})),
+                            _ => self.trigger_context.clone(),
+                        })
+                    } else if task.node.kind == "HTTP Request" {
                         connectors_http::simulate(&task)
                     } else {
                         CoreConnector.execute(&task)
@@ -306,7 +329,17 @@ impl Workspace {
             .map_err(|e| error(400, e.to_string()))?;
         let manifests = manifests();
         for node in &document.graph.nodes {
+            if node.kind == "Request Context"
+                && (node.config.keys().any(|k| k != "part")
+                    || node.config.get("part").is_some_and(|p| {
+                        !matches!(p.as_str(), Some("metadata" | "body" | "headers" | "query"))
+                    }))
+            {
+                return Err(error(400, "Invalid Request Context part"));
+            }
             if node.kind == "Webhook" {
+                connectors_webhook::context::selection(&node.config)
+                    .map_err(|_| error(400, "Invalid request context field selection"))?;
                 match node
                     .config
                     .get("authentication")
@@ -357,6 +390,33 @@ impl Workspace {
         mode: Mode,
         now: u64,
     ) -> Result<Value, ApiError> {
+        let trigger = match mode {
+            Mode::Run => "manual",
+            Mode::Simulation => "simulation",
+            Mode::Schedule => "schedule",
+            Mode::Webhook => "webhook",
+        };
+        self.start_run_context(
+            id,
+            doc,
+            input,
+            mode,
+            now,
+            json!({"trigger":trigger,"request":null}),
+        )
+    }
+    fn start_run_context(
+        &mut self,
+        id: &str,
+        doc: &Document,
+        input: Value,
+        mode: Mode,
+        now: u64,
+        trigger_context: Value,
+    ) -> Result<Value, ApiError> {
+        if trigger_context.to_string().len() > 16384 {
+            return Err(error(413, "Trigger context exceeds budget"));
+        }
         Self::executable(doc)?;
         if self
             .runs
@@ -378,6 +438,7 @@ impl Workspace {
         let mut record = RunRecord {
             external: None,
             logical_clock: now,
+            trigger_context,
             checkpoint: run.checkpoint().map_err(|e| error(400, e.to_string()))?,
             mode,
             created_at: now,
@@ -870,6 +931,24 @@ impl Workspace {
         now: u64,
         run_id: &str,
     ) -> Result<Value, ApiError> {
+        self.receive_webhook_context(
+            id,
+            endpoint,
+            payload,
+            now,
+            run_id,
+            json!({"trigger":"webhook","request":null}),
+        )
+    }
+    pub fn receive_webhook_context(
+        &mut self,
+        id: &str,
+        endpoint: &str,
+        payload: Value,
+        now: u64,
+        run_id: &str,
+        context: Value,
+    ) -> Result<Value, ApiError> {
         let doc = self.live_document(id)?;
         if !doc.graph.nodes.iter().any(|n| n.kind == "Webhook") {
             return Err(error(404, "Webhook is not active"));
@@ -882,7 +961,7 @@ impl Workspace {
         {
             return Err(error(404, "Webhook is not active"));
         }
-        self.start_run(run_id, &doc, payload, Mode::Webhook, now)?;
+        self.start_run_context(run_id, &doc, payload, Mode::Webhook, now, context)?;
         Ok(json!({"runId":run_id}))
     }
     /// Active dataset users, for host-owned snapshots and receipt retention.
@@ -1124,5 +1203,6 @@ pub fn manifests() -> Vec<connector_sdk::NodeManifest> {
     let mut manifests = connectors_core::manifests();
     manifests.push(connectors_http::manifest());
     manifests.extend(connectors_data::manifests());
+    manifests.push(connector_sdk::NodeManifest {kind:"Request Context".into(),version:1,config_schema:json!({"type":"object","properties":{"part":{"enum":["metadata","body","headers","query"]}},"additionalProperties":false}),output_ports:vec!["success".into(),"error".into()],has_external_side_effects:false});
     manifests
 }
