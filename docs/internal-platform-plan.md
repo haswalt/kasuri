@@ -238,3 +238,11 @@ Import follow-up: dashboard imports now retain immutable source-ID provenance an
 Added explicit Split / Batch and Aggregate adapters plus Each / Loop over pinned, durable item child runs. Stable index identities, ordered cached outputs, fail/collect policies, child-node retry isolation, pause/cancel/restart, alarm-backed yielding, nested capacity reservation and MCP dataset guards are implemented. Guided array/field/workflow controls and debugger item rows expose real persisted state. Examples 22–25 cover adapters, reusable item contracts and collected failures. General graph-inline loop bodies, richer merge adapters and large-result artifact storage remain separate future work.
 
 Verification: Rust workspace tests, 58 frontend tests, the full Wasm runtime regression suite, and a browser simulation with ordered item results and child-run links passed.
+
+### Third-party dashboard authentication (required; next infrastructure priority)
+
+Implement the provider-independent Rust principal/authorization boundary described in [platform-auth.md](platform-auth.md). Authentication always delegates to a third party; do not build password accounts. Cloudflare Access is optional, including on Cloudflare, with standards-based OIDC and trusted identity-proxy integrations supported through maintained libraries and explicit trust contracts. Include dashboard/API protection, workspace memberships, safe cookie-owner migration, actor audit context, fail-closed production setup and separate MCP/webhook ingress policy. Existing Basic authentication is not completion of this requirement.
+
+### Self-hosted horizontal execution (documented limitation; implementation outstanding)
+
+The supported package remains one workerd process per local storage volume. [Self-hosting scaling guidance](self-hosting.md#scaling-and-availability) distinguishes in-process branch concurrency, vertical sizing, restart recovery and independent installations from shared multi-worker execution. A future delivery must select an ownership/fencing and shared-state/scheduling architecture, verify it against the pinned runtime, and prove multi-process recovery before enabling Kubernetes replicas/HPA. No distributed-execution guarantee is inferred from the current Docker/Kubernetes packaging.

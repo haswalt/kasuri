@@ -67,3 +67,29 @@ Public HTTPS works by default. Optionally set `HTTP_ALLOWED_HOSTS` to restrict d
 Every workspace exposes a Rust MCP endpoint; see [MCP setup](mcp.md). When an ingress or reverse proxy terminates TLS before workerd, set `PUBLIC_ORIGIN` to the canonical external HTTPS origin, without a trailing slash or path. Docker Compose passes this variable through; on Kubernetes, add it to the Deployment's environment. The API then uses that configured origin for consent redirects, MCP discovery, same-origin checks and Secure cookies. Forward `/mcp/*`, `/oauth/*` and `/.well-known/*` to workerd as well as `/api/*` and the UI. Do not rely on client-supplied forwarded headers to select an origin.
 
 For direct loopback development, leave `PUBLIC_ORIGIN` empty. The provided shell/container launchers supply this default, including when running a packaged release outside Docker. Keep the external origin stable: credentials are audience-bound to its workspace endpoint, so changing it requires new credentials or OAuth authorization. Back up the complete volume to preserve grant revocations and idempotency receipts along with workflow data.
+
+## Scaling and availability
+
+The shipped package is a **single stateful workerd process**, not a distributed worker pool. `deploy/workerd/workerd.capnp` binds Durable Object persistence to local disk; Kubernetes uses one replica and a Recreate rollout. HTTP connector calls and explicit workflow branches can overlap inside that process, subject to existing workspace/run concurrency budgets. This is execution concurrency, not horizontal worker scaling.
+
+| Deployment change | Supported today |
+| --- | --- |
+| Increase CPU/memory and persistent disk for the existing instance | Yes; measure workload throughput and runtime budgets. |
+| Restart/reschedule the single pod with the complete persistent volume | Yes; recover persisted runs/alarms. This entails downtime, not seamless failover. |
+| Add replicas sharing the same SQLite volume | No; the package has no cross-process ownership or locking protocol for this topology. |
+| Add replicas with separate volumes behind round-robin ingress | No for one installation; each volume becomes independent state and schedules. Sticky HTTP sessions do not coordinate alarms, OAuth grants, runs or receipts. |
+| Run independent installations with their own domains, data and credentials | Yes; this partitions installations, not one shared workspace. |
+
+Do not enable an HPA on the supplied stateful Deployment. A ReadWriteOnce PVC is not a distributed execution lock. Backups, restore and replica restart instructions above apply to the whole installation, including credential grants, run checkpoints, alarms and mutation receipts.
+
+### Future multi-worker deployment
+
+Horizontal execution is a separate implementation feature. Before supporting replicas, choose and implement a tested coordination/storage backend: workspace/object ownership with fencing, durable work claiming or queues, transactional checkpoint/effect receipts, alarm ownership and due-work recovery, cancellation/pause propagation, shared authentication/authorization state and consistent artifact access. Handle abandoned leases and duplicate delivery without repeating completed effects. Preserve the Rust execution core and deployable Wasm backend; a TypeScript bridge is not required.
+
+Evaluate runtime-managed Durable Object clustering against the pinned workerd version and its recovery guarantees, or implement a compatible distributed host/storage adapter. The upstream runtime's [configuration schema](https://github.com/cloudflare/workerd/blob/main/src/workerd/server/workerd.capnp) evolves; upstream clustering options do not imply Kasuri's current package configures or supports them. Sharing SQLite or merely adding a queue is insufficient.
+
+Acceptance must include multiple real processes, worker loss during dispatch/completion, no split-brain owners, receipt replay, restart-safe schedules, fair bounded work distribution, draining upgrades and documented recovery/backup procedures. Until those checks exist, the supported self-host topology remains one active process per installation volume.
+
+## Third-party dashboard authentication
+
+Third-party authentication is a required upcoming feature, with Cloudflare Access, OIDC and trusted identity-proxy adapters independent of hosting platform. See [the provider and ownership migration contract](platform-auth.md). Current Basic authentication and cookie ownership do not yet provide that identity model. Dashboard/API protection, agent MCP authentication and workflow webhook authentication are separate boundaries.
