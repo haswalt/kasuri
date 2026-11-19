@@ -1115,6 +1115,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "workflow-data"
+version = "0.1.0"
+dependencies = [
+ "serde",
+ "serde_json",
+ "sha2",
+]
+
+[[package]]
 name = "workflow-engine"
 version = "0.1.0"
 dependencies = [

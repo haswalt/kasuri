@@ -20,6 +20,8 @@ This plan combines the reported product issues with the supplied n8n migration g
 - Completed: canonical single-`mcp` endpoint and `/hooks/<workspace>/<hook>` ingress outside `/api`, with direct legacy aliases and preserved OAuth audiences/refresh flows.
 - Remaining in lifecycle delivery: additional history/diff polish. Stable public routing keys and the bounded JavaScript feasibility spike are also outstanding foundations.
 
+- Data storage foundation: `workflow-data` now defines shared table/context semantics, typed rows, TTL, versioned mutations, durable receipt replay and bounded keyset queries. Native tests cover claim races, recovery, expired claims, ABA protection, failed batches, integer comparison and isolated overlays. SQLite/API/connector integration is the next increment; these are not yet advertised as installed connectors.
+
 ## Outcomes and boundaries
 
 The goal is a composable internal workflow platform: reliable draft/publication state, editable graphs, persistent workspace data, flexible requests/responses, collection processing and reusable workflows. Business rules such as duplicate-event handling belong in workflows. The Rust engine remains responsible for durable execution, scheduling, checkpoints and safe effect dispatch.
