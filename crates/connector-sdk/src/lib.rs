@@ -29,6 +29,7 @@ pub enum FailureCode {
     Timeout,
     BudgetExceeded,
     DeadlineExceeded,
+    InvocationFailed,
 }
 
 /// Codes only: raw upstream error bodies may contain secrets and do not belong in checkpoints.

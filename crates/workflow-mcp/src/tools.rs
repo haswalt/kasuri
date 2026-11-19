@@ -773,7 +773,31 @@ pub fn call_with_data(
                     .unwrap_or((None, false))
             };
         if let Some(graph) = graph {
-            for node in &graph.nodes {
+            let targets = if matches!(name, "runs_get" | "runs_resume") {
+                ws.runs
+                    .iter()
+                    .find(|r| {
+                        serde_json::from_str::<Value>(&r.checkpoint)
+                            .is_ok_and(|v| v["id"] == args["runId"])
+                    })
+                    .map(|r| r.invocation_targets.clone())
+                    .unwrap_or_default()
+            } else {
+                match ws.invocation_targets(&graph) {
+                    Ok(targets) => targets,
+                    Err(_) => {
+                        return content(Err(err(
+                            "invalid_arguments",
+                            "Invoked workflow is unavailable or invalid",
+                        )));
+                    }
+                }
+            };
+            for node in graph
+                .nodes
+                .iter()
+                .chain(targets.values().flat_map(|graph| graph.nodes.iter()))
+            {
                 if !connectors_data::handles(&node.kind) {
                     continue;
                 }

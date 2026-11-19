@@ -63,6 +63,7 @@ export const api = {
   webhook: (id: string) => request<WebhookEndpoint>(`workflows/${id}/webhook`),
   rotateWebhook: (id: string) =>
     request<WebhookEndpoint>(`workflows/${id}/webhook/rotate`, 'POST'),
+  invocable: () => request<{workflows:{id:string;name:string;revision:number}[]}>("workflows/invocable"),
   workspace: () => request<Workspace>('workspace'),
   save: (workflow: Workflow) =>
     request<Workflow>(`workflows/${workflow.id}`, 'PUT', workflow),

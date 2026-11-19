@@ -25,6 +25,25 @@ fn save(ws: &mut Workspace, doc: &Value) {
     )
     .unwrap();
 }
+fn dependencies(ws: &mut Workspace, case: &Value) {
+    if let Some(files) = case["dependencies"].as_array() {
+        for file in files {
+            let doc: Value = serde_json::from_str(
+                &fs::read_to_string(examples().join(file.as_str().unwrap())).unwrap(),
+            )
+            .unwrap();
+            save(ws, &doc);
+            ws.handle(
+                "POST",
+                &format!("/api/workflows/{}/publish", doc["id"].as_str().unwrap()),
+                b"",
+                0,
+                "",
+            )
+            .unwrap();
+        }
+    }
+}
 fn drain_data(ws: &mut Workspace, store: &mut workflow_data::MemoryStore, now: u64) {
     while let Some((id, task, _, time)) = ws.pending_data(now).unwrap() {
         let prepared = connectors_data::prepare(&task.node, &task.input).unwrap();
@@ -83,6 +102,7 @@ fn every_published_example_simulates_without_input_or_configuration() {
             );
         }
         let mut ws = Workspace::default();
+        dependencies(&mut ws, &case);
         save(&mut ws, &doc);
         // Publishing validates configuration, including cron/webhook, without enabling
         // anything on a real installation: this workspace exists only in this test.
@@ -114,6 +134,7 @@ fn every_published_example_simulates_without_input_or_configuration() {
         // Core examples also execute real waits and survive checkpoint restoration.
         if !graph.nodes.iter().any(|n| n.kind == "HTTP Request") {
             let mut ws = Workspace::default();
+            dependencies(&mut ws, &case);
             save(&mut ws, &doc);
             let (_, mut run) = ws
                 .handle(

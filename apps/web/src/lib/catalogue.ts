@@ -1,4 +1,5 @@
 export const catalogue = [
+  { "name": "Execute Workflow Trigger", "category": "Core platform" },
   { "name": "Parse Body", "category": "Core platform" },
   { "name": "Validate Schema", "category": "Core platform" },
   { "name": "Respond to Webhook", "category": "Core platform" },
@@ -212,6 +213,8 @@ export const catalogue = [
 
 export const fields: Record<string, { key: string; label: string; placeholder: string }[]> = {
   "Data Tables": [{ key: "command", label: "Data command (JSON)", placeholder: '{ "operation": "get", "tableId": "records", "key": "example" }' }],
+  "Execute Workflow": [{key:"workflowId",label:"Workflow",placeholder:""},{key:"revision",label:"Published revision",placeholder:""},{key:"mode",label:"Completion",placeholder:"await"},{key:"inputPointer",label:"Input JSON Pointer",placeholder:""}],
+  "Execute Workflow Trigger": [{key:"outputNodeId",label:"Output node",placeholder:""},{key:"inputSchema",label:"Input schema (JSON)",placeholder:"{}"},{key:"outputSchema",label:"Output schema (JSON)",placeholder:"{}"}],
   "Parse Body": [{ key: "format", label: "Format", placeholder: "json" },{ key: "pointer", label: "Input JSON Pointer (empty = whole input)", placeholder: "/body" }],
   "Validate Schema": [{ key: "schema", label: "Validation schema (JSON)", placeholder: '{ "type": "object", "required": ["eventId"], "properties": { "eventId": { "type": "string", "minLength": 1 } } }' }, { key: "pointer", label: "Input JSON Pointer (empty = whole input)", placeholder: "/body" }],
   "Respond to Webhook": [{ key: "status", label: "HTTP status", placeholder: "200" }, { key: "responseType", label: "Response body type", placeholder: "json" }, { key: "headers", label: "Response headers (JSON)", placeholder: '{ "X-Result": "accepted" }' }, { key: "body", label: "Response body (JSON or text)", placeholder: '{ "accepted": true }' }],

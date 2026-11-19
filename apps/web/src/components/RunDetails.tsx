@@ -6,6 +6,7 @@ import type { Json } from '../../../../packages/contracts/src/index'
 import type { KeyboardEvent } from 'react'
 import { tone, date, download } from '../design/ui-model'
 import { api } from '../lib/api'
+import {path} from '../lib/navigation'
 import { Dialog, Icon, Pill, Tile } from '../design/ui'
 type Props = {
   run: Run
@@ -125,6 +126,8 @@ export function RunDetails({
           )}
         </div>
       </header>
+      {detail.parent && <p className={styles.muted}>Invoked by run <a href={path("runs/"+encodeURIComponent(detail.parent.runId))}>{detail.parent.runId}</a> · node {detail.parent.nodeId}</p>}
+      {!!detail.children?.length && <section aria-label="Child workflow runs">{detail.children.map(child=><p key={child.runId}>{child.workflowId} · v{child.revision} · {child.awaited?"Awaited":"Background"} · {child.status} · <a href={path("runs/"+encodeURIComponent(child.runId))}>{child.runId}</a></p>)}</section>}
       {error && (
         <div className={styles.errorPanel} role="alert">
           <p>{error}</p>

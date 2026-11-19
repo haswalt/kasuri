@@ -66,7 +66,7 @@ impl Node {
     pub fn is_trigger(&self) -> bool {
         matches!(
             self.kind.as_str(),
-            "Manual Trigger" | "Webhook" | "Schedule"
+            "Manual Trigger" | "Webhook" | "Schedule" | "Execute Workflow Trigger"
         )
     }
 }

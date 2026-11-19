@@ -27,9 +27,12 @@ impl Connector for CoreConnector {
         }
         match node.kind.as_str() {
             // These consume an already authenticated/validated event from the host.
-            "Manual Trigger" | "Webhook" | "Schedule" | "Merge" | "Error Handler" => {
-                Outcome::success(task.input.clone())
-            }
+            "Manual Trigger"
+            | "Execute Workflow Trigger"
+            | "Webhook"
+            | "Schedule"
+            | "Merge"
+            | "Error Handler" => Outcome::success(task.input.clone()),
             "Map / Transform" => {
                 let Some(Value::Object(mapping)) = node.config.get("mapping").and_then(config_json)
                 else {

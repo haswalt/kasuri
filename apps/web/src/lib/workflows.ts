@@ -20,7 +20,7 @@ export function validateWorkflow(workflow: Workflow): string[] {
   const errors: string[] = []
   if (!workflow.name.trim()) errors.push('Give your workflow a name.')
   if (!workflow.nodes.length) errors.push('Add a trigger to start the workflow.')
-  const triggers = workflow.nodes.filter(n => ['Manual Trigger', 'Webhook', 'Schedule'].includes(n.type))
+  const triggers = workflow.nodes.filter(n => ['Manual Trigger', 'Webhook', 'Schedule', 'Execute Workflow Trigger'].includes(n.type))
   if (triggers.length !== 1) errors.push('Exactly one trigger is required; only the first step should be a trigger.')
   if (new Set(workflow.nodes.map(n => n.id)).size !== workflow.nodes.length) errors.push('Node IDs must be unique.')
   if (new Set(workflow.edges.map(e => e.id)).size !== workflow.edges.length) errors.push('Edge IDs must be unique.')

@@ -1,0 +1,26 @@
+import assert from 'node:assert/strict'
+import {readFileSync} from 'node:fs'
+import {versionedTestClient} from './versioned-test-client.mjs'
+import {sleep} from './runtime-checks.mjs'
+export async function checkInvocations(origin,credentials,restart){
+ let cookie='';const versions=versionedTestClient();const Authorization='Basic '+Buffer.from(credentials).toString('base64')
+ async function api(path,method='GET',body){body=versions.prepare(path,method,body);const response=await fetch(origin+'/api/'+path,{method,headers:{Authorization,cookie,...(body===undefined?{}:{'Content-Type':'application/json'})},...(body===undefined?{}:{body:JSON.stringify(body)})});if(response.headers.has('set-cookie'))cookie=response.headers.get('set-cookie').split(';')[0];assert.ok(response.ok,`${path}: ${response.status} ${await response.clone().text()}`);return versions.remember(await response.json())}
+ let child=JSON.parse(readFileSync('examples/workflows/18-reusable-workflow.json','utf8'));child.nodes.find(n=>n.id==='wait').config.delayMs=1500;await api('workflows/'+child.id,'PUT',child);await api('workflows/'+child.id+'/publish','POST');assert.ok((await api('workflows/invocable')).workflows.some(w=>w.id===child.id))
+ const parent=JSON.parse(readFileSync('examples/workflows/19-invoke-workflow.json','utf8'));await api('workflows/'+parent.id,'PUT',parent)
+ const simulated=await api('runs','POST',{workflowId:parent.id,mode:'simulation',input:{}});assert.equal(simulated.status,'succeeded',JSON.stringify(simulated));assert.equal(simulated.children.length,2);for(const link of simulated.children)assert.equal((await api('runs/'+link.runId)).mode,'simulation')
+ let live=await api('runs','POST',{workflowId:parent.id,mode:'run',input:{}});assert.equal(live.status,'running');const awaited=live.children[0].runId
+ child.nodes.find(n=>n.id==='result').config.mapping.message='New publication';await api('workflows/'+child.id,'PUT',child);await api('workflows/'+child.id+'/publish','POST')
+ origin=await restart()||origin
+ for(let i=0;i<60&&live.status==='running';i++){await sleep(100);live=await api('runs/'+live.id)}assert.equal(live.status,'succeeded',JSON.stringify(live));assert.equal(live.nodes.find(n=>n.id==='summary').output.message,'Hello from a reusable workflow');assert.equal(live.children[0].runId,awaited);assert.ok(live.children.every(c=>c.revision===1),'all targets pinned before parent execution');assert.equal(live.children.length,2)
+ const bg=live.children.find(c=>!c.awaited).runId;let background=await api('runs/'+bg);for(let i=0;i<60&&background.status==='running';i++){await sleep(100);background=await api('runs/'+bg)}assert.equal(background.status,'succeeded')
+ const cancelling=await api('runs','POST',{workflowId:parent.id,mode:'run',input:{}});await api('runs/'+cancelling.id+'/cancel','POST');assert.equal((await api('runs/'+cancelling.children[0].runId)).status,'cancelled')
+ // A parent cannot hide data access from an otherwise powerful old MCP grant.
+ await api('data','POST',{command:{operation:'create_table',definition:{id:'invocation-data',name:'Invocation data',kind:'context'}},idempotencyKey:'create-invocation-data'})
+ const dataChild=structuredClone(child);dataChild.id='invocation-data-child';dataChild.nodes=[{id:'start',type:'Execute Workflow Trigger',label:'Invoked',config:{outputNodeId:'read'}},{id:'read',type:'Context Store',label:'Read private data',config:{command:{operation:'get',tableId:'invocation-data',key:'record'}}}];dataChild.edges=[{id:'a',source:'start',target:'read'}];await api('workflows/'+dataChild.id,'PUT',dataChild);await api('workflows/'+dataChild.id+'/publish','POST')
+ const indirect=structuredClone(parent);indirect.id='indirect-data-parent';indirect.nodes=indirect.nodes.slice(0,3);indirect.nodes[2].config.workflowId=dataChild.id;indirect.edges=indirect.edges.slice(0,2);await api('workflows/'+indirect.id,'PUT',indirect)
+ const mcp=await api('mcp');const grant=await api('mcp/credentials','POST',{name:'Invocation permission check',scopes:['read','write','simulate','execute','publish'],expiresDays:1})
+ let seq=0;async function tool(name,args){const response=await fetch(mcp.endpoint,{method:'POST',headers:{Authorization:'Bearer '+grant.token,'Content-Type':'application/json',Accept:'application/json, text/event-stream'},body:JSON.stringify({jsonrpc:'2.0',id:++seq,method:'tools/call',params:{name,arguments:args}})});assert.equal(response.status,200);return(await response.json()).result}
+ const refused=await tool('runs_simulate',{workflowId:indirect.id,expectedVersion:1,input:{},idempotencyKey:'simulate-indirect-data'});assert.equal(refused.structuredContent.code,'forbidden')
+ const ownerRun=await api('runs','POST',{workflowId:indirect.id,mode:'simulation',input:{}});let detail=ownerRun;for(let i=0;i<50&&detail.status==='running';i++){await sleep(20);detail=await api('runs/'+detail.id)}assert.equal(detail.status,'succeeded',JSON.stringify(detail));assert.equal((await tool('runs_get',{runId:detail.id})).structuredContent.code,'forbidden')
+ console.log('Passed: awaited/background child workflows, pinned transitive definitions, restart recovery, durable links, simulation propagation, cancellation and indirect MCP data-scope protection.')
+}

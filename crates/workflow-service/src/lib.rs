@@ -2,6 +2,7 @@
 //! All workspace data is persistent. No sample workflows, seed data or expiry mode.
 mod audit;
 mod http_api;
+pub mod invocation;
 mod publication;
 mod webhook_response;
 use chrono::{DateTime, SecondsFormat, Utc};
@@ -89,6 +90,14 @@ pub struct ExternalTask {
 #[serde(rename_all = "camelCase")]
 pub struct RunRecord {
     #[serde(default)]
+    pub invocation_targets: std::collections::BTreeMap<String, Workflow>,
+    #[serde(default)]
+    pub parent: Option<invocation::Parent>,
+    #[serde(default)]
+    pub children: Vec<invocation::Child>,
+    #[serde(default)]
+    pub child_count: u32,
+    #[serde(default)]
     pub external: Option<ExternalTask>,
     #[serde(default)]
     pub logical_clock: u64,
@@ -133,10 +142,13 @@ impl RunRecord {
             value
         }).collect();
         Ok(
-            json!({"id":run.id(),"workflowId":run.workflow().id,"name":run.workflow().name,"revision":run.workflow().revision,"createdAt":iso(self.created_at),"mode":self.mode,"status":self.status()?,"nodes":nodes,"webhookResponse":if summary {self.webhook_response.as_ref().map(|w|json!({"delivery":w.delivery,"deadlineMs":w.deadline_ms,"closedAt":w.closed_at}))}else{self.webhook_response.as_ref().map(|w|json!(w))},"context":if summary {Value::Null}else{self.trigger_context.clone()},"input":if summary {Value::Null}else{state["input"].clone()},"error":self.host_error.clone().map(Value::String).unwrap_or_else(||state["failure"].clone()),"wakeAt":self.wake_at}),
+            json!({"id":run.id(),"workflowId":run.workflow().id,"name":run.workflow().name,"revision":run.workflow().revision,"createdAt":iso(self.created_at),"mode":self.mode,"status":self.status()?,"nodes":nodes,"webhookResponse":if summary {self.webhook_response.as_ref().map(|w|json!({"delivery":w.delivery,"deadlineMs":w.deadline_ms,"closedAt":w.closed_at}))}else{self.webhook_response.as_ref().map(|w|json!(w))},"parent":self.parent,"children":self.children,"context":if summary {Value::Null}else{self.trigger_context.clone()},"input":if summary {Value::Null}else{state["input"].clone()},"error":self.host_error.clone().map(Value::String).unwrap_or_else(||state["failure"].clone()),"wakeAt":self.wake_at}),
         )
     }
     fn advance(&mut self, now: u64) -> Result<(), ApiError> {
+        if self.mode != Mode::Simulation {
+            self.logical_clock = now;
+        }
         self.settle_response(now)?;
         let mut run = self.restore()?;
         if let Some(external) = &self.external {
@@ -144,7 +156,9 @@ impl RunRecord {
                 self.wake_at = None;
                 return Ok(());
             }
-            if connectors_data::handles(&external.task.node.kind) {
+            if connectors_data::handles(&external.task.node.kind)
+                || external.task.node.kind == "Execute Workflow"
+            {
                 self.wake_at = Some(now.saturating_add(1));
                 return Ok(());
             }
@@ -178,7 +192,8 @@ impl RunRecord {
         for _ in 0..budget {
             match run.next(clock).map_err(|e| error(400, e.to_string()))? {
                 Dispatch::Task(task) => {
-                    if connectors_data::handles(&task.node.kind)
+                    if task.node.kind == "Execute Workflow"
+                        || connectors_data::handles(&task.node.kind)
                         || (task.node.kind == "HTTP Request" && self.mode != Mode::Simulation)
                     {
                         self.external = Some(ExternalTask {
@@ -342,10 +357,11 @@ impl Workspace {
                 return Ok(text);
             }
             let removable = (1..self.runs.len()).rev().find(|i| {
-                !self.runs[*i]
-                    .webhook_response
-                    .as_ref()
-                    .is_some_and(|w| w.open())
+                !self.invocation_protected(*i)
+                    && !self.runs[*i]
+                        .webhook_response
+                        .as_ref()
+                        .is_some_and(|w| w.open())
                     && self.runs[*i].status().is_ok_and(|s| {
                         matches!(
                             s,
@@ -409,6 +425,12 @@ impl Workspace {
             if node.kind == "Validate Schema" {
                 connectors_core::validation::validate(&node.config)
                     .map_err(|_| error(400, "Invalid or unsupported validation schema"))?;
+            }
+            if matches!(
+                node.kind.as_str(),
+                "Execute Workflow" | "Execute Workflow Trigger"
+            ) {
+                invocation::validate_node(node, &document.graph)?;
             }
             if node.kind == "Parse Body" {
                 connectors_core::parsing::validate(&node.config)
@@ -518,6 +540,7 @@ impl Workspace {
             return Err(error(413, "Trigger context exceeds budget"));
         }
         Self::executable(doc)?;
+        let invocation_targets = self.invocation_targets(&doc.graph)?;
         if self
             .runs
             .iter()
@@ -537,6 +560,10 @@ impl Workspace {
         let run = Run::new(id, doc.graph.clone(), input, now, Limits::default())
             .map_err(|e| error(400, e.to_string()))?;
         let mut record = RunRecord {
+            invocation_targets,
+            parent: None,
+            children: Vec::new(),
+            child_count: 0,
             external: None,
             logical_clock: now,
             webhook_response: doc
@@ -558,9 +585,13 @@ impl Workspace {
             host_error: None,
         };
         record.advance(now)?;
-        let view = record.view(false)?;
         self.runs.insert(0, record);
-        Ok(view)
+        self.settle_invocations(now)?;
+        self.runs
+            .iter()
+            .find(|r| r.restore().is_ok_and(|run| run.id() == id))
+            .unwrap()
+            .view(false)
     }
     pub fn record_audit(
         &mut self,
@@ -675,6 +706,22 @@ impl Workspace {
             return Ok((200, self.snapshot()?));
         }
         let parts: Vec<_> = path.trim_matches('/').split('/').collect();
+        if method == "GET" && path == "/api/workflows/invocable" {
+            let workflows: Vec<Value> = self
+                .workflows
+                .iter()
+                .filter_map(|w| self.live_document(&w.graph.id).ok())
+                .filter(|w| {
+                    w.status == Publication::Active
+                        && w.graph
+                            .nodes
+                            .iter()
+                            .any(|n| n.kind == "Execute Workflow Trigger")
+                })
+                .map(|w| json!({"id":w.graph.id,"name":w.graph.name,"revision":w.graph.revision}))
+                .collect();
+            return Ok((200, json!({"workflows":workflows})));
+        }
         if method == "GET" && path == "/api/workflows/trash" {
             return Ok((
                 200,
@@ -988,7 +1035,16 @@ impl Workspace {
                     record.advance(now)?
                 }
                 record.settle_response(now)?;
-                return Ok((200, record.view(false)?));
+                let id = run.id().to_string();
+                self.settle_invocations(now)?;
+                return Ok((
+                    200,
+                    self.runs
+                        .iter()
+                        .find(|r| r.restore().is_ok_and(|r| r.id() == id))
+                        .unwrap()
+                        .view(false)?,
+                ));
             }
         }
         Err(error(404, "Route not found"))
@@ -1161,7 +1217,8 @@ impl Workspace {
             }
             let run_id = record.restore()?.id().to_string();
             if let Some(external) = &mut record.external {
-                if !connectors_data::handles(&external.task.node.kind)
+                if external.task.node.kind != "Execute Workflow"
+                    && !connectors_data::handles(&external.task.node.kind)
                     && !external.dispatched
                     && now < external.task.deadline_ms
                 {
@@ -1204,6 +1261,18 @@ impl Workspace {
         record.external = None;
         record.checkpoint = run.checkpoint().map_err(|e| error(500, e.to_string()))?;
         record.advance(now)?;
+        let simulation = record.mode == Mode::Simulation;
+        let host_now = if simulation {
+            self.runs
+                .iter()
+                .filter(|r| r.mode != Mode::Simulation)
+                .map(|r| r.logical_clock)
+                .max()
+                .unwrap_or(0)
+        } else {
+            now
+        };
+        self.settle_invocations(host_now)?;
         self.record_audit(
             "engine",
             "runs.external_completed",
@@ -1241,6 +1310,7 @@ impl Workspace {
                 }
             }
         }
+        self.settle_invocations(now)?;
         let due: Vec<_> = self
             .workflows
             .iter()
@@ -1315,6 +1385,9 @@ pub fn schedule(workflow: &Workflow, after: u64) -> Result<Option<Schedule>, Api
 
 pub fn manifests() -> Vec<connector_sdk::NodeManifest> {
     let mut manifests = connectors_core::manifests();
+    manifests.push(connector_sdk::NodeManifest{kind:"Execute Workflow Trigger".into(),version:1,config_schema:json!({"type":"object","properties":{"outputNodeId":{"type":"string"},"inputSchema":{},"outputSchema":{}},"required":["outputNodeId"],"additionalProperties":false}),output_ports:vec!["success".into(),"error".into()],has_external_side_effects:false});
+    manifests.push(connector_sdk::NodeManifest{kind:"Execute Workflow".into(),version:1,config_schema:json!({"type":"object","properties":{"workflowId":{"type":"string"},"revision":{"type":"integer","minimum":1},"mode":{"enum":["await","background"]},"inputPointer":{"type":"string"}},"required":["workflowId"],"additionalProperties":false}),output_ports:vec!["success".into(),"error".into()],has_external_side_effects:true});
+
     manifests.push(connectors_http::manifest());
     manifests.extend(connectors_data::manifests());
     manifests.push(connector_sdk::NodeManifest{kind:"Respond to Webhook".into(),version:1,config_schema:json!({"type":"object","properties":{"status":{"type":"integer","default":200},"responseType":{"enum":["json","text"]},"headers":{"type":"object"},"body":{}},"additionalProperties":false}),output_ports:vec!["success".into(),"error".into()],has_external_side_effects:true});

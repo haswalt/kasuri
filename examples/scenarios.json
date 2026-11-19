@@ -247,5 +247,31 @@
       }
     },
     "statuses": {}
+  },
+  {
+    "file": "workflows/18-reusable-workflow.json",
+    "outputs": {
+      "result": {
+        "message": "Hello from a reusable workflow",
+        "received": {}
+      }
+    },
+    "statuses": {}
+  },
+  {
+    "file": "workflows/19-invoke-workflow.json",
+    "dependencies": [
+      "workflows/18-reusable-workflow.json"
+    ],
+    "outputs": {
+      "summary": {
+        "message": "Hello from a reusable workflow",
+        "eventId": "synthetic-child-19"
+      }
+    },
+    "statuses": {
+      "invoke": "succeeded",
+      "background": "succeeded"
+    }
   }
 ]

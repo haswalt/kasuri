@@ -4,6 +4,7 @@ import { useCallback, useEffect, useState } from 'react'
 import type { Workflow } from '../lib/workflows'
 import { removeNode, validateWorkflow } from '../lib/workflows'
 import { connect, connectionError, ports } from '../lib/canvas'
+import { InvocationBuilder } from './InvocationBuilder'
 import { CollectionBuilder } from './CollectionBuilder'
 import { workflowInputHints } from '../lib/input-hints'
 import { ConditionBuilder } from './ConditionBuilder'
@@ -76,7 +77,7 @@ export function WorkflowEditor({
     [pending, setPending] = useState(false)
   const node = workflow.nodes.find((n) => n.id === nodeId),
     manifest = connectors.find((c) => c.kind === node?.type),
-    triggers = ['Manual Trigger', 'Webhook', 'Schedule']
+    triggers = ['Manual Trigger', 'Webhook', 'Schedule', 'Execute Workflow Trigger']
   const simulate = mode === 'simulate',
     errors = validateWorkflow(workflow)
   const graphKey = JSON.stringify({
@@ -626,7 +627,7 @@ export function WorkflowEditor({
                         </select>
                       </label>
                     )}
-                    {node.type === 'IF / Condition' ? <ConditionBuilder config={node.config} sample={inputHints.sample} schema={inputHints.schema} onChange={config => editNode({ config })} /> : node.type==='Filter'||node.type==='Sort' ? <CollectionBuilder kind={node.type} config={node.config} hints={inputHints} onChange={config=>editNode({config})} /> : parameterKeys.map((key) => {
+                    {node.type==='Execute Workflow'||node.type==='Execute Workflow Trigger' ? <InvocationBuilder node={node} workflow={workflow} hints={inputHints} onChange={config=>editNode({config})} /> : node.type === 'IF / Condition' ? <ConditionBuilder config={node.config} sample={inputHints.sample} schema={inputHints.schema} onChange={config => editNode({ config })} /> : node.type==='Filter'||node.type==='Sort' ? <CollectionBuilder kind={node.type} config={node.config} hints={inputHints} onChange={config=>editNode({config})} /> : parameterKeys.map((key) => {
                       const meta = fields[node.type]?.find((f) => f.key === key)
                       const property = (
                         (manifest?.configSchema.properties || {}) as Record<

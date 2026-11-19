@@ -1,0 +1,62 @@
+{
+  "schemaVersion": 1,
+  "id": "18-reusable-workflow",
+  "name": "Reusable workflow contract",
+  "description": "A workspace-local child. Publish this workflow, then import example 19 to call it. Also simulates independently with {}.",
+  "status": "draft",
+  "revision": 0,
+  "updatedAt": "",
+  "nodes": [
+    {
+      "id": "start",
+      "type": "Execute Workflow Trigger",
+      "label": "Invoked with JSON",
+      "config": {
+        "outputNodeId": "result",
+        "inputSchema": {
+          "type": "object"
+        },
+        "outputSchema": {
+          "type": "object",
+          "required": [
+            "message",
+            "received"
+          ]
+        }
+      }
+    },
+    {
+      "id": "wait",
+      "type": "Wait / Delay",
+      "label": "Durable processing boundary",
+      "config": {
+        "delayMs": 100
+      }
+    },
+    {
+      "id": "result",
+      "type": "Map / Transform",
+      "label": "Return result",
+      "config": {
+        "mapping": {
+          "message": "Hello from a reusable workflow",
+          "received": {
+            "$input": ""
+          }
+        }
+      }
+    }
+  ],
+  "edges": [
+    {
+      "id": "a",
+      "source": "start",
+      "target": "wait"
+    },
+    {
+      "id": "b",
+      "source": "wait",
+      "target": "result"
+    }
+  ]
+}
