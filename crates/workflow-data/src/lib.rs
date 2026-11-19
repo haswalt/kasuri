@@ -141,6 +141,15 @@ pub enum Command {
         #[serde(default)]
         ttl_ms: Option<u64>,
     },
+    Patch {
+        table_id: String,
+        key: String,
+        patch: serde_json::Map<String, Value>,
+        #[serde(default)]
+        remove_fields: Vec<String>,
+        #[serde(default)]
+        expected_version: Option<u64>,
+    },
     Delete {
         table_id: String,
         key: String,
@@ -162,6 +171,7 @@ impl Command {
             | Self::Get { table_id, .. }
             | Self::InsertIfAbsent { table_id, .. }
             | Self::Put { table_id, .. }
+            | Self::Patch { table_id, .. }
             | Self::Delete { table_id, .. }
             | Self::Query { table_id, .. } => table_id,
         }
@@ -557,6 +567,48 @@ fn execute(store: &mut impl Store, command: Command, now: u64) -> Result<Value> 
                 version: next_revision(&mut table)?,
                 expires_at: expiry(now, ttl_ms)?,
             };
+            store.save_row(&id, row.clone())?;
+            store.save_table(table)?;
+            Ok(json!({"status":"stored","row":row}))
+        }
+        Command::Patch {
+            key,
+            patch,
+            remove_fields,
+            expected_version,
+            ..
+        } => {
+            if !valid_key(&key) || remove_fields.len() > 100 {
+                return Err(error(ErrorCode::InvalidRequest, "Invalid row patch"));
+            }
+            let previous = store.row(&id, &key)?.filter(|row| row.live(now));
+            if expected_version
+                .is_some_and(|version| previous.as_ref().map(|row| row.version) != Some(version))
+            {
+                return Ok(json!({"status":"conflict","row":previous}));
+            }
+            let Some(mut row) = previous else {
+                return Ok(json!({"status":"not_found","row":Value::Null}));
+            };
+            let mut value = row.value.clone();
+            let object = value.as_object_mut().ok_or_else(|| {
+                error(
+                    ErrorCode::InvalidRequest,
+                    "Partial updates require an object value",
+                )
+            })?;
+            for field in remove_fields {
+                object.remove(&field);
+            }
+            for (field, value) in patch {
+                object.insert(field, value);
+            }
+            validate_value(&table, &value)?;
+            if value == row.value {
+                return Ok(json!({"status":"unchanged","row":row}));
+            }
+            row.value = value;
+            row.version = next_revision(&mut table)?;
             store.save_row(&id, row.clone())?;
             store.save_table(table)?;
             Ok(json!({"status":"stored","row":row}))

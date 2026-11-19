@@ -282,8 +282,6 @@ impl WorkflowWorkspace {
                 "Use an 8–128 character idempotencyKey",
             )?));
         }
-        let batch =
-            serde_json::from_slice::<Value>(bytes).map_err(internal)?["commands"].is_array();
         let mut workspace = if commands.iter().any(Command::mutates) {
             Some(self.load()?)
         } else {
@@ -294,7 +292,7 @@ impl WorkflowWorkspace {
             let replayed=if let Some(key)=input.idempotency_key.as_deref(){store.receipt(key).map_err(|error|{*failed.borrow_mut()=Some(error);internal("Receipt read aborted")})?.is_some()}else{false};
             let ids:BTreeSet<String>=commands.iter().map(|c|c.table_id().to_string()).collect();
             let before:Vec<_>=ids.iter().map(|id|store.table(id)).collect::<workflow_data::Result<_>>().map_err(|error|{*failed.borrow_mut()=Some(error);internal("Data state read aborted")})?;
-            let operations:Vec<_>=commands.iter().map(|command|match command {Command::CreateTable{..}=>"create table",Command::RenameTable{..}=>"rename table",Command::InsertIfAbsent{..}=>"insert if absent",Command::Put{..}=>"store row",Command::Delete{..}=>"delete row",Command::Get{..}|Command::GetTable{..}|Command::Query{..}=>"read"}).collect();
+            let operations:Vec<_>=commands.iter().map(|command|match command {Command::CreateTable{..}=>"create table",Command::RenameTable{..}=>"rename table",Command::InsertIfAbsent{..}=>"insert if absent",Command::Put{..}=>"store row",Command::Patch{..}=>"patch row",Command::Delete{..}=>"delete row",Command::Get{..}|Command::GetTable{..}|Command::Query{..}=>"read"}).collect();
             let value=if batch {
                 match input.idempotency_key.as_deref(){Some(key)=>workflow_data::apply_batch(&mut store,commands,key,time),None=>Err(invalid("Batches require an idempotencyKey"))}
             }else{workflow_data::apply(&mut store,commands.into_iter().next().unwrap(),input.idempotency_key.as_deref(),time)};

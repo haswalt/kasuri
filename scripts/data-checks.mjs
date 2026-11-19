@@ -36,6 +36,9 @@ export async function checkData(origin,credentials,restart) {
   assert.equal((await execute({operation:'get',tableId:'events',key:'another'})).result.status,'not_found')
   assert.equal(JSON.stringify(await api('workspace')).includes('synthetic-private-row-value'),false,'Dataset values stay outside workflow/run checkpoints')
   assert.equal(JSON.stringify(await api('audit?order=desc')).includes('synthetic-private-row-value'),false)
+  const patched=await execute({operation:'patch',tableId:'events',key:'claim',patch:{reviewed:true},expectedVersion:contenders[winner].result.row.version},'patch-known-field')
+  assert.equal(patched.result.row.value.marker,'synthetic-private-row-value')
+  assert.equal(patched.result.row.value.reviewed,true)
   const before=(await execute({operation:'get_table',tableId:'events'})).result.table.dataRevision
   await api('data','POST',{commands:[{operation:'put',tableId:'events',key:'partial',value:{active:true}},{operation:'put',tableId:'events',key:'invalid',value:{active:'wrong type'}}],idempotencyKey:'failed-batch'},400)
   assert.equal((await execute({operation:'get',tableId:'events',key:'partial'})).result.status,'not_found','Rust callback errors roll back staged SQLite writes')

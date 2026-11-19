@@ -25,6 +25,7 @@ export type DataCommand =
   | { operation: 'get'; tableId: string; key: string }
   | { operation: 'insert_if_absent'; tableId: string; key: string; value: Json; ttlMs?: number }
   | { operation: 'put'; tableId: string; key: string; value: Json; expectedVersion?: number; ttlMs?: number }
+  | { operation: 'patch'; tableId: string; key: string; patch: Record<string, Json>; removeFields?: string[]; expectedVersion?: number }
   | { operation: 'delete'; tableId: string; key: string; expectedVersion?: number }
   | { operation: 'query'; tableId: string; query?: DataQuery }
 export type DataResult = { status?: string; table?: DataTable; row?: DataRow | null; rows?: DataRow[]; nextCursor?: string | null; scanned?: number; inserted?: boolean; deleted?: boolean; results?: DataResult[] }

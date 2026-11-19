@@ -342,3 +342,39 @@ fn integer_comparison_does_not_round_large_ids_through_floating_point() {
         .unwrap();
     assert_eq!(result["rows"].as_array().unwrap().len(), 1);
 }
+#[test]
+fn partial_updates_preserve_unrelated_fields_expiry_and_reject_stale_versions() {
+    let mut store = MemoryStore::default();
+    create(&mut store);
+    let inserted=store.execute(command(json!({"operation":"insert_if_absent","tableId":"events","key":"partial","value":{"active":true,"token":"synthetic-secret","obsolete":1},"ttlMs":1000})),Some("patch-original"),10).unwrap();
+    let version = inserted["row"]["version"].clone();
+    let action = command(
+        json!({"operation":"patch","tableId":"events","key":"partial","patch":{"active":false},"removeFields":["obsolete"],"expectedVersion":version}),
+    );
+    let updated = store
+        .execute(action.clone(), Some("patch-update"), 20)
+        .unwrap();
+    assert_eq!(
+        updated["row"]["value"],
+        json!({"active":false,"token":"synthetic-secret"})
+    );
+    assert_eq!(updated["row"]["expiresAt"], 1010);
+    assert_eq!(
+        store.execute(action, Some("patch-update"), 30).unwrap(),
+        updated
+    );
+    assert_eq!(store.execute(command(json!({"operation":"patch","tableId":"events","key":"partial","patch":{"active":true},"expectedVersion":version})),Some("patch-stale"),30).unwrap()["status"],"conflict");
+    let invalid = command(
+        json!({"operation":"patch","tableId":"events","key":"partial","patch":{},"removeFields":["active"]}),
+    );
+    assert_eq!(
+        store
+            .execute(invalid, Some("patch-required"), 30)
+            .unwrap_err()
+            .code,
+        ErrorCode::InvalidRequest
+    );
+    let unchanged=store.execute(command(json!({"operation":"patch","tableId":"events","key":"partial","patch":{"active":false}})),Some("patch-noop"),30).unwrap();
+    assert_eq!(unchanged["status"], "unchanged");
+    assert_eq!(unchanged["row"]["version"], updated["row"]["version"]);
+}
