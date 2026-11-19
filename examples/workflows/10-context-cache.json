@@ -1,0 +1,112 @@
+{
+  "schemaVersion": 1,
+  "description": "Import and run with empty input. Synthetic public example; simulations never change live data.",
+  "status": "draft",
+  "revision": 0,
+  "updatedAt": "",
+  "edges": [
+    {
+      "id": "edge-0",
+      "source": "start",
+      "target": "create",
+      "sourcePort": "success"
+    },
+    {
+      "id": "edge-1",
+      "source": "create",
+      "target": "store",
+      "sourcePort": "success"
+    },
+    {
+      "id": "edge-2",
+      "source": "store",
+      "target": "cached",
+      "sourcePort": "success"
+    },
+    {
+      "id": "edge-3",
+      "source": "cached",
+      "target": "wait",
+      "sourcePort": "success"
+    },
+    {
+      "id": "edge-4",
+      "source": "wait",
+      "target": "expired",
+      "sourcePort": "success"
+    }
+  ],
+  "id": "10-context-cache",
+  "name": "Context cache with TTL",
+  "nodes": [
+    {
+      "id": "start",
+      "type": "Manual Trigger",
+      "label": "Start",
+      "config": {}
+    },
+    {
+      "id": "create",
+      "type": "Context Store",
+      "label": "Create",
+      "config": {
+        "command": {
+          "operation": "create_table",
+          "definition": {
+            "id": "example-cache",
+            "name": "Example cache",
+            "kind": "context"
+          }
+        }
+      }
+    },
+    {
+      "id": "store",
+      "type": "Context Store",
+      "label": "Store",
+      "config": {
+        "command": {
+          "operation": "put",
+          "tableId": "example-cache",
+          "key": "greeting",
+          "value": {
+            "message": "Hello from persistent context"
+          },
+          "ttlMs": 100
+        }
+      }
+    },
+    {
+      "id": "cached",
+      "type": "Context Store",
+      "label": "Cached",
+      "config": {
+        "command": {
+          "operation": "get",
+          "tableId": "example-cache",
+          "key": "greeting"
+        }
+      }
+    },
+    {
+      "id": "wait",
+      "type": "Wait / Delay",
+      "label": "Advance past TTL",
+      "config": {
+        "delayMs": 200
+      }
+    },
+    {
+      "id": "expired",
+      "type": "Context Store",
+      "label": "Expired",
+      "config": {
+        "command": {
+          "operation": "get",
+          "tableId": "example-cache",
+          "key": "greeting"
+        }
+      }
+    }
+  ]
+}

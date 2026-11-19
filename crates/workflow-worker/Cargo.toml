@@ -23,3 +23,5 @@ workflow-mcp = { path = "../workflow-mcp" }
 url = "2"
 
 workflow-data = { path = "../workflow-data" }
+
+connectors-data = { path = "../connectors-data" }

@@ -249,3 +249,65 @@ fn webhook_events_are_durable_deduplicated_and_disabled_by_pause_or_rotation() {
         404
     );
 }
+
+#[test]
+fn pending_data_is_not_uncertain_network_io_and_simulation_clock_survives_restore() {
+    let mut ws = Workspace::default();
+    let mut doc = document("Manual Trigger");
+    doc["nodes"].as_array_mut().unwrap().push(json!({"id":"data","type":"Context Store","label":"Data","config":{"command":{"operation":"get","tableId":"cache","key":"x"}}}));
+    doc["edges"]
+        .as_array_mut()
+        .unwrap()
+        .push(json!({"id":"data-edge","source":"wait","target":"data"}));
+    save(&mut ws, &doc);
+    ws.handle(
+        "POST",
+        "/api/runs",
+        br#"{"workflowId":"flow","mode":"simulation","input":{}}"#,
+        10,
+        "data-sim",
+    )
+    .unwrap();
+    let mut ws = Workspace::from_json(&ws.checkpoint().unwrap()).unwrap();
+    // Recovery wall time cannot expire a task queued after a virtual wait.
+    ws.alarm(1_000_000).unwrap();
+    assert!(ws.claim_external(1_000_000).unwrap().is_none());
+    let (id, task, mode, time) = ws.pending_data(1_000_000).unwrap().unwrap();
+    assert_eq!(mode, workflow_service::Mode::Simulation);
+    assert_eq!(time, 1010);
+    assert!(
+        ws.complete_data(
+            &id,
+            &task.id,
+            connector_sdk::Outcome::success(json!({"status":"not_found"})),
+            time
+        )
+        .unwrap()
+    );
+    assert_eq!(ws.runs[0].view(false).unwrap()["status"], "succeeded");
+    assert!(ws.pending_data(1_000_000).unwrap().is_none());
+
+    ws.handle(
+        "POST",
+        "/api/runs",
+        br#"{"workflowId":"flow","mode":"simulation","input":{}}"#,
+        20,
+        "cancel-data",
+    )
+    .unwrap();
+    ws.handle("POST", "/api/runs/cancel-data/pause", b"", 20, "")
+        .unwrap();
+    assert!(ws.pending_data(20).unwrap().is_none());
+    assert_eq!(
+        ws.data_runs().unwrap().len(),
+        1,
+        "Paused simulation retains its snapshot"
+    );
+    ws.handle("POST", "/api/runs/cancel-data/cancel", b"", 20, "")
+        .unwrap();
+    assert!(ws.pending_data(20).unwrap().is_none());
+    assert!(
+        ws.data_runs().unwrap().is_empty(),
+        "Terminal simulations release their snapshot"
+    );
+}

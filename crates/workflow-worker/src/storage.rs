@@ -70,7 +70,9 @@ fn write_encoded_records(sql: &SqlStorage, body: String) -> Result<()> {
     Ok(())
 }
 pub(crate) fn write_workspace_records(sql: &SqlStorage, workspace: &mut Workspace) -> Result<()> {
-    write_encoded_records(sql, workspace.checkpoint().map_err(internal)?)
+    let body = workspace.checkpoint().map_err(internal)?;
+    crate::data::sync_run_data(sql, workspace, crate::now())?;
+    write_encoded_records(sql, body)
 }
 impl WorkflowWorkspace {
     /// workers-rs 0.9 exposes SQL but not transactionSync. Bind the documented
@@ -136,11 +138,21 @@ impl WorkflowWorkspace {
         stage: impl FnOnce(&SqlStorage) -> Result<()> + 'static,
     ) -> Result<()> {
         // All validation and retention precedes the atomic commit. No callback I/O.
-        let body = workspace.checkpoint().map_err(internal)?;
-        self.sql_transaction(move |sql| {
+        let mut candidate = workspace.clone();
+        // Retention precedes lifecycle cleanup, so pruned runs cannot retain scopes.
+        candidate.checkpoint().map_err(internal)?;
+        *workspace = self.sql_transaction(move |sql| {
             stage(&sql)?;
-            write_encoded_records(&sql, body)
+            write_workspace_records(&sql, &mut candidate)?;
+            Ok(candidate)
         })?;
+        // Arm recovery before any effect is attempted. A failed transaction must
+        // leave a durable wake-up, including when this save runs in an alarm.
+        self.arm_workspace_alarm(workspace).await?;
+        self.flush_data_tasks(workspace)?;
+        self.arm_workspace_alarm(workspace).await
+    }
+    async fn arm_workspace_alarm(&self, workspace: &Workspace) -> Result<()> {
         if let Some(at) = workspace.next_alarm() {
             self.state
                 .storage()

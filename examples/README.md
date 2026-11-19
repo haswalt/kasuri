@@ -15,6 +15,8 @@ Every example accepts the default `{}` input. No edits, accounts, API keys, envi
 | [07 Public API pipeline](workflows/07-public-api-pipeline.json) | More involved, online | HTTP query → Filter completed todos → Sort by ID → JSON stringify/parse. Inspect intermediate HTTP, array and JSON outputs. |
 | [08 Scheduled heartbeat](workflows/08-schedule.json) | Trigger | Try immediately with Run now or Simulate. **Publish** activates an hourly UTC heartbeat. **Pause** stops it. |
 | [09 Webhook acknowledgement](workflows/09-webhook.json) | Trigger | Try immediately with Run now or Simulate. Real inbound events additionally require generating this installation's endpoint/token in the trigger inspector and publishing; see [webhook instructions](../docs/webhooks.md). |
+| [10 Context cache](workflows/10-context-cache.json) | Persistent data | Explicitly creates a context namespace, caches a synthetic value, reads it and waits past TTL. Simulation advances virtual time and leaves live context unchanged. |
+| [11 Atomic event claim](workflows/11-table-claim.json) | Persistent data | Explicitly creates a typed table and demonstrates inserted/existing claim outcomes. Resets only its fixed synthetic key for repeatable experimentation; do not reset real deduplication keys. |
 
 Together these cover every currently implemented node: Manual Trigger, Webhook, Schedule, Map / Transform, IF / Condition, Merge, Wait / Delay, JSON Utilities, Error Handler, HTTP Request, Filter and Sort.
 
@@ -26,7 +28,7 @@ Examples 06 and 07 use [JSONPlaceholder](https://jsonplaceholder.typicode.com/),
 
 The scheduled and webhook examples need no configuration for an immediate trial run. Activating their actual external triggers is an explicit action: schedules must be published, and secure webhook credentials must be generated locally. Import files cannot safely ship reusable webhook secrets or automatically enable a timer.
 
-`basic-workflow.json` and `input.json` are the original paired fixtures for the command-line engine walkthrough and its branching tests. Keep using them together for that walkthrough; the nine importable files in `workflows/` are self-contained and do not depend on that input file. `scenarios.json` contains test expectations, not an importable workflow.
+`basic-workflow.json` and `input.json` are the original paired fixtures for the command-line engine walkthrough and its branching tests. Keep using them together for that walkthrough; the importable files in `workflows/` are self-contained and do not depend on that input file. `scenarios.json` contains test expectations, not an importable workflow.
 
 ## Keeping examples working
 

@@ -17,3 +17,8 @@ connectors-http = { path = "../connectors-http" }
 connectors-webhook = { path = "../connectors-webhook" }
 
 sha2 = "0.10"
+
+connectors-data = { path = "../connectors-data" }
+
+[dev-dependencies]
+workflow-data = { path = "../workflow-data" }

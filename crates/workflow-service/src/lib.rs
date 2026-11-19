@@ -88,6 +88,8 @@ pub struct ExternalTask {
 pub struct RunRecord {
     #[serde(default)]
     pub external: Option<ExternalTask>,
+    #[serde(default)]
+    pub logical_clock: u64,
     pub checkpoint: String,
     pub mode: Mode,
     pub created_at: u64,
@@ -135,6 +137,10 @@ impl RunRecord {
                 self.wake_at = None;
                 return Ok(());
             }
+            if connectors_data::handles(&external.task.node.kind) {
+                self.wake_at = Some(now.saturating_add(1));
+                return Ok(());
+            }
             if now < external.task.deadline_ms {
                 self.wake_at = Some(if external.dispatched {
                     external.task.deadline_ms
@@ -151,7 +157,11 @@ impl RunRecord {
             .map_err(|e| error(500, e.to_string()))?;
             self.external = None;
         }
-        let mut clock = now;
+        let mut clock = if self.mode == Mode::Simulation {
+            self.logical_clock.max(self.created_at)
+        } else {
+            now
+        };
         self.wake_at = None;
         let budget = if self.mode == Mode::Simulation {
             1000
@@ -161,12 +171,14 @@ impl RunRecord {
         for _ in 0..budget {
             match run.next(clock).map_err(|e| error(400, e.to_string()))? {
                 Dispatch::Task(task) => {
-                    if task.node.kind == "HTTP Request" && self.mode != Mode::Simulation {
+                    if connectors_data::handles(&task.node.kind)
+                        || (task.node.kind == "HTTP Request" && self.mode != Mode::Simulation)
+                    {
                         self.external = Some(ExternalTask {
                             task: *task,
                             dispatched: false,
                         });
-                        self.wake_at = Some(clock.saturating_add(1));
+                        self.wake_at = Some(now.saturating_add(1));
                         break;
                     }
                     let outcome = if task.node.kind == "HTTP Request" {
@@ -191,6 +203,7 @@ impl RunRecord {
         if run.status() == RunStatus::Running && self.wake_at.is_none() {
             self.wake_at = Some(clock.saturating_add(1));
         }
+        self.logical_clock = clock;
         self.checkpoint = run.checkpoint().map_err(|e| error(400, e.to_string()))?;
         Ok(())
     }
@@ -315,6 +328,10 @@ impl Workspace {
                     }
                 }
             }
+            if connectors_data::handles(&node.kind) {
+                connectors_data::access(node)
+                    .map_err(|_| error(400, "Invalid data connector configuration"))?;
+            }
             if node.kind == "HTTP Request" {
                 let mut node = node.clone();
                 node.config.remove("query");
@@ -358,6 +375,7 @@ impl Workspace {
             .map_err(|e| error(400, e.to_string()))?;
         let mut record = RunRecord {
             external: None,
+            logical_clock: now,
             checkpoint: run.checkpoint().map_err(|e| error(400, e.to_string()))?,
             mode,
             created_at: now,
@@ -884,6 +902,82 @@ impl Workspace {
         });
         Ok(json!({"runId":run_id,"eventId":event_id,"duplicate":false}))
     }
+    /// Active dataset users, for host-owned snapshots and receipt retention.
+    pub fn data_runs(&self) -> Result<Vec<(String, Mode, Vec<String>)>, ApiError> {
+        let mut result = Vec::new();
+        for record in &self.runs {
+            if !matches!(record.status()?, RunStatus::Running | RunStatus::Paused) {
+                continue;
+            }
+            let run = record.restore()?;
+            let ids = run
+                .workflow()
+                .nodes
+                .iter()
+                .filter(|n| connectors_data::handles(&n.kind))
+                .map(|n| {
+                    connectors_data::access(n)
+                        .map(|a| a.table_id)
+                        .map_err(|_| error(500, "Invalid stored data task"))
+                })
+                .collect::<Result<std::collections::BTreeSet<_>, _>>()?;
+            if !ids.is_empty() {
+                result.push((run.id().to_string(), record.mode, ids.into_iter().collect()));
+            }
+        }
+        Ok(result)
+    }
+    /// Data effects are completed synchronously by a host transaction, never claimed
+    /// as uncertain network I/O. A cancelled/paused task cannot be dispatched.
+    pub fn pending_data(&self, now: u64) -> Result<Option<(String, Task, Mode, u64)>, ApiError> {
+        for record in &self.runs {
+            if record.status()? != RunStatus::Running {
+                continue;
+            }
+            if let Some(external) = &record.external {
+                if connectors_data::handles(&external.task.node.kind) {
+                    let time = if record.mode == Mode::Simulation {
+                        record.logical_clock
+                    } else {
+                        now
+                    };
+                    return Ok(Some((
+                        record.restore()?.id().into(),
+                        external.task.clone(),
+                        record.mode,
+                        time,
+                    )));
+                }
+            }
+        }
+        Ok(None)
+    }
+    pub fn complete_data(
+        &mut self,
+        id: &str,
+        task_id: &str,
+        outcome: Outcome,
+        time: u64,
+    ) -> Result<bool, ApiError> {
+        let Some(record) = self
+            .runs
+            .iter_mut()
+            .find(|r| r.restore().is_ok_and(|run| run.id() == id))
+        else {
+            return Ok(false);
+        };
+        if record.status()? != RunStatus::Running {
+            return Ok(false);
+        }
+        let Some(external) = &mut record.external else {
+            return Ok(false);
+        };
+        if external.task.id != task_id || !connectors_data::handles(&external.task.node.kind) {
+            return Ok(false);
+        }
+        external.dispatched = true;
+        self.complete_external(id, task_id, outcome, time)
+    }
     /// Claim before network I/O and persist the returned task with its dispatched marker.
     pub fn claim_external(&mut self, now: u64) -> Result<Option<(String, Task)>, ApiError> {
         for record in &mut self.runs {
@@ -892,7 +986,10 @@ impl Workspace {
             }
             let run_id = record.restore()?.id().to_string();
             if let Some(external) = &mut record.external {
-                if !external.dispatched && now < external.task.deadline_ms {
+                if !connectors_data::handles(&external.task.node.kind)
+                    && !external.dispatched
+                    && now < external.task.deadline_ms
+                {
                     external.dispatched = true;
                     record.wake_at = Some(external.task.deadline_ms);
                     return Ok(Some((run_id, external.task.clone())));
@@ -1043,5 +1140,6 @@ pub fn schedule(workflow: &Workflow, after: u64) -> Result<Option<Schedule>, Api
 pub fn manifests() -> Vec<connector_sdk::NodeManifest> {
     let mut manifests = connectors_core::manifests();
     manifests.push(connectors_http::manifest());
+    manifests.extend(connectors_data::manifests());
     manifests
 }

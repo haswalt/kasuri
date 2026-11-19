@@ -245,3 +245,106 @@ fn receipt_capacity_is_checked_before_any_persistent_data_effect() {
     assert_eq!(host.calls, 0);
     assert!(host.store.tables.is_empty());
 }
+
+#[test]
+fn data_workflow_execution_and_run_outputs_require_opt_in_scopes() {
+    let mut ws = Workspace::default();
+    let mut auth = Auth::default();
+    let mut host = Host::default();
+    let graph = json!({"schemaVersion":1,"id":"data-flow","name":"Data flow","status":"draft","updatedAt":"","nodes":[{"id":"start","type":"Manual Trigger","label":"Start","config":{}},{"id":"data","type":"Context Store","label":"Data","config":{"command":{"operation":"put","tableId":"cache","key":"x","value":1}}}],"edges":[{"id":"e","source":"start","target":"data"}]});
+    ws.handle(
+        "PUT",
+        "/api/workflows/data-flow",
+        &serde_json::to_vec(&graph).unwrap(),
+        0,
+        "",
+    )
+    .unwrap();
+    let mut counter = 0;
+    let mut entropy = || {
+        counter += 1;
+        format!("{counter:064x}")
+    };
+    let mut issue = |scopes: Vec<String>| {
+        auth.issue("Scope test", scopes, RESOURCE, 0, 86400000, &mut entropy)
+            .unwrap()["token"]
+            .as_str()
+            .unwrap()
+            .to_string()
+    };
+    let operator = issue(role("operator"));
+    let mut read_scopes = role("operator");
+    read_scopes.push("data_read".into());
+    let viewer = issue(read_scopes);
+    let manager = issue(role("manager"));
+    let args = json!({"workflowId":"data-flow","expectedVersion":1,"input":{},"idempotencyKey":"simulation-key"});
+    assert_eq!(
+        call(
+            &mut ws,
+            &mut auth,
+            &mut host,
+            &operator,
+            "runs_simulate",
+            args.clone()
+        )["structuredContent"]["code"],
+        "forbidden"
+    );
+    assert_eq!(
+        call(
+            &mut ws,
+            &mut auth,
+            &mut host,
+            &viewer,
+            "runs_start",
+            args.clone()
+        )["structuredContent"]["code"],
+        "forbidden"
+    );
+    assert_eq!(
+        call(
+            &mut ws,
+            &mut auth,
+            &mut host,
+            &operator,
+            "workflows_publish",
+            json!({"workflowId":"data-flow","expectedVersion":1,"idempotencyKey":"publish-key"})
+        )["structuredContent"]["code"],
+        "forbidden"
+    );
+    let result = call(
+        &mut ws,
+        &mut auth,
+        &mut host,
+        &viewer,
+        "runs_simulate",
+        args.clone(),
+    );
+    assert_eq!(result["isError"], false, "{result}");
+    let id = result["structuredContent"]["id"].as_str().unwrap();
+    assert_eq!(
+        call(
+            &mut ws,
+            &mut auth,
+            &mut host,
+            &operator,
+            "runs_get",
+            json!({"runId":id})
+        )["structuredContent"]["code"],
+        "forbidden"
+    );
+    assert_eq!(
+        call(
+            &mut ws,
+            &mut auth,
+            &mut host,
+            &viewer,
+            "runs_get",
+            json!({"runId":id})
+        )["isError"],
+        false
+    );
+    assert_eq!(
+        call(&mut ws, &mut auth, &mut host, &manager, "runs_start", args)["isError"],
+        false
+    );
+}

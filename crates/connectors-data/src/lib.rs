@@ -17,6 +17,16 @@ pub struct Prepared {
     pub access: Access,
 }
 
+fn configuration(node: &Node) -> Result<Value, FailureCode> {
+    match node.config.get("command") {
+        Some(Value::String(text)) => {
+            serde_json::from_str(text).map_err(|_| FailureCode::InvalidConfig)
+        }
+        Some(value) => Ok(value.clone()),
+        None => Err(FailureCode::InvalidConfig),
+    }
+}
+
 /// Inspect without input or data access. Dataset routing and permission needs may
 /// not be supplied dynamically by a preceding node.
 pub fn access(node: &Node) -> Result<Access, FailureCode> {
@@ -28,10 +38,9 @@ pub fn access(node: &Node) -> Result<Access, FailureCode> {
     if node.version != 1 || node.config.len() != 1 {
         return Err(FailureCode::InvalidConfig);
     }
-    let command = node
-        .config
-        .get("command")
-        .and_then(Value::as_object)
+    let configuration = configuration(node)?;
+    let command = configuration
+        .as_object()
         .ok_or(FailureCode::InvalidConfig)?;
     let operation = command
         .get("operation")
@@ -83,7 +92,7 @@ pub fn access(node: &Node) -> Result<Access, FailureCode> {
 /// environment access, arbitrary SQL or caller-selected receipt namespace.
 pub fn prepare(node: &Node, input: &Value) -> Result<Prepared, FailureCode> {
     let access = access(node)?;
-    let mut value = node.config["command"].clone();
+    let mut value = configuration(node)?;
     let mut remaining = workflow_schema::MAX_CONFIG_BYTES;
     let fields = value.as_object_mut().ok_or(FailureCode::InvalidConfig)?;
     for key in [
@@ -174,4 +183,35 @@ fn resolve(
             Ok(value.clone())
         }
     }
+}
+
+/// This classification is shared by scheduling, hosting and permission checks.
+pub fn handles(kind: &str) -> bool {
+    matches!(kind, "Data Tables" | "Context Store")
+}
+pub fn manifests() -> Vec<connector_sdk::NodeManifest> {
+    ["Data Tables", "Context Store"].into_iter().map(|kind| connector_sdk::NodeManifest {
+        kind: kind.into(), version: 1,
+        config_schema: serde_json::json!({"type":"object","properties":{"command":{"type":"object","description":"Typed data command; static operation/tableId, explicit $input JSON-pointer references in payloads."}},"required":["command"],"additionalProperties":false}),
+        output_ports: vec!["success".into(), "error".into()], has_external_side_effects: true,
+    }).collect()
+}
+
+/// Execute within the host's rollback-capable transaction. The prepared kind is
+/// checked against persisted metadata, including reads and existing create calls.
+pub fn apply(
+    store: &mut impl workflow_data::Store,
+    prepared: Prepared,
+    receipt: &str,
+    now: u64,
+) -> workflow_data::Result<Value> {
+    if let Some(table) = store.table(&prepared.access.table_id)? {
+        if table.definition.kind != prepared.access.kind {
+            return Err(workflow_data::error(
+                workflow_data::ErrorCode::InvalidRequest,
+                "Dataset kind does not match connector",
+            ));
+        }
+    }
+    workflow_data::apply(store, prepared.command, Some(receipt), now)
 }

@@ -111,3 +111,33 @@ fn repeated_input_references_are_bounded_and_resolved_values_are_not_evaluated()
     let serialized = serde_json::to_value(prepared.command).unwrap();
     assert_eq!(serialized["value"], json!({"$input":"/private"}));
 }
+
+#[test]
+fn editor_json_text_and_dataset_kind_are_enforced_before_execution() {
+    let mut store = MemoryStore::default();
+    let mut create = node(
+        "Context Store",
+        json!({"operation":"create_table","definition":{"id":"cache","name":"Cache","kind":"context"}}),
+    );
+    create.config.insert(
+        "command".into(),
+        Value::String(create.config["command"].to_string()),
+    );
+    let prepared = prepare(&create, &json!({})).unwrap();
+    connectors_data::apply(&mut store, prepared, "create", 0).unwrap();
+    let wrong = node(
+        "Data Tables",
+        json!({"operation":"put","tableId":"cache","key":"x","value":{"x":1}}),
+    );
+    assert!(
+        connectors_data::apply(
+            &mut store,
+            prepare(&wrong, &json!({})).unwrap(),
+            "wrong-kind",
+            0
+        )
+        .is_err()
+    );
+    assert!(store.rows.is_empty());
+    assert!(!store.receipts.contains_key("wrong-kind"));
+}

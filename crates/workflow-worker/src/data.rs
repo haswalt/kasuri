@@ -414,3 +414,155 @@ impl WorkflowWorkspace {
         }
     }
 }
+
+/// Snapshot and receipt lifecycle is committed with the corresponding checkpoint.
+/// SQL copies stay outside Rust heaps and run JSON; absent source tables remain
+/// absent until an explicit create command executes in the simulation.
+pub(crate) fn sync_run_data(sql: &SqlStorage, workspace: &Workspace, time: u64) -> Result<()> {
+    let active = workspace.data_runs().map_err(internal)?;
+    if active.is_empty() {
+        // Avoid creating data tables on installations that have never used them.
+        #[derive(Deserialize)]
+        struct Found {
+            count: u32,
+        }
+        if sql.exec("SELECT count(*) AS count FROM sqlite_master WHERE type='table' AND name='data_simulations'",None)?.one::<Found>()?.count == 0 {return Ok(())}
+    }
+    SqlDataStore::new(sql.clone(), "live".into(), "engine".into(), None, time).map_err(internal)?;
+    sql.exec(
+        "CREATE TABLE IF NOT EXISTS data_simulations(run_id TEXT PRIMARY KEY)",
+        None,
+    )?;
+    for (id, mode, tables) in &active {
+        if *mode != workflow_service::Mode::Simulation {
+            continue;
+        }
+        #[derive(Deserialize)]
+        struct Existing {
+            run_id: String,
+        }
+        let exists = sql
+            .exec(
+                "SELECT run_id FROM data_simulations WHERE run_id=?",
+                Some(vec![id.clone().into()]),
+            )?
+            .to_array::<Existing>()?;
+        if exists.iter().any(|row| row.run_id == *id) {
+            continue;
+        }
+        let scope = format!("sim:{id}");
+        for table in tables {
+            sql.exec("INSERT INTO data_tables(scope,id,body) SELECT ?,id,body FROM data_tables WHERE scope='live' AND id=?",Some(vec![scope.clone().into(),table.clone().into()]))?;
+            sql.exec("INSERT INTO data_rows(scope,table_id,key,body) SELECT ?,table_id,key,body FROM data_rows WHERE scope='live' AND table_id=?",Some(vec![scope.clone().into(),table.clone().into()]))?;
+        }
+        sql.exec(
+            "INSERT INTO data_simulations(run_id) VALUES(?)",
+            Some(vec![id.clone().into()]),
+        )?;
+    }
+    let ids = serde_json::to_string(&active.iter().map(|(id, _, _)| id).collect::<Vec<_>>())
+        .map_err(internal)?;
+    sql.exec("DELETE FROM data_rows WHERE scope IN (SELECT 'sim:'||run_id FROM data_simulations WHERE run_id NOT IN (SELECT value FROM json_each(?)))",Some(vec![ids.clone().into()]))?;
+    sql.exec("DELETE FROM data_tables WHERE scope IN (SELECT 'sim:'||run_id FROM data_simulations WHERE run_id NOT IN (SELECT value FROM json_each(?)))",Some(vec![ids.clone().into()]))?;
+    sql.exec("DELETE FROM data_receipts WHERE run_id IS NOT NULL AND run_id NOT IN (SELECT value FROM json_each(?))",Some(vec![ids.clone().into()]))?;
+    sql.exec(
+        "DELETE FROM data_simulations WHERE run_id NOT IN (SELECT value FROM json_each(?))",
+        Some(vec![ids.into()]),
+    )?;
+    Ok(())
+}
+impl WorkflowWorkspace {
+    /// Each task's effect, receipt and completion checkpoint share one transaction.
+    /// A data/config error rolls back the effect before persisting its failed outcome.
+    pub(crate) fn flush_data_tasks(&self, workspace: &mut Workspace) -> Result<()> {
+        for _ in 0..100 {
+            let Some((id, task, mode, time)) = workspace.pending_data(now()).map_err(internal)?
+            else {
+                break;
+            };
+            let mut candidate = workspace.clone();
+            let run_id = id.clone();
+            let task_id = task.id.clone();
+            let failed = Rc::new(RefCell::new(None));
+            let failure = failed.clone();
+            let result = self.sql_transaction(move |sql| {
+                let outcome = if time >= task.deadline_ms {
+                    connectors_http::failure(connector_sdk::FailureCode::Timeout, false)
+                } else {
+                    let prepared = match connectors_data::prepare(&task.node, &task.input) {
+                        Ok(prepared) => prepared,
+                        Err(code) => {
+                            candidate
+                                .complete_data(
+                                    &run_id,
+                                    &task.id,
+                                    connectors_http::failure(code, false),
+                                    time,
+                                )
+                                .map_err(internal)?;
+                            crate::storage::write_workspace_records(&sql, &mut candidate)?;
+                            return Ok(candidate);
+                        }
+                    };
+                    let scope = if mode == workflow_service::Mode::Simulation {
+                        format!("sim:{run_id}")
+                    } else {
+                        "live".into()
+                    };
+                    let mut store = SqlDataStore::new(
+                        sql.clone(),
+                        scope,
+                        "engine".into(),
+                        Some(run_id.clone()),
+                        time,
+                    )
+                    .map_err(internal)?;
+                    match connectors_data::apply(&mut store, prepared, &task.idempotency_key, time)
+                    {
+                        Ok(value) => connector_sdk::Outcome::success(value),
+                        Err(error) => {
+                            *failure.borrow_mut() = Some(error);
+                            return Err(internal("Data task transaction aborted"));
+                        }
+                    }
+                };
+                if !candidate
+                    .complete_data(&run_id, &task.id, outcome, time)
+                    .map_err(internal)?
+                {
+                    return Err(internal("Data task is no longer pending"));
+                }
+                crate::storage::write_workspace_records(&sql, &mut candidate)?;
+                Ok(candidate)
+            });
+            match result {
+                Ok(updated) => *workspace = updated,
+                Err(error) => {
+                    let Some(failure) = failed.borrow_mut().take() else {
+                        return Err(error);
+                    };
+                    if failure.code == ErrorCode::Storage {
+                        return Err(error);
+                    }
+                    let mut candidate = workspace.clone();
+                    candidate
+                        .complete_data(
+                            &id,
+                            &task_id,
+                            connectors_http::failure(
+                                connector_sdk::FailureCode::InvalidConfig,
+                                false,
+                            ),
+                            time,
+                        )
+                        .map_err(internal)?;
+                    *workspace = self.sql_transaction(move |sql| {
+                        crate::storage::write_workspace_records(&sql, &mut candidate)?;
+                        Ok(candidate)
+                    })?;
+                }
+            }
+        }
+        Ok(())
+    }
+}

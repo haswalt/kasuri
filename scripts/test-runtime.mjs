@@ -11,6 +11,7 @@ import { join, resolve } from 'node:path'
 import { once } from 'node:events'
 import { createServer } from 'node:net'
 import { checkMcpData } from './mcp-data-checks.mjs'
+import { checkDataWorkflows } from './data-workflow-checks.mjs'
 import { checkData } from './data-checks.mjs'
 import { checkPreconditions } from './precondition-checks.mjs'
 import { checkAudit } from './audit-checks.mjs'
@@ -101,13 +102,20 @@ async function stop() {
 try {
   start()
   await healthy(origin)
-  if (process.argv.includes('--data-only')) {
+  if (process.argv.includes('--data-workflows-only')) {
+    await checkDataWorkflows(origin, 'test:runtime-check', async () => {
+      await stop(); start(); await healthy(origin)
+    })
+  } else if (process.argv.includes('--data-only')) {
     await checkData(origin, 'test:runtime-check', async () => {
       await stop()
       start()
       await healthy(origin)
     })
   } else {
+    await checkDataWorkflows(origin, 'test:runtime-check', async () => {
+      await stop(); start(); await healthy(origin)
+    })
     await checkRuntime(origin, 'test:runtime-check', async () => {
       await stop()
       start()

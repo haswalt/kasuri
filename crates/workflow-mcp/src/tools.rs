@@ -727,6 +727,73 @@ pub fn call_with_data(
             "Arguments do not match the tool schema",
         )));
     }
+    if matches!(
+        name,
+        "runs_start"
+            | "runs_simulate"
+            | "runs_resume"
+            | "runs_get"
+            | "workflows_publish"
+            | "workflows_resume"
+    ) {
+        let (graph, simulation) =
+            if matches!(name, "runs_start" | "runs_simulate" | "workflows_publish") {
+                (
+                    ws.workflows
+                        .iter()
+                        .find(|w| Some(w.graph.id.as_str()) == args["workflowId"].as_str())
+                        .map(|w| w.graph.clone()),
+                    name == "runs_simulate",
+                )
+            } else if name == "workflows_resume" {
+                (
+                    args["workflowId"]
+                        .as_str()
+                        .and_then(|id| ws.live_document(id).ok())
+                        .map(|w| w.graph),
+                    false,
+                )
+            } else {
+                ws.runs
+                    .iter()
+                    .find_map(|r| {
+                        let checkpoint: Value = serde_json::from_str(&r.checkpoint).ok()?;
+                        if checkpoint["id"] == args["runId"] {
+                            Some((
+                                serde_json::from_value::<workflow_schema::Workflow>(
+                                    checkpoint["workflow"].clone(),
+                                )
+                                .ok(),
+                                r.mode == workflow_service::Mode::Simulation,
+                            ))
+                        } else {
+                            None
+                        }
+                    })
+                    .unwrap_or((None, false))
+            };
+        if let Some(graph) = graph {
+            for node in &graph.nodes {
+                if !connectors_data::handles(&node.kind) {
+                    continue;
+                }
+                let Ok(access) = connectors_data::access(node) else {
+                    return content(Err(err("invalid_arguments", "Invalid data task")));
+                };
+                if !c.permits("data_read")
+                    || (name != "runs_get"
+                        && !simulation
+                        && access.writes
+                        && !c.permits("data_write"))
+                {
+                    return content(Err(err(
+                        "forbidden",
+                        "Data workflows require explicit data_read and live mutations require data_write",
+                    )));
+                }
+            }
+        }
+    }
     let fingerprint = hash(&json!({"name":name,"arguments":args}).to_string());
     let key = args["idempotencyKey"].as_str().unwrap_or("");
     if mutation {

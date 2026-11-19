@@ -25,6 +25,15 @@ fn save(ws: &mut Workspace, doc: &Value) {
     )
     .unwrap();
 }
+fn drain_data(ws: &mut Workspace, store: &mut workflow_data::MemoryStore, now: u64) {
+    while let Some((id, task, _, time)) = ws.pending_data(now).unwrap() {
+        let prepared = connectors_data::prepare(&task.node, &task.input).unwrap();
+        let result = connectors_data::apply(store, prepared, &task.idempotency_key, time).unwrap();
+        ws.complete_data(&id, &task.id, connector_sdk::Outcome::success(result), time)
+            .unwrap();
+        *ws = Workspace::from_json(&ws.checkpoint().unwrap()).unwrap();
+    }
+}
 fn check(case: &Value, run: &Value) {
     assert_eq!(run["status"], "succeeded", "{}: {run}", case["file"]);
     for (id, expected) in case["outputs"].as_object().unwrap() {
@@ -76,7 +85,7 @@ fn every_published_example_simulates_without_input_or_configuration() {
             "",
         )
         .unwrap();
-        let (_, run) = ws
+        let (_, _run) = ws
             .handle(
                 "POST",
                 "/api/runs",
@@ -86,6 +95,12 @@ fn every_published_example_simulates_without_input_or_configuration() {
                 "example-run",
             )
             .unwrap();
+        let mut overlay = workflow_data::MemoryStore::default();
+        drain_data(&mut ws, &mut overlay, 0);
+        let run = ws
+            .handle("GET", "/api/runs/example-run", b"", 0, "")
+            .unwrap()
+            .1;
         check(&case, &run);
         // Core examples also execute real waits and survive checkpoint restoration.
         if !graph.nodes.iter().any(|n| n.kind == "HTTP Request") {
@@ -101,7 +116,14 @@ fn every_published_example_simulates_without_input_or_configuration() {
                     "real-run",
                 )
                 .unwrap();
+            let mut data = workflow_data::MemoryStore::default();
             for _ in 0..20 {
+                let time = ws.next_alarm().unwrap_or(0);
+                drain_data(&mut ws, &mut data, time);
+                run = ws
+                    .handle("GET", "/api/runs/real-run", b"", time, "")
+                    .unwrap()
+                    .1;
                 if run["status"] != "running" {
                     break;
                 }

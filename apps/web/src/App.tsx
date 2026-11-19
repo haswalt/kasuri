@@ -1377,9 +1377,9 @@ function App() {
                         key={c.name}
                         onClick={() => {
                           go(
-                            path('connections') +
-                              '?connector=' +
-                              encodeURIComponent(c.name)
+                            ['Data Tables', 'Context Store'].includes(c.name)
+                              ? path('data')
+                              : path('connections') + '?connector=' + encodeURIComponent(c.name)
                           )
                         }}
                       >

@@ -13,3 +13,5 @@ base64 = "0.22"
 subtle = "2"
 url = "2"
 workflow-data = { path = "../workflow-data" }
+
+connectors-data = { path = "../connectors-data" }

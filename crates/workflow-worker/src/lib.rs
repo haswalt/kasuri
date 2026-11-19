@@ -281,8 +281,20 @@ impl DurableObject for WorkflowWorkspace {
             &id,
         );
         match result {
-            Ok((status, value)) => {
+            Ok((status, mut value)) => {
                 self.save(&mut workspace).await?;
+                if let Some(id) = value["id"]
+                    .as_str()
+                    .filter(|_| value["workflowId"].is_string())
+                {
+                    if let Some(record) = workspace
+                        .runs
+                        .iter()
+                        .find(|r| r.view(true).is_ok_and(|v| v["id"] == id))
+                    {
+                        value = record.view(false).map_err(internal)?;
+                    }
+                }
                 Ok(Response::from_json(&value)?.with_status(status))
             }
             Err(error) => {

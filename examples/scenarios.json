@@ -122,5 +122,26 @@
       }
     },
     "statuses": {}
+  },
+  {
+    "file": "workflows/10-context-cache.json",
+    "outputs": {
+      "expired": {
+        "status": "not_found",
+        "row": null
+      }
+    },
+    "statuses": {}
+  },
+  {
+    "file": "workflows/11-table-claim.json",
+    "outputs": {
+      "result": {
+        "status": "existing",
+        "originalHandled": true,
+        "inserted": false
+      }
+    },
+    "statuses": {}
   }
 ]

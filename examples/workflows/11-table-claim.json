@@ -1,0 +1,131 @@
+{
+  "schemaVersion": 1,
+  "description": "Import and run with empty input. Synthetic public example; simulations never change live data.",
+  "status": "draft",
+  "revision": 0,
+  "updatedAt": "",
+  "edges": [
+    {
+      "id": "edge-0",
+      "source": "start",
+      "target": "create",
+      "sourcePort": "success"
+    },
+    {
+      "id": "edge-1",
+      "source": "create",
+      "target": "reset",
+      "sourcePort": "success"
+    },
+    {
+      "id": "edge-2",
+      "source": "reset",
+      "target": "claim",
+      "sourcePort": "success"
+    },
+    {
+      "id": "edge-3",
+      "source": "claim",
+      "target": "repeat",
+      "sourcePort": "success"
+    },
+    {
+      "id": "edge-4",
+      "source": "repeat",
+      "target": "result",
+      "sourcePort": "success"
+    }
+  ],
+  "id": "11-table-claim",
+  "name": "Atomic event claim",
+  "nodes": [
+    {
+      "id": "start",
+      "type": "Manual Trigger",
+      "label": "Start",
+      "config": {}
+    },
+    {
+      "id": "create",
+      "type": "Data Tables",
+      "label": "Create",
+      "config": {
+        "command": {
+          "operation": "create_table",
+          "definition": {
+            "id": "example-events",
+            "name": "Example events",
+            "kind": "table",
+            "fields": [
+              {
+                "name": "handled",
+                "kind": "boolean",
+                "required": true
+              }
+            ]
+          }
+        }
+      }
+    },
+    {
+      "id": "reset",
+      "type": "Data Tables",
+      "label": "Reset",
+      "config": {
+        "command": {
+          "operation": "delete",
+          "tableId": "example-events",
+          "key": "synthetic-event"
+        }
+      }
+    },
+    {
+      "id": "claim",
+      "type": "Data Tables",
+      "label": "Claim",
+      "config": {
+        "command": {
+          "operation": "insert_if_absent",
+          "tableId": "example-events",
+          "key": "synthetic-event",
+          "value": {
+            "handled": true
+          }
+        }
+      }
+    },
+    {
+      "id": "repeat",
+      "type": "Data Tables",
+      "label": "Repeat",
+      "config": {
+        "command": {
+          "operation": "insert_if_absent",
+          "tableId": "example-events",
+          "key": "synthetic-event",
+          "value": {
+            "handled": false
+          }
+        }
+      }
+    },
+    {
+      "id": "result",
+      "type": "Map / Transform",
+      "label": "Inspect claim outcome",
+      "config": {
+        "mapping": {
+          "status": {
+            "$input": "/status"
+          },
+          "originalHandled": {
+            "$input": "/row/value/handled"
+          },
+          "inserted": {
+            "$input": "/inserted"
+          }
+        }
+      }
+    }
+  ]
+}

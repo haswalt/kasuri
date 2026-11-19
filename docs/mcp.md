@@ -103,4 +103,6 @@ Use `data_tables_list` for metadata summaries and `data_table_get` for schema/ve
 
 The SQLite host commits data mutations, durable data receipts and semantic audit together. MCP transport receipts provide an additional replay layer. A retry after a lost transport receipt still recovers the stored effect without repeating its mutation or audit. Receipt identities are credential-scoped and separate from owner API/engine domains. The server reserves bounded receipt space before executing a data mutation.
 
-Record deletion is permanent and is explicitly part of `data_write`; it does not reuse the workflow-only `delete` scope. Table deletion/schema migration and workflow Data Tables/Context Store nodes remain separate implementation increments.
+Record deletion is permanent and is explicitly part of `data_write`; it does not reuse the workflow-only `delete` scope. Table deletion/schema migration remain separate implementation increments.
+
+Data workflow execution also requires explicit dataset scopes: simulation needs `data_read`, while starting/resuming live mutations or publishing/resuming their triggers additionally needs `data_write`. The ordinary workflow execution/publication scopes still apply. `runs_get` requires `data_read` for a run containing data nodes because its outputs can contain dataset values. Run controls inspect the pinned run graph; trigger resumption inspects the published graph. Existing workflow grants cannot bypass dataset restrictions by dispatching a data node.

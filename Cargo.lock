@@ -1149,6 +1149,7 @@ name = "workflow-mcp"
 version = "0.1.0"
 dependencies = [
  "base64",
+ "connectors-data",
  "serde",
  "serde_json",
  "sha2",
@@ -1175,12 +1176,14 @@ dependencies = [
  "chrono-tz",
  "connector-sdk",
  "connectors-core",
+ "connectors-data",
  "connectors-http",
  "connectors-webhook",
  "croner",
  "serde",
  "serde_json",
  "sha2",
+ "workflow-data",
  "workflow-engine",
  "workflow-schema",
 ]
@@ -1191,6 +1194,7 @@ version = "0.1.0"
 dependencies = [
  "base64",
  "connector-sdk",
+ "connectors-data",
  "connectors-http",
  "connectors-webhook",
  "futures-util",
