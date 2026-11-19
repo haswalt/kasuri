@@ -59,13 +59,24 @@ export function validateWorkflow(workflow: Workflow): string[] {
   })
   return [...new Set(errors)]
 }
-export function parseWorkflow(text: string, validate = true): Workflow {
+export function parseWorkflow(text: string, validate = true, known:Workflow[]=[]): Workflow {
   const value = JSON.parse(text)
   if (!value || value.schemaVersion !== 1 || typeof value.name !== 'string' || typeof value.description !== 'string' || !Array.isArray(value.nodes) || !Array.isArray(value.edges) || value.nodes.length > 100) throw new Error('Expected a version 1 workflow with up to 100 steps.')
   if (value.nodes.some((n: WorkflowNode) => !n || typeof n.id !== 'string' || typeof n.type !== 'string' || typeof n.label !== 'string' || !n.config || Array.isArray(n.config) || typeof n.config !== 'object')) throw new Error('Invalid node configuration.')
   if (value.nodes.some((n: WorkflowNode) => n.position !== undefined && (!n.position || !Number.isFinite(n.position.x) || !Number.isFinite(n.position.y)))) throw new Error('Invalid node position.')
   if (value.edges.some((e: Workflow['edges'][number]) => !e || typeof e.id !== 'string' || typeof e.source !== 'string' || typeof e.target !== 'string' || (e.sourcePort !== undefined && typeof e.sourcePort !== 'string'))) throw new Error('Invalid workflow edges.')
-  const workflow: Workflow = { ...value, id: uid(), status: 'draft', revision: 0, updatedAt: new Date().toISOString() }
+  const source=typeof value.id==='string'&&/^[A-Za-z0-9_-]{1,160}$/.test(value.id)?value.id:undefined
+  const workflow: Workflow = { ...value, importedFrom:source, id: uid(), status: 'draft', revision: 0, updatedAt: new Date().toISOString() }
+  for(const node of workflow.nodes){
+    if(node.type!=='Execute Workflow'||typeof node.config.workflowId!=='string')continue
+    // Retained revision numbers are installation-local and need explicit selection.
+    if(node.config.revision!==undefined)continue
+    const target=node.config.workflowId
+    if(source&&target===source){node.config={...node.config,workflowId:workflow.id};continue}
+    const matches=known.filter(w=>!w.archivedAt&&w.importedFrom===target)
+    if(matches.length>1)throw Error('Multiple imported copies match a child workflow. Keep one imported target or select the intended workflow before importing the caller.')
+    if(matches.length===1)node.config={...node.config,workflowId:matches[0].id}
+  }
   const errors = validateWorkflow(workflow)
   if (validate && errors.length) throw new Error(errors.join(' '))
   return workflow

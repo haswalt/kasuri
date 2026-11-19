@@ -236,3 +236,20 @@ fn failed_parallel_invocation_prevents_dispatch_of_queued_children() {
     assert!(run["children"].as_array().unwrap().is_empty());
     assert_eq!(ws.runs.len(), 1);
 }
+
+#[test]
+fn import_provenance_persists_without_changing_published_execution() {
+    let mut ws = Workspace::default();
+    let mut graph = child(0);
+    graph["importedFrom"] = json!("original-export");
+    save(&mut ws, &graph);
+    publish(&mut ws, "child");
+    let mut restored = Workspace::from_json(&ws.checkpoint().unwrap()).unwrap();
+    let mut current = restored.snapshot().unwrap()["workflows"][0].clone();
+    assert_eq!(current["importedFrom"], "original-export");
+    current["importedFrom"] = json!("changed-by-edit");
+    save(&mut restored, &current);
+    let current = restored.snapshot().unwrap()["workflows"][0].clone();
+    assert_eq!(current["importedFrom"], "original-export");
+    assert_eq!(current["hasUnpublishedChanges"], false);
+}

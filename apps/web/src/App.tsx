@@ -325,6 +325,7 @@ function App() {
         ...structuredClone(w),
         id: uid(),
         name: w.name + ' (copy)',
+        importedFrom:undefined,
         status: 'draft',
         revision: 0
       })
@@ -1578,7 +1579,7 @@ function App() {
           void perform(async () => {
             if (file.size > 100000)
               throw new Error('Workflow imports must be smaller than 100 KB.')
-            const w = await save(parseWorkflow(await file.text()))
+            const w = await save(parseWorkflow(await file.text(),true,workflows))
             open(w)
           })
         }}

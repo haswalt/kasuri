@@ -2,7 +2,7 @@
 
 Download a JSON file from [workflows](workflows/) (use GitHub's **Download raw file**), open your Kasuri installation, choose **Workflows → Import JSON**, and select it. The files are ordinary workflow exports committed with the project, not preloaded workspace data or an application demo mode.
 
-Every example accepts the default `{}` input. No edits, accounts, API keys, environment variables or installation-specific URLs are required to try **Run now** or **Simulate → Play**. Imported workflows are drafts with fresh IDs, so importing does not activate recurring jobs or webhook endpoints.
+Every example accepts the default `{}` input. No accounts, API keys, environment variables or installation-specific URLs are required. For example 19, import and publish the reusable workflow 18 first; importing the caller automatically binds both calls to that imported child, without ID edits. The other examples can immediately use **Run now** or **Simulate → Play**. Imported workflows are drafts with fresh IDs, so importing does not activate recurring jobs or webhook endpoints.
 
 | Example | Level | What to inspect |
 | --- | --- | --- |

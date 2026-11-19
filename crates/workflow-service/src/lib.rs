@@ -56,6 +56,8 @@ pub enum Publication {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Document {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub imported_from: Option<String>,
     #[serde(flatten)]
     pub graph: Workflow,
     pub status: Publication,
@@ -915,7 +917,13 @@ impl Workspace {
         if parts[1] == "workflows" && method == "PUT" && parts.len() == 3 {
             let mut doc: Document = serde_json::from_slice(body)
                 .map_err(|_| error(400, "Invalid workflow document"))?;
-            if doc.graph.id != id
+            if doc.imported_from.as_ref().is_some_and(|source| {
+                source.is_empty()
+                    || source.len() > 160
+                    || !source
+                        .bytes()
+                        .all(|b| b.is_ascii_alphanumeric() || b == b'-' || b == b'_')
+            }) || doc.graph.id != id
                 || id.len() > 160
                 || doc.graph.schema_version != 1
                 || doc.graph.name.len() > 160
@@ -970,6 +978,7 @@ impl Workspace {
                     return Ok((200, serde_json::to_value(current).unwrap()));
                 }
                 doc.lifecycle = current.lifecycle.clone();
+                doc.imported_from = current.imported_from.clone();
                 doc.status = current.status;
                 doc.next_scheduled_at = current.next_scheduled_at;
                 doc.has_unpublished_changes = doc
