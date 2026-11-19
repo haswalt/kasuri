@@ -1,13 +1,16 @@
+import { versionedTestClient } from './versioned-test-client.mjs'
 import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
 export async function checkAudit(origin,credentials) {
   let cookie=''
   const Authorization='Basic '+Buffer.from(credentials).toString('base64')
+  const versionClient=versionedTestClient()
   async function api(path,method='GET',body) {
+    body=versionClient.prepare(path,method,body)
     const response=await fetch(origin+'/api/'+path,{method,headers:{cookie,Authorization,...(body===undefined?{}:{'Content-Type':'application/json'})},...(body===undefined?{}:{body:JSON.stringify(body)})})
     if(response.headers.has('set-cookie'))cookie=response.headers.get('set-cookie').split(';')[0]
     assert.ok(response.ok,`${path}: ${response.status} ${await response.clone().text()}`)
-    return response.json()
+    return versionClient.remember(await response.json())
   }
   const audit=()=>api('audit?order=desc&limit=100')
   let doc=await api('workflows/01-hello','PUT',JSON.parse(readFileSync('examples/workflows/01-hello.json','utf8')))

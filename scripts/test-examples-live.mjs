@@ -1,3 +1,4 @@
+import { versionedTestClient } from './versioned-test-client.mjs'
 // Opt-in network check of the published, unmodified workflows against public APIs.
 import assert from 'node:assert/strict'
 import { spawn } from 'node:child_process'
@@ -22,7 +23,9 @@ const child = spawn(resolve('node_modules/workerd/bin/workerd'), [
 let logs = '', cookie = ''
 child.stdout.on('data', b => logs += b)
 child.stderr.on('data', b => logs += b)
+const versionClient=versionedTestClient()
 async function api(path, method = 'GET', body) {
+  body=versionClient.prepare(path,method,body)
   const response = await fetch(origin + '/api/' + path, {
     method, signal: AbortSignal.timeout(5000),
     headers: { cookie, ...(body ? { 'Content-Type': 'application/json' } : {}) },
@@ -30,7 +33,7 @@ async function api(path, method = 'GET', body) {
   })
   if (response.headers.has('set-cookie')) cookie = response.headers.get('set-cookie').split(';')[0]
   assert.ok(response.ok, `${path}: ${response.status} ${await response.clone().text()}`)
-  return response.json()
+  return versionClient.remember(await response.json())
 }
 try {
   await healthy(origin)

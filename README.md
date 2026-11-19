@@ -60,3 +60,5 @@ Completed changes use Conventional Commits. See [engine details](docs/workflow-e
 The [UI implementation notes](docs/ui-implementation.md) describe the design handoff, implemented screens and remaining backend dependencies. See [styling the UI](docs/styling.md) for Panda CSS tokens and recipes.
 
 The [internal platform implementation plan](docs/internal-platform-plan.md) covers reported product issues, publication/history/workspace semantics, flexible webhooks, Data Tables, parallel/items, expressions/Code and workflow composition. External service connectors are excluded from that implementation sequence.
+
+The [HTTP management API v2](docs/http-api.md) requires edit versions for existing workflow updates, publication/activation and execution requests. This removes the previous unversioned-write compatibility bypass; older REST integrations must fetch and submit workflow versions.

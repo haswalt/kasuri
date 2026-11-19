@@ -15,7 +15,8 @@ This plan combines the reported product issues with the supplied n8n migration g
 - Completed: immutable publication records, independent draft/live activation, unchanged publish no-op, monotonic restore/republication and editor history with comparison summary. Runtime tests pin live webhook auth/graphs and schedules despite draft edits; MCP supports revision browsing and restore-to-draft.
 - Completed: recoverable workflow trash and restore across UI/REST/MCP; archived workflows stop new triggers and remain out of normal lists, in-flight runs finish, and restoration leaves triggers paused. MCP destructive management has a separate `delete` scope and Manager profile without expanding existing roles.
 - Completed: semantic management-only audit with named entities, safe field/node change summaries, before/after state references and a detail dialog; reads, run events, no-ops and duplicate MCP transport events are excluded. Workspace catalogue changes are recorded in the Personal owner workspace.
-- Remaining in lifecycle delivery: strict REST edit-precondition migration, and additional history/diff polish. Stable public routing keys and the bounded JavaScript feasibility spike are also outstanding foundations. Workflow deletion and remaining management audit changes are still pending.
+- Completed: HTTP API v2 removes the public unversioned-write compatibility bypass. Existing graph writes require `version`; publication/activation and run requests require `expectedVersion`. Raw HTTP regression tests cover missing, malformed and stale values.
+- Remaining in lifecycle delivery: additional history/diff polish. Stable public routing keys and the bounded JavaScript feasibility spike are also outstanding foundations.
 
 ## Outcomes and boundaries
 

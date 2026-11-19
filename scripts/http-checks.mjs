@@ -1,8 +1,10 @@
+import { versionedTestClient } from './versioned-test-client.mjs'
 import assert from 'node:assert/strict'
 import { sleep } from './runtime-checks.mjs'
 export async function checkHttp(origin){
  let cookie='';const authorization='Basic '+Buffer.from('test:runtime-check').toString('base64')
- async function api(path,method='GET',body){const r=await fetch(`${origin}/api/${path}`,{method,headers:{cookie,Authorization:authorization,...(body?{'Content-Type':'application/json'}:{})},...(body?{body:JSON.stringify(body)}:{})});if(r.headers.has('set-cookie'))cookie=r.headers.get('set-cookie').split(';')[0];assert.ok(r.ok,`${path} ${r.status} ${await r.clone().text()}`);return r.json()}
+ const versionClient=versionedTestClient()
+ async function api(path,method='GET',body){body=versionClient.prepare(path,method,body);const r=await fetch(`${origin}/api/${path}`,{method,headers:{cookie,Authorization:authorization,...(body?{'Content-Type':'application/json'}:{})},...(body?{body:JSON.stringify(body)}:{})});if(r.headers.has('set-cookie'))cookie=r.headers.get('set-cookie').split(';')[0];assert.ok(r.ok,`${path} ${r.status} ${await r.clone().text()}`);return versionClient.remember(await r.json())}
  async function workflow(config,extra=[],retry){const doc={schemaVersion:1,id:'http-check',name:'HTTP check',description:'',status:'draft',revision:0,updatedAt:'',nodes:[{id:'start',type:'Manual Trigger',label:'Start',config:{}},{id:'http',type:'HTTP Request',label:'HTTP',timeoutMs:config.timeoutMs||30000,config:{url:'https://fixture.example/items',...config},...(retry?{retry}:{})},...extra],edges:[]};doc.nodes.slice(1).forEach((n,i)=>doc.edges.push({id:'e'+i,source:doc.nodes[i].id,target:n.id}));await api('workflows/http-check','PUT',doc)}
  async function start(mode='run'){return api('runs','POST',{workflowId:'http-check',mode,input:{name:'Ada'}})}
  async function finish(run){for(let i=0;i<100&&run.status==='running';i++){await sleep(100);run=await api('runs/'+run.id)}return run}
@@ -23,7 +25,8 @@ export async function checkHttp(origin){
 
 export async function checkRestrictedHttp(origin){
  let cookie='';const authorization='Basic '+Buffer.from('test:runtime-check').toString('base64')
- async function api(path,method='GET',body){const r=await fetch(`${origin}/api/${path}`,{method,headers:{cookie,Authorization:authorization,...(body?{'Content-Type':'application/json'}:{})},...(body?{body:JSON.stringify(body)}:{})});if(r.headers.has('set-cookie'))cookie=r.headers.get('set-cookie').split(';')[0];assert.ok(r.ok);return r.json()}
+ const versionClient=versionedTestClient()
+ async function api(path,method='GET',body){body=versionClient.prepare(path,method,body);const r=await fetch(`${origin}/api/${path}`,{method,headers:{cookie,Authorization:authorization,...(body?{'Content-Type':'application/json'}:{})},...(body?{body:JSON.stringify(body)}:{})});if(r.headers.has('set-cookie'))cookie=r.headers.get('set-cookie').split(';')[0];assert.ok(r.ok);return versionClient.remember(await r.json())}
  for(const [host,status]of [['unapproved.example','failed'],['fixture.example','succeeded'],['private.internal','succeeded'],['other.internal','failed']]){
   const doc={schemaVersion:1,id:'policy-check',name:'Policy check',description:'',status:'draft',revision:0,updatedAt:'',nodes:[{id:'start',type:'Manual Trigger',label:'Start',config:{}},{id:'http',type:'HTTP Request',label:'HTTP',config:{url:`https://${host}/items`}}],edges:[{id:'edge',source:'start',target:'http'}]}
   await api('workflows/policy-check','PUT',doc);let run=await api('runs','POST',{workflowId:doc.id,mode:'run',input:{}});for(let i=0;i<100&&run.status==='running';i++){await sleep(100);run=await api('runs/'+run.id)}assert.equal(run.status,status,host);if(status==='failed')assert.equal(run.nodes.find(n=>n.id==='http').error,'egress_denied')
@@ -33,7 +36,8 @@ export async function checkRestrictedHttp(origin){
 
 export async function checkAnonymousSecrets(origin){
  let cookie=''
- async function api(path,method='GET',body){const r=await fetch(`${origin}/api/${path}`,{method,headers:{cookie,...(body?{'Content-Type':'application/json'}:{})},...(body?{body:JSON.stringify(body)}:{})});if(r.headers.has('set-cookie'))cookie=r.headers.get('set-cookie').split(';')[0];assert.ok(r.ok);return r.json()}
+ const versionClient=versionedTestClient()
+ async function api(path,method='GET',body){body=versionClient.prepare(path,method,body);const r=await fetch(`${origin}/api/${path}`,{method,headers:{cookie,...(body?{'Content-Type':'application/json'}:{})},...(body?{body:JSON.stringify(body)}:{})});if(r.headers.has('set-cookie'))cookie=r.headers.get('set-cookie').split(';')[0];assert.ok(r.ok);return versionClient.remember(await r.json())}
  const doc={schemaVersion:1,id:'anonymous-check',name:'Anonymous credential check',status:'draft',updatedAt:'',nodes:[{id:'start',type:'Manual Trigger',label:'Start',config:{}},{id:'http',type:'HTTP Request',label:'HTTP',config:{url:'https://fixture.example/auth',authentication:'basic',username:'api-user',passwordSecret:'api_password'}}],edges:[{id:'edge',source:'start',target:'http'}]}
  await api('workflows/anonymous-check','PUT',doc);let run=await api('runs','POST',{workflowId:doc.id,mode:'run',input:{}});for(let i=0;i<100&&run.status==='running';i++){await sleep(100);run=await api('runs/'+run.id)}assert.equal(run.status,'failed');assert.equal(run.nodes.find(n=>n.id==='http').error,'egress_denied')
  console.log('Anonymous use of installation HTTP secrets blocked.')

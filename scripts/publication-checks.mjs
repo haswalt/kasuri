@@ -1,13 +1,16 @@
+import { versionedTestClient } from './versioned-test-client.mjs'
 import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
 export async function checkPublications(origin, credentials, restart) {
   let cookie = ''
   const Authorization = 'Basic ' + Buffer.from(credentials).toString('base64')
+  const versionClient=versionedTestClient()
   async function api(path, method='GET', body, expected=200) {
+    body=versionClient.prepare(path,method,body)
     const response = await fetch(origin + '/api/' + path,{method,headers:{Authorization,cookie,...(body===undefined?{}:{'Content-Type':'application/json'})},...(body===undefined?{}:{body:JSON.stringify(body)})})
     if(response.headers.has('set-cookie')) cookie=response.headers.get('set-cookie').split(';')[0]
     assert.equal(response.status,expected,`${path}: ${await response.clone().text()}`)
-    return response.json()
+    return versionClient.remember(await response.json())
   }
   const fixture=JSON.parse(readFileSync('examples/workflows/01-hello.json','utf8'))
   fixture.id='publication-check'

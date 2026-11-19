@@ -1,9 +1,11 @@
+import { versionedTestClient } from './versioned-test-client.mjs'
 import assert from 'node:assert/strict'
 import { createHmac } from 'node:crypto'
 import { sleep } from './runtime-checks.mjs'
 export async function checkWebhooks(origin,restart){
  let cookie='';const authorization='Basic '+Buffer.from('test:runtime-check').toString('base64')
- async function api(path,method='GET',body){const r=await fetch(`${origin}/api/${path}`,{method,headers:{cookie,Authorization:authorization,...(body?{'Content-Type':'application/json'}:{})},...(body?{body:JSON.stringify(body)}:{})});if(r.headers.has('set-cookie'))cookie=r.headers.get('set-cookie').split(';')[0];assert.ok(r.ok,`${path}: ${r.status} ${await r.clone().text()}`);return r.json()}
+ const versionClient=versionedTestClient()
+ async function api(path,method='GET',body){body=versionClient.prepare(path,method,body);const r=await fetch(`${origin}/api/${path}`,{method,headers:{cookie,Authorization:authorization,...(body?{'Content-Type':'application/json'}:{})},...(body?{body:JSON.stringify(body)}:{})});if(r.headers.has('set-cookie'))cookie=r.headers.get('set-cookie').split(';')[0];assert.ok(r.ok,`${path}: ${r.status} ${await r.clone().text()}`);return versionClient.remember(await r.json())}
  const doc={schemaVersion:1,id:'incoming-check',name:'Incoming check',status:'draft',updatedAt:'',nodes:[{id:'start',type:'Webhook',label:'Incoming',config:{}},{id:'http',type:'HTTP Request',label:'Fetch',config:{url:'https://fixture.example/items'}},{id:'filter',type:'Filter',label:'Active',config:{arrayPointer:'/body/items',pointer:'/active',equals:true}}],edges:[{id:'a',source:'start',target:'http'},{id:'b',source:'http',target:'filter'}]}
  await api('workflows/incoming-check','PUT',doc);let endpoint=await api('workflows/incoming-check/webhook/rotate','POST');assert.ok(endpoint.token);assert.ok(endpoint.path);assert.equal((await api('workflows/incoming-check/webhook')).token,undefined)
  async function deliver(endpoint,event,body='{"name":"Ada"}',extra={}){return fetch(origin+endpoint.path,{method:'POST',headers:{'Content-Type':'application/json','X-Kasuri-Event-Id':event,Authorization:'Bearer '+endpoint.token,...extra},body})}

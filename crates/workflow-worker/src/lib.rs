@@ -26,7 +26,7 @@ fn api_error(status: u16, message: &str) -> Result<Response> {
 pub async fn main(req: Request, env: Env, _ctx: Context) -> Result<Response> {
     let url = req.url()?;
     if url.path() == "/api/health" && req.method() == Method::Get {
-        return Response::from_json(&json!({"ok":true,"engine":"rust-wasm","version":1}));
+        return Response::from_json(&json!({"ok":true,"engine":"rust-wasm","version":2}));
     }
     // Agent endpoints have their own bearer/OAuth authentication; browser cookies
     // and installation Basic credentials never authorize an MCP request.
@@ -265,7 +265,7 @@ impl DurableObject for WorkflowWorkspace {
             }
             return Response::from_json(&workspace.audit_page(after, limit));
         }
-        let result = workspace.handle(
+        let result = workspace.handle_http_v2(
             &req.method().to_string(),
             req.url()?.path(),
             &body,

@@ -1,10 +1,12 @@
+import { versionedTestClient } from './versioned-test-client.mjs'
 import assert from 'node:assert/strict'
 export const fixture={schemaVersion:1,id:'check',name:'Runtime check',description:'',status:'draft',revision:0,updatedAt:'',nodes:[{id:'start',type:'Manual Trigger',label:'Start',config:{}},{id:'wait',type:'Wait / Delay',label:'Wait',config:{delayMs:2000}}],edges:[{id:'edge',source:'start',target:'wait'}]}
 export const sleep=ms=>new Promise(r=>setTimeout(r,ms))
 export async function healthy(origin){for(let i=0;i<80;i++){try{if((await fetch(`${origin}/api/health`)).ok)return}catch{}await sleep(250)}throw Error('Runtime did not become healthy')}
 export async function checkRuntime(origin,credentials,restart){
  let cookie='';const authorization='Basic '+Buffer.from(credentials).toString('base64')
- async function api(path,method='GET',body){const res=await fetch(`${origin}/api/${path}`,{method,headers:{cookie,Authorization:authorization,...(body===undefined?{}:{'Content-Type':'application/json'})},...(body===undefined?{}:{body:JSON.stringify(body)})});if(res.headers.has('set-cookie'))cookie=res.headers.get('set-cookie').split(';')[0];assert.ok(res.ok,`${path}: ${res.status} ${await res.clone().text()}`);return res.json()}
+ const versionClient=versionedTestClient()
+ async function api(path,method='GET',body){body=versionClient.prepare(path,method,body);const res=await fetch(`${origin}/api/${path}`,{method,headers:{cookie,Authorization:authorization,...(body===undefined?{}:{'Content-Type':'application/json'})},...(body===undefined?{}:{body:JSON.stringify(body)})});if(res.headers.has('set-cookie'))cookie=res.headers.get('set-cookie').split(';')[0];assert.ok(res.ok,`${path}: ${res.status} ${await res.clone().text()}`);return versionClient.remember(await res.json())}
  assert.equal((await fetch(origin)).status,401)
  const html=await fetch(origin,{headers:{Authorization:authorization}});assert.equal(html.status,200);assert.match(html.headers.get('content-type'),/text\/html/);const htmlText=await html.text();assert.match(htmlText,/root/)
  const stylesheet=htmlText.match(/href="([^"]+\.css)"/);assert.ok(stylesheet,'Built UI stylesheet')

@@ -1,6 +1,7 @@
 //! The Rust application layer shared by Cloudflare and self-hosted Wasm deployments.
 //! All workspace data is persistent. No sample workflows, seed data or expiry mode.
 mod audit;
+mod http_api;
 mod publication;
 use chrono::{DateTime, SecondsFormat, Utc};
 use chrono_tz::Tz;
@@ -276,7 +277,7 @@ impl Workspace {
     }
     pub fn snapshot(&self) -> Result<Value, ApiError> {
         Ok(
-            json!({"workflows":self.workflows.iter().filter(|w|w.archived_at.is_none()).collect::<Vec<_>>(),"runs":self.runs.iter().take(100).map(|r|r.view(true)).collect::<Result<Vec<_>,_>>()?,"connectors":manifests()}),
+            json!({"apiVersion":2,"editPreconditionsRequired":true,"workflows":self.workflows.iter().filter(|w|w.archived_at.is_none()).collect::<Vec<_>>(),"runs":self.runs.iter().take(100).map(|r|r.view(true)).collect::<Result<Vec<_>,_>>()?,"connectors":manifests()}),
         )
     }
     fn index(&self, id: &str) -> Result<usize, ApiError> {
