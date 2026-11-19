@@ -776,7 +776,9 @@ export function WorkflowEditor({
                       </section>
                     )}
                     <div className={styles.infoBox}>
-                      {node.type === 'Respond to Webhook'
+                      {node.type === 'Validate Schema'
+                        ? 'Returns valid, errors and value. Use IF to route the result; validation does not send a response or choose a branch.'
+                        : node.type === 'Respond to Webhook'
                         ? 'Responds at this point, then passes input onward. A second response attempt is an error. Run and Simulate only preview the response.'
                         : node.type === 'HTTP Request'
                         ? 'Public HTTPS is allowed by default. Credentials use named secrets. Simulations require a response fixture.'

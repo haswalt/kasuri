@@ -1,0 +1,131 @@
+{
+  "schemaVersion": 1,
+  "id": "15-schema-validation",
+  "name": "Validate then choose a branch",
+  "description": "Checks a synthetic body with types, required fields, ranges and email format. IF chooses the next path.",
+  "status": "draft",
+  "revision": 0,
+  "updatedAt": "",
+  "nodes": [
+    {
+      "id": "start",
+      "type": "Manual Trigger",
+      "label": "Start",
+      "config": {}
+    },
+    {
+      "id": "prepare",
+      "type": "Map / Transform",
+      "label": "Synthetic request body",
+      "config": {
+        "mapping": {
+          "eventId": "synthetic-1",
+          "email": "person@example.com",
+          "amount": 25
+        }
+      }
+    },
+    {
+      "id": "validate",
+      "type": "Validate Schema",
+      "label": "Check body shape",
+      "config": {
+        "schema": {
+          "type": "object",
+          "required": [
+            "eventId",
+            "email",
+            "amount"
+          ],
+          "additionalProperties": false,
+          "properties": {
+            "eventId": {
+              "type": "string",
+              "minLength": 1
+            },
+            "email": {
+              "type": "string",
+              "format": "email"
+            },
+            "amount": {
+              "type": "number",
+              "minimum": 1,
+              "maximum": 1000
+            }
+          }
+        }
+      }
+    },
+    {
+      "id": "valid",
+      "type": "IF / Condition",
+      "label": "Is the body valid?",
+      "config": {
+        "conditions": [
+          {
+            "field": "valid",
+            "operator": "equals",
+            "valueType": "boolean",
+            "value": true
+          }
+        ],
+        "match": "all"
+      }
+    },
+    {
+      "id": "accepted",
+      "type": "Map / Transform",
+      "label": "Accepted",
+      "config": {
+        "mapping": {
+          "accepted": true,
+          "eventId": {
+            "$input": "/value/eventId"
+          }
+        }
+      }
+    },
+    {
+      "id": "rejected",
+      "type": "Map / Transform",
+      "label": "Invalid body",
+      "config": {
+        "mapping": {
+          "accepted": false,
+          "errors": {
+            "$input": "/errors"
+          }
+        }
+      }
+    }
+  ],
+  "edges": [
+    {
+      "id": "a",
+      "source": "start",
+      "target": "prepare"
+    },
+    {
+      "id": "b",
+      "source": "prepare",
+      "target": "validate"
+    },
+    {
+      "id": "c",
+      "source": "validate",
+      "target": "valid"
+    },
+    {
+      "id": "d",
+      "source": "valid",
+      "target": "accepted",
+      "sourcePort": "true"
+    },
+    {
+      "id": "e",
+      "source": "valid",
+      "target": "rejected",
+      "sourcePort": "false"
+    }
+  ]
+}

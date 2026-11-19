@@ -1,0 +1,282 @@
+{
+  "schemaVersion": 1,
+  "id": "16-request-validation-gate",
+  "name": "Validate requests and reject duplicates",
+  "description": "Manual/simulation runs preview the missing-header 400 path. Published requests validate x-event-type and body, atomically claim event IDs for 60 seconds and return 201 or 409.",
+  "status": "draft",
+  "revision": 0,
+  "updatedAt": "",
+  "nodes": [
+    {
+      "id": "start",
+      "type": "Webhook",
+      "label": "Start",
+      "config": {
+        "authentication": "none",
+        "contextHeaders": [
+          "content-type",
+          "x-event-type"
+        ]
+      }
+    },
+    {
+      "id": "namespace",
+      "type": "Context Store",
+      "label": "Namespace",
+      "config": {
+        "command": {
+          "operation": "create_table",
+          "definition": {
+            "id": "example-request-events",
+            "name": "Example request events",
+            "kind": "context"
+          }
+        }
+      }
+    },
+    {
+      "id": "headers",
+      "type": "Request Context",
+      "label": "Headers",
+      "config": {
+        "part": "headers"
+      }
+    },
+    {
+      "id": "check-header",
+      "type": "IF / Condition",
+      "label": "Check Header",
+      "config": {
+        "match": "all",
+        "conditions": [
+          {
+            "field": "/x-event-type",
+            "operator": "equals",
+            "valueType": "string",
+            "value": "order.created"
+          }
+        ]
+      }
+    },
+    {
+      "id": "header-reject",
+      "type": "Respond to Webhook",
+      "label": "Header Reject",
+      "config": {
+        "status": 400,
+        "body": {
+          "error": "Expected x-event-type: order.created"
+        }
+      }
+    },
+    {
+      "id": "body",
+      "type": "Request Context",
+      "label": "Body",
+      "config": {
+        "part": "body"
+      }
+    },
+    {
+      "id": "validate",
+      "type": "Validate Schema",
+      "label": "Validate",
+      "config": {
+        "schema": {
+          "type": "object",
+          "required": [
+            "eventId",
+            "amount"
+          ],
+          "additionalProperties": false,
+          "properties": {
+            "eventId": {
+              "type": "string",
+              "minLength": 1
+            },
+            "amount": {
+              "type": "number",
+              "minimum": 0
+            }
+          }
+        }
+      }
+    },
+    {
+      "id": "check-body",
+      "type": "IF / Condition",
+      "label": "Check Body",
+      "config": {
+        "match": "all",
+        "conditions": [
+          {
+            "field": "valid",
+            "operator": "equals",
+            "valueType": "boolean",
+            "value": true
+          }
+        ]
+      }
+    },
+    {
+      "id": "body-reject",
+      "type": "Respond to Webhook",
+      "label": "Body Reject",
+      "config": {
+        "status": 400,
+        "body": {
+          "error": "Invalid request body",
+          "errors": {
+            "$input": "/errors"
+          }
+        }
+      }
+    },
+    {
+      "id": "claim",
+      "type": "Context Store",
+      "label": "Claim",
+      "config": {
+        "command": {
+          "operation": "insert_if_absent",
+          "tableId": "example-request-events",
+          "key": {
+            "$input": "/value/eventId"
+          },
+          "value": {
+            "accepted": true
+          },
+          "ttlMs": 60000
+        }
+      }
+    },
+    {
+      "id": "check-claim",
+      "type": "IF / Condition",
+      "label": "Check Claim",
+      "config": {
+        "match": "all",
+        "conditions": [
+          {
+            "field": "inserted",
+            "operator": "equals",
+            "valueType": "boolean",
+            "value": true
+          }
+        ]
+      }
+    },
+    {
+      "id": "duplicate",
+      "type": "Respond to Webhook",
+      "label": "Duplicate",
+      "config": {
+        "status": 409,
+        "body": {
+          "duplicate": true
+        }
+      }
+    },
+    {
+      "id": "accepted",
+      "type": "Respond to Webhook",
+      "label": "Accepted",
+      "config": {
+        "status": 201,
+        "body": {
+          "accepted": true
+        }
+      }
+    },
+    {
+      "id": "background",
+      "type": "Map / Transform",
+      "label": "Background",
+      "config": {
+        "mapping": {
+          "backgroundComplete": true
+        }
+      }
+    }
+  ],
+  "edges": [
+    {
+      "id": "edge-0",
+      "source": "start",
+      "target": "namespace",
+      "sourcePort": "success"
+    },
+    {
+      "id": "edge-1",
+      "source": "namespace",
+      "target": "headers",
+      "sourcePort": "success"
+    },
+    {
+      "id": "edge-2",
+      "source": "headers",
+      "target": "check-header",
+      "sourcePort": "success"
+    },
+    {
+      "id": "edge-3",
+      "source": "body",
+      "target": "validate",
+      "sourcePort": "success"
+    },
+    {
+      "id": "edge-4",
+      "source": "validate",
+      "target": "check-body",
+      "sourcePort": "success"
+    },
+    {
+      "id": "edge-5",
+      "source": "claim",
+      "target": "check-claim",
+      "sourcePort": "success"
+    },
+    {
+      "id": "edge-6",
+      "source": "accepted",
+      "target": "background",
+      "sourcePort": "success"
+    },
+    {
+      "id": "edge-7",
+      "source": "check-header",
+      "target": "body",
+      "sourcePort": "true"
+    },
+    {
+      "id": "edge-8",
+      "source": "check-header",
+      "target": "header-reject",
+      "sourcePort": "false"
+    },
+    {
+      "id": "edge-9",
+      "source": "check-body",
+      "target": "claim",
+      "sourcePort": "true"
+    },
+    {
+      "id": "edge-10",
+      "source": "check-body",
+      "target": "body-reject",
+      "sourcePort": "false"
+    },
+    {
+      "id": "edge-11",
+      "source": "check-claim",
+      "target": "accepted",
+      "sourcePort": "true"
+    },
+    {
+      "id": "edge-12",
+      "source": "check-claim",
+      "target": "duplicate",
+      "sourcePort": "false"
+    }
+  ]
+}

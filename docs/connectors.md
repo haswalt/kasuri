@@ -1,6 +1,6 @@
 # Implemented connectors
 
-The runtime advertises 16 node types: Manual Trigger, Webhook, Schedule, Map / Transform, IF / Condition, Merge, Wait / Delay, JSON Utilities, Error Handler, Filter, Sort, HTTP Request, Data Tables, Context Store, Request Context and Respond to Webhook. A catalogue entry marked Planned is not executable.
+The runtime advertises 17 node types: Manual Trigger, Webhook, Schedule, Map / Transform, IF / Condition, Merge, Wait / Delay, JSON Utilities, Error Handler, Filter, Sort, HTTP Request, Data Tables, Context Store, Request Context Respond to Webhook and Validate Schema. A catalogue entry marked Planned is not executable.
 
 ## Data Tables and Context Store
 
@@ -17,6 +17,10 @@ Set a JSON/text HTTP response at the selected point in the workflow, then pass i
 ## Webhook
 
 Public or explicitly authenticated JSON delivery, generated/rotatable endpoints, publish/pause activation, bearer/query keys and timestamped HMAC signatures are implemented. Accepted deliveries start independent runs; business-event deduplication belongs in workflow logic. See [webhook setup and API](webhooks.md).
+
+## Validate Schema
+
+Validate required fields, types, ranges, enums and supported formats offline. The result includes `valid`, safe structured errors and the unchanged checked value. IF chooses the next path. See [supported profile and examples](validation.md).
 
 ## IF / Condition
 

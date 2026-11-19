@@ -178,5 +178,33 @@
     "statuses": {
       "rejected": "skipped"
     }
+  },
+  {
+    "file": "workflows/15-schema-validation.json",
+    "outputs": {
+      "accepted": {
+        "accepted": true,
+        "eventId": "synthetic-1"
+      }
+    },
+    "statuses": {
+      "rejected": "skipped"
+    }
+  },
+  {
+    "file": "workflows/16-request-validation-gate.json",
+    "outputs": {
+      "header-reject": {}
+    },
+    "statuses": {
+      "validate": "skipped",
+      "claim": "skipped"
+    },
+    "response": {
+      "status": 400,
+      "body": {
+        "error": "Expected x-event-type: order.created"
+      }
+    }
   }
 ]

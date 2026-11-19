@@ -36,6 +36,15 @@ fn drain_data(ws: &mut Workspace, store: &mut workflow_data::MemoryStore, now: u
 }
 fn check(case: &Value, run: &Value) {
     assert_eq!(run["status"], "succeeded", "{}: {run}", case["file"]);
+    if let Some(response) = case["response"].as_object() {
+        for (key, value) in response {
+            assert_eq!(
+                &run["webhookResponse"]["decision"]["response"][key], value,
+                "{} response {key}",
+                case["file"]
+            );
+        }
+    }
     for (id, expected) in case["outputs"].as_object().unwrap() {
         let node = run["nodes"]
             .as_array()

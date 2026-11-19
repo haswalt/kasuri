@@ -19,6 +19,7 @@ import { checkPublications } from './publication-checks.mjs'
 import { checkStorage } from './storage-checks.mjs'
 import { checkWorkspaces } from './workspace-checks.mjs'
 import { checkMcp } from './mcp-checks.mjs'
+import { checkValidation } from './validation-checks.mjs'
 import { checkConditions } from './condition-checks.mjs'
 import { checkWebhookResponses } from './webhook-response-checks.mjs'
 import { checkWebhooks } from './webhook-checks.mjs'
@@ -104,7 +105,9 @@ async function stop() {
 try {
   start()
   await healthy(origin)
-  if (process.argv.includes('--conditions-only')) {
+  if (process.argv.includes('--validation-only')) {
+    await checkValidation(origin, 'test:runtime-check', async () => {await stop();start();await healthy(origin)})
+  } else if (process.argv.includes('--conditions-only')) {
     await checkConditions(origin, 'test:runtime-check', async () => {await stop();start();await healthy(origin)})
   } else if (process.argv.includes('--webhook-responses-only')) {
     await checkWebhookResponses(origin, 'test:runtime-check', async () => {await stop();start();await healthy(origin)})
@@ -119,6 +122,7 @@ try {
       await healthy(origin)
     })
   } else {
+    await checkValidation(origin, 'test:runtime-check', async () => {await stop();start();await healthy(origin)})
     await checkConditions(origin, 'test:runtime-check', async () => {await stop();start();await healthy(origin)})
     await checkWebhookResponses(origin, 'test:runtime-check', async () => {await stop();start();await healthy(origin)})
     await checkDataWorkflows(origin, 'test:runtime-check', async () => {

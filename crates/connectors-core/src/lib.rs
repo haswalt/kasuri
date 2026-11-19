@@ -3,6 +3,7 @@ use connector_sdk::{Connector, Failure, FailureCode, Outcome, Task};
 use serde_json::{Map, Value};
 
 pub mod conditions;
+pub use connectors_validation as validation;
 pub struct CoreConnector;
 
 fn invalid() -> Outcome {
@@ -55,6 +56,7 @@ impl Connector for CoreConnector {
                 }
                 Outcome::success(Value::Object(output))
             }
+            "Validate Schema" => validation::execute(task),
             "IF / Condition" => match conditions::evaluate(&node.config, &task.input) {
                 Ok(passed) => Outcome::Complete {
                     output: task.input.clone(),
@@ -201,7 +203,7 @@ pub fn manifests() -> Vec<connector_sdk::NodeManifest> {
         kind: kind.into(), version: 1, config_schema,
         output_ports: if kind == "IF / Condition" { vec!["true".into(),"false".into(),"error".into()] } else { vec!["success".into(),"error".into()] },
         has_external_side_effects: false,
-    }).collect()
+    }).chain(std::iter::once(validation::manifest())).collect()
 }
 
 fn compare_numbers(a: &Value, b: &Value) -> std::cmp::Ordering {

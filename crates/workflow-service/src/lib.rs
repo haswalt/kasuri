@@ -389,6 +389,10 @@ impl Workspace {
         }
         let manifests = manifests();
         for node in &document.graph.nodes {
+            if node.kind == "Validate Schema" {
+                connectors_core::validation::validate(&node.config)
+                    .map_err(|_| error(400, "Invalid or unsupported validation schema"))?;
+            }
             if node.kind == "IF / Condition" {
                 connectors_core::conditions::validate(&node.config)
                     .map_err(|_| error(400, "Invalid IF conditions"))?;

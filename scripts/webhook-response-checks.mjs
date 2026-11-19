@@ -37,6 +37,11 @@ export async function checkWebhookResponses(origin,credentials,restart) {
  let disconnectId;for(let i=0;i<30;i++){disconnectId=(await api('workspace')).runs.find(r=>r.workflowId==='disconnected-response')?.id;if(disconnectId)break;await sleep(30)}assert.ok(disconnectId);const beforeAbort=await api('runs/'+disconnectId);assert.equal(beforeAbort.webhookResponse.delivery,'waiting',JSON.stringify(beforeAbort));connection.destroy();assert.ok(await pending instanceof Error)
  // A transport may not notify the DO before preparation. Submitted records an
  // unconfirmed attempt, never successful client receipt; observed abort is distinct.
- run=await finish(disconnectId);assert.equal(run.status,'succeeded');assert.ok(['disconnected','submitted'].includes(run.webhookResponse.delivery));assert.equal(run.webhookResponse.decision.late,run.webhookResponse.delivery==='disconnected')
+ run=await finish(disconnectId);assert.equal(run.status,'succeeded')
+ // Run completion and response-window closure are independent. A prepared reply
+ // may still be ready for the original handler, or expire after transport loss.
+ for(let i=0;i<60&&['waiting','ready'].includes(run.webhookResponse.delivery);i++){await sleep(100);run=await api('runs/'+disconnectId)}
+ assert.ok(['disconnected','submitted','timed_out'].includes(run.webhookResponse.delivery),JSON.stringify(run.webhookResponse));assert.ok(run.webhookResponse.closedAt)
+ if(run.webhookResponse.decision.late)assert.ok(['disconnected','timed_out'].includes(run.webhookResponse.delivery))
  console.log('Passed: positioned webhook responses, pass-through input, asynchronous continuation/restart, JSON/text/empty bodies, unsafe header rejection, missing/failed/duplicate responses, timeout and disconnected-client durability.')
 }
