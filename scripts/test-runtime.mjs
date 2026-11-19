@@ -10,6 +10,7 @@ import { tmpdir } from 'node:os'
 import { join, resolve } from 'node:path'
 import { once } from 'node:events'
 import { createServer } from 'node:net'
+import { checkStorage } from './storage-checks.mjs'
 import { checkWorkspaces } from './workspace-checks.mjs'
 import { checkMcp } from './mcp-checks.mjs'
 import { checkWebhooks } from './webhook-checks.mjs'
@@ -19,6 +20,7 @@ import {
   checkAnonymousSecrets
 } from './http-checks.mjs'
 import { checkRuntime, healthy } from './runtime-checks.mjs'
+checkStorage()
 const originalFetch = globalThis.fetch
 globalThis.fetch = (url, options = {}) => {
   if (process.env.KASURI_TEST_TRACE) console.error('Request:', options.method || 'GET', String(url))

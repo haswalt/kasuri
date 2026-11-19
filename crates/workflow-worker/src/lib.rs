@@ -1,16 +1,16 @@
 //! HTTP, SQLite persistence and alarms, implemented directly with workers-rs.
 mod http;
 mod mcp;
+mod storage;
 mod webhook;
 mod workspaces;
 use base64::{Engine, engine::general_purpose::STANDARD};
 use futures_util::StreamExt;
-use serde::Deserialize;
 use serde_json::json;
 use sha2::{Digest, Sha256};
 use subtle::ConstantTimeEq;
 use worker::*;
-use workflow_service::{MAX_BODY_BYTES, Workspace};
+use workflow_service::MAX_BODY_BYTES;
 
 fn now() -> u64 {
     Date::now().as_millis()
@@ -204,35 +204,6 @@ pub async fn main(req: Request, env: Env, _ctx: Context) -> Result<Response> {
 pub struct WorkflowWorkspace {
     state: State,
     env: Env,
-}
-impl WorkflowWorkspace {
-    fn load(&self) -> Result<Workspace> {
-        let sql = self.state.storage().sql();
-        sql.exec("CREATE TABLE IF NOT EXISTS workspace (id INTEGER PRIMARY KEY CHECK(id=1), body TEXT NOT NULL)",None)?;
-        #[derive(Deserialize)]
-        struct Row {
-            body: String,
-        }
-        let rows = sql
-            .exec("SELECT body FROM workspace WHERE id=1", None)?
-            .to_array::<Row>()?;
-        rows.first()
-            .map(|r| Workspace::from_json(&r.body).map_err(internal))
-            .unwrap_or_else(|| Ok(Workspace::default()))
-    }
-    async fn save(&self, workspace: &mut Workspace) -> Result<()> {
-        let body = workspace.checkpoint().map_err(internal)?;
-        self.state.storage().sql().exec("INSERT INTO workspace(id,body) VALUES(1,?) ON CONFLICT(id) DO UPDATE SET body=excluded.body",Some(vec![body.into()]))?;
-        if let Some(at) = workspace.next_alarm() {
-            self.state
-                .storage()
-                .set_alarm(std::time::Duration::from_millis(at.saturating_sub(now())))
-                .await?;
-        } else {
-            self.state.storage().delete_alarm().await?;
-        }
-        Ok(())
-    }
 }
 impl DurableObject for WorkflowWorkspace {
     fn new(state: State, env: Env) -> Self {

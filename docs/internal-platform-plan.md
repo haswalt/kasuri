@@ -11,7 +11,8 @@ This plan combines the reported product issues with the supplied n8n migration g
 - Completed: combined Built in/Planned, category and search filters persisted in catalogue URLs (`571fce6`).
 - Completed: selected connection inspector, endpoint/port edits, explicit deletion and highlighted reconnect handles (`b1d327c`). Browser verified; disconnected drafts remain editable and fail executable validation.
 - Completed: browser ownership directory with workspace creation, rename and per-tab selection; isolated workspace storage/credentials/endpoints; existing Personal workspace preserved. Runtime checks cover forged delegation headers, cross-session access and restart persistence. Shared-user memberships remain future account work.
-- Next: separate record storage and publication/history/lifecycle foundations. Workflow deletion and remaining management audit changes are still pending.
+- Completed: versioned SQLite record storage separates workflows, runs, audit and webhook records, with atomic generation writes and legacy checkpoint migration on save. Existing retention and total checkpoint limits remain; incremental per-record mutation is still future work.
+- Next: publication/history/lifecycle foundations. Workflow deletion and remaining management audit changes are still pending.
 
 ## Outcomes and boundaries
 
