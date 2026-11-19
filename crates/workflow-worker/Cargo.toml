@@ -21,3 +21,5 @@ connectors-webhook = { path = "../connectors-webhook" }
 
 workflow-mcp = { path = "../workflow-mcp" }
 url = "2"
+
+workflow-data = { path = "../workflow-data" }

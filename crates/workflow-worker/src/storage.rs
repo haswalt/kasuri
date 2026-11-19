@@ -62,6 +62,16 @@ fn decode(rows: Vec<Record>) -> Result<Workspace> {
     }
     Workspace::from_json(&root.to_string()).map_err(internal)
 }
+fn write_encoded_records(sql: &SqlStorage, body: String) -> Result<()> {
+    sql.exec(CREATE_RECORDS, None)?;
+    sql.exec(STORE_RECORDS, Some(vec![body.into()]))?;
+    sql.exec("DELETE FROM workspace_records WHERE generation < (SELECT MAX(generation) FROM workspace_records)",None)?;
+    sql.exec("DELETE FROM workspace WHERE id=1", None)?;
+    Ok(())
+}
+pub(crate) fn write_workspace_records(sql: &SqlStorage, workspace: &mut Workspace) -> Result<()> {
+    write_encoded_records(sql, workspace.checkpoint().map_err(internal)?)
+}
 impl WorkflowWorkspace {
     /// workers-rs 0.9 exposes SQL but not transactionSync. Bind the documented
     /// synchronous storage method in Rust; never fall back to non-atomic writes.
@@ -129,11 +139,7 @@ impl WorkflowWorkspace {
         let body = workspace.checkpoint().map_err(internal)?;
         self.sql_transaction(move |sql| {
             stage(&sql)?;
-            sql.exec(CREATE_RECORDS,None)?;
-            sql.exec(STORE_RECORDS,Some(vec![body.into()]))?;
-            sql.exec("DELETE FROM workspace_records WHERE generation < (SELECT MAX(generation) FROM workspace_records)",None)?;
-            sql.exec("DELETE FROM workspace WHERE id=1",None)?;
-            Ok(())
+            write_encoded_records(&sql, body)
         })?;
         if let Some(at) = workspace.next_alarm() {
             self.state

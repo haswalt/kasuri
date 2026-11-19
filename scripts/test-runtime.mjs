@@ -10,6 +10,7 @@ import { tmpdir } from 'node:os'
 import { join, resolve } from 'node:path'
 import { once } from 'node:events'
 import { createServer } from 'node:net'
+import { checkData } from './data-checks.mjs'
 import { checkPreconditions } from './precondition-checks.mjs'
 import { checkAudit } from './audit-checks.mjs'
 import { checkPublications } from './publication-checks.mjs'
@@ -99,44 +100,57 @@ async function stop() {
 try {
   start()
   await healthy(origin)
-  await checkRuntime(origin, 'test:runtime-check', async () => {
+  if (process.argv.includes('--data-only')) {
+    await checkData(origin, 'test:runtime-check', async () => {
+      await stop()
+      start()
+      await healthy(origin)
+    })
+  } else {
+    await checkRuntime(origin, 'test:runtime-check', async () => {
+      await stop()
+      start()
+    })
+    await checkWorkspaces(origin, 'test:runtime-check', async () => {
+      await stop()
+      start()
+      await healthy(origin)
+    })
+    await checkPublications(origin, 'test:runtime-check', async () => {
+      await stop()
+      start()
+      await healthy(origin)
+    })
+    await checkPreconditions(origin, 'test:runtime-check')
+    await checkAudit(origin, 'test:runtime-check')
+    await checkData(origin, 'test:runtime-check', async () => {
+      await stop()
+      start()
+      await healthy(origin)
+    })
+    await checkHttp(origin)
+    await checkMcp(origin, 'test:runtime-check', async () => {
+      await stop()
+      start()
+      await healthy(origin)
+    })
+    await checkWebhooks(origin, async () => {
+      await stop()
+      start()
+      await healthy(origin)
+    })
     await stop()
-    start()
-  })
-  await checkWorkspaces(origin, 'test:runtime-check', async () => {
-    await stop()
-    start()
+    start({
+      HTTP_ALLOWED_HOSTS: 'fixture.example,private.internal',
+      HTTP_PRIVATE_HOSTS: 'private.internal'
+    })
     await healthy(origin)
-  })
-  await checkPublications(origin, 'test:runtime-check', async () => {
+    await checkRestrictedHttp(origin)
     await stop()
-    start()
+    start({ BASIC_AUTH: '' })
     await healthy(origin)
-  })
-  await checkPreconditions(origin, 'test:runtime-check')
-  await checkAudit(origin, 'test:runtime-check')
-  await checkHttp(origin)
-  await checkMcp(origin, 'test:runtime-check', async () => {
-    await stop()
-    start()
-    await healthy(origin)
-  })
-  await checkWebhooks(origin, async () => {
-    await stop()
-    start()
-    await healthy(origin)
-  })
-  await stop()
-  start({
-    HTTP_ALLOWED_HOSTS: 'fixture.example,private.internal',
-    HTTP_PRIVATE_HOSTS: 'private.internal'
-  })
-  await healthy(origin)
-  await checkRestrictedHttp(origin)
-  await stop()
-  start({ BASIC_AUTH: '' })
-  await healthy(origin)
-  await checkAnonymousSecrets(origin)
+    await checkAnonymousSecrets(origin)
+  }
 } catch (e) {
   console.error(logs)
   throw e

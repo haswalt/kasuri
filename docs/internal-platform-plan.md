@@ -20,7 +20,7 @@ This plan combines the reported product issues with the supplied n8n migration g
 - Completed: canonical single-`mcp` endpoint and `/hooks/<workspace>/<hook>` ingress outside `/api`, with direct legacy aliases and preserved OAuth audiences/refresh flows.
 - Remaining in lifecycle delivery: additional history/diff polish. Stable public routing keys and the bounded JavaScript feasibility spike are also outstanding foundations.
 
-- Data storage foundation: `workflow-data` now defines shared table/context semantics, typed rows, TTL, versioned mutations, durable receipt replay and bounded keyset queries. Native tests cover claim races, recovery, expired claims, ABA protection, failed batches, integer comparison and isolated overlays. SQLite/API/connector integration is the next increment; these are not yet advertised as installed connectors.
+- Data storage foundation: `workflow-data` now defines shared table/context semantics, typed rows, TTL, versioned mutations, durable receipt replay and bounded keyset queries. Native tests cover claim races, recovery, expired claims, ABA protection, failed batches, integer comparison and isolated overlays. SQLite hosting and owner APIs now support transactional mutations/receipts, metadata-only audit, bounded streaming queries and cross-workspace isolation. UI/MCP and connector integration are next; these are not yet advertised as installed connectors.
 
 ## Outcomes and boundaries
 

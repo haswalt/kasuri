@@ -20,7 +20,8 @@
     "setup:selfhost": "node scripts/setup-selfhost.mjs",
     "setup:repository": "node scripts/configure-repository.mjs",
     "test:container": "node scripts/test-container.mjs",
-    "test:examples:live": "node scripts/test-examples-live.mjs"
+    "test:examples:live": "node scripts/test-examples-live.mjs",
+    "test:data": "node scripts/test-runtime.mjs --data-only"
   },
   "keywords": [],
   "author": "",

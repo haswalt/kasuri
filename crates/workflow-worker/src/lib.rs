@@ -1,4 +1,5 @@
 //! HTTP, SQLite persistence and alarms, implemented directly with workers-rs.
+mod data;
 mod http;
 mod mcp;
 mod storage;
@@ -243,6 +244,12 @@ impl DurableObject for WorkflowWorkspace {
             }
         }
         // All body I/O precedes synchronous read/modify/save of the workspace.
+        if let Some(response) = self
+            .data_management(req.method(), &req.url()?, &body)
+            .await?
+        {
+            return Ok(response);
+        }
         let mut workspace = self.load()?;
         let id = self
             .env
