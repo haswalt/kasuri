@@ -24,3 +24,9 @@ test('upstream mappings and collection outputs retain fields for guided sorting'
  assert.ok(Array.isArray(hints.sample))
  assert.ok(fieldChoices({sample:hints.sample[0],schema:schemaAt(hints.schema,'/0')}).includes('/rank'))
 })
+test('joins guide fields by branch identity and invocation outputs expose result wrappers',()=>{
+ const workflow={nodes:[{id:'a',type:'Map / Transform',config:{mapping:{amount:10}}},{id:'b',type:'Map / Transform',config:{mapping:{inserted:true}}},{id:'join',type:'Join',config:{policy:'all'}},{id:'if',type:'IF / Condition',config:{}}],edges:[{source:'a',target:'join'},{source:'b',target:'join'},{source:'join',target:'if'}]} as Workflow
+ assert.ok(fieldChoices(workflowInputHints(workflow,'if',null,'{}')).includes('/b/inserted'))
+ workflow.nodes[2].type='Execute Workflow';workflow.nodes[2].config={mode:'await'}
+ assert.ok(fieldChoices(workflowInputHints(workflow,'if',null,'{}')).includes('/output'))
+})

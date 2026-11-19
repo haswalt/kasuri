@@ -314,18 +314,60 @@ impl DurableObject for WorkflowWorkspace {
         }
     }
     async fn alarm(&self) -> Result<Response> {
-        let mut workspace = self.load()?;
-        workspace.alarm(now()).map_err(internal)?;
-        let claimed = workspace.claim_external(now()).map_err(internal)?;
-        self.save(&mut workspace).await?;
-        if let Some((id, task)) = claimed {
-            let outcome = http::execute(&task, &self.env).await;
-            // Requests can pause or cancel a run while the upstream request is outstanding.
-            let mut latest = self.load()?;
-            latest
-                .complete_external(&id, &task.id, outcome, now())
-                .map_err(internal)?;
-            self.save(&mut latest).await?;
+        use futures_util::{
+            future::{Either, select},
+            stream::FuturesUnordered,
+        };
+        use std::time::Duration;
+        let execute = |id: String, task: connector_sdk::Task| {
+            let env = self.env.clone();
+            async move {
+                let outcome = http::execute(&task, &env).await;
+                (id, task, outcome)
+            }
+        };
+        let mut in_flight = FuturesUnordered::new();
+        loop {
+            let mut workspace = self.load()?;
+            workspace.alarm(now()).map_err(internal)?;
+            let mut claimed = Vec::new();
+            while in_flight.len() + claimed.len() < 8 {
+                let Some(task) = workspace.claim_external(now()).map_err(internal)? else {
+                    break;
+                };
+                claimed.push(task);
+            }
+            // Persist every dispatched marker before starting any network future.
+            self.save(&mut workspace).await?;
+            for (id, task) in claimed {
+                in_flight.push(execute(id, task));
+            }
+            if in_flight.is_empty() {
+                break;
+            }
+            // A single DO alarm serves waits/retries/children as well as HTTP.
+            // Keep advancing due work while sibling network calls remain outstanding.
+            let delay = workspace
+                .next_alarm()
+                .unwrap_or(now().saturating_add(1000))
+                .saturating_sub(now())
+                .clamp(25, 1000);
+            let event = {
+                let completion = Box::pin(in_flight.next());
+                let timer = Box::pin(Delay::from(Duration::from_millis(delay)));
+                match select(completion, timer).await {
+                    Either::Left((value, _)) => value,
+                    Either::Right(_) => None,
+                }
+            };
+            if let Some((id, task, outcome)) = event {
+                // Merge into latest state, including cancellations and sibling completions.
+                let mut latest = self.load()?;
+                latest
+                    .complete_external(&id, &task.id, outcome, now())
+                    .map_err(internal)?;
+                self.save(&mut latest).await?;
+            }
         }
         Response::empty()
     }

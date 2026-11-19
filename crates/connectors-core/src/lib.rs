@@ -31,6 +31,8 @@ impl Connector for CoreConnector {
             | "Execute Workflow Trigger"
             | "Webhook"
             | "Schedule"
+            | "Split / Parallel"
+            | "Join"
             | "Merge"
             | "Error Handler" => Outcome::success(task.input.clone()),
             "Map / Transform" => {
@@ -191,6 +193,8 @@ pub fn manifests() -> Vec<connector_sdk::NodeManifest> {
         ("Schedule", json!({"type":"object","properties":{"cron":{"type":"string"}}})),
         ("Filter", { let mut schema = conditions::schema(); schema["properties"]["arrayPointer"] = json!({"type":"string"}); schema }),
         ("Sort", json!({"type":"object","properties":{"arrayPointer":{"type":"string"},"pointer":{"type":"string"},"order":{"enum":["asc","desc"]}}})),
+        ("Split / Parallel", json!({"type":"object","properties":{"concurrency":{"enum":[2,4,8],"default":4}},"additionalProperties":false})),
+        ("Join", json!({"type":"object","properties":{"policy":{"enum":["all","collect"]}},"additionalProperties":false})),
         ("Merge", json!({"type":"object","properties":{}})),
         ("Error Handler", json!({"type":"object","properties":{}})),
         ("Map / Transform", json!({"type":"object","properties":{"mapping":{"oneOf":[{"type":"object"},{"type":"string","description":"JSON-encoded mapping object"}]}},"required":["mapping"]})),

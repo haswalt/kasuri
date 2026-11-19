@@ -1,4 +1,5 @@
 // Test-only upstream. The application backend remains entirely Rust.
+const barriers=new Map()
 let retryCount=0
 export default {async fetch(request){
  const url=new URL(request.url)
@@ -7,6 +8,14 @@ export default {async fetch(request){
   const name=url.searchParams.get('name');const type=url.searchParams.get('type')==='AAAA'?28:1
   const data=name==='private-dns.example'?'127.0.0.1':name==='mixed-dns.example'&&type===28?'fe80::1':type===1?'1.1.1.1':'2606:4700:4700::1111'
   return Response.json({Status:0,Answer:[{type,data}]})
+ }
+ if(url.pathname==='/parallel-barrier'){
+  const key=url.searchParams.get('group')||'default';let barrier=barriers.get(key)
+  if(!barrier){let resolve;const ready=new Promise(r=>resolve=r);barrier={count:0,done:0,ready,resolve};barriers.set(key,barrier)}
+  barrier.count++;if(barrier.count===2)barrier.resolve(true)
+  let timer;const overlapped=await Promise.race([barrier.ready,new Promise(r=>timer=setTimeout(()=>r(false),2500))]);clearTimeout(timer)
+  barrier.done++;if(barrier.done===2)barriers.delete(key)
+  return Response.json({overlapped,arrivals:barrier.count},{status:overlapped?200:504})
  }
  if(url.pathname==='/auth'){
   const authorization=request.headers.get('authorization');const apiKey=request.headers.get('x-api-key')

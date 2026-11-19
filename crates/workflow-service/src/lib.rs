@@ -100,6 +100,8 @@ pub struct RunRecord {
     #[serde(default)]
     pub external: Option<ExternalTask>,
     #[serde(default)]
+    pub pending: Vec<ExternalTask>,
+    #[serde(default)]
     pub logical_clock: u64,
     #[serde(default)]
     pub trigger_context: Value,
@@ -151,6 +153,16 @@ impl RunRecord {
         }
         self.settle_response(now)?;
         let mut run = self.restore()?;
+        let parallel = workflow_engine::concurrency(run.workflow()) > 1;
+        if parallel {
+            if let Some(legacy) = self.external.take() {
+                self.pending.push(legacy)
+            }
+            if run.status() == RunStatus::Paused {
+                self.wake_at = None;
+                return Ok(());
+            }
+        }
         if let Some(external) = &self.external {
             if run.status() == RunStatus::Paused {
                 self.wake_at = None;
@@ -190,18 +202,38 @@ impl RunRecord {
             20
         };
         for _ in 0..budget {
-            match run.next(clock).map_err(|e| error(400, e.to_string()))? {
+            let dispatch = if parallel {
+                run.next_parallel(clock)
+            } else {
+                run.next(clock)
+            }
+            .map_err(|e| error(400, e.to_string()))?;
+            self.pending.retain(|e| {
+                run.nodes()
+                    .values()
+                    .any(|s| matches!(s,NodeState::Running{task} if task.id==e.task.id))
+            });
+            match dispatch {
                 Dispatch::Task(task) => {
                     if task.node.kind == "Execute Workflow"
                         || connectors_data::handles(&task.node.kind)
                         || (task.node.kind == "HTTP Request" && self.mode != Mode::Simulation)
                     {
-                        self.external = Some(ExternalTask {
+                        let external = ExternalTask {
                             task: *task,
                             dispatched: false,
-                        });
+                        };
+                        if parallel {
+                            self.pending.push(external);
+                        } else {
+                            self.external = Some(external);
+                        }
                         self.wake_at = Some(now.saturating_add(1));
-                        break;
+                        if parallel {
+                            continue;
+                        } else {
+                            break;
+                        }
                     }
                     let outcome = if task.node.kind == "Respond to Webhook" {
                         match connectors_webhook::response::prepare(&task.node.config, &task.input)
@@ -285,7 +317,7 @@ impl RunRecord {
                     }
                 }
                 Dispatch::SleepUntil(at) => {
-                    if self.mode == Mode::Simulation {
+                    if self.mode == Mode::Simulation && self.pending.is_empty() {
                         clock = at
                     } else {
                         self.wake_at = Some(at);
@@ -297,6 +329,16 @@ impl RunRecord {
         }
         if run.status() == RunStatus::Running && self.wake_at.is_none() {
             self.wake_at = Some(clock.saturating_add(1));
+        }
+        if run.status() == RunStatus::Running && self.pending.iter().any(|e| !e.dispatched) {
+            self.wake_at = Some(self.wake_at.unwrap_or(u64::MAX).min(now.saturating_add(1)));
+        }
+        if matches!(
+            run.status(),
+            RunStatus::Succeeded | RunStatus::Failed | RunStatus::Cancelled
+        ) {
+            self.pending.clear();
+            self.external = None;
         }
         self.logical_clock = clock;
         self.checkpoint = run.checkpoint().map_err(|e| error(400, e.to_string()))?;
@@ -425,6 +467,50 @@ impl Workspace {
             if node.kind == "Validate Schema" {
                 connectors_core::validation::validate(&node.config)
                     .map_err(|_| error(400, "Invalid or unsupported validation schema"))?;
+            }
+            if node.kind == "Split / Parallel" {
+                if node.config.keys().any(|k| k != "concurrency")
+                    || node.config.get("concurrency").is_some_and(|v| {
+                        v.as_u64()
+                            .or_else(|| v.as_str().and_then(|s| s.parse().ok()))
+                            .is_none_or(|v| !matches!(v, 2 | 4 | 8))
+                    })
+                    || document
+                        .graph
+                        .edges
+                        .iter()
+                        .filter(|e| e.source == node.id && e.source_port == "success")
+                        .count()
+                        < 2
+                {
+                    return Err(error(
+                        400,
+                        "Split requires at least two outgoing branches and concurrency 2, 4 or 8",
+                    ));
+                }
+            }
+            if node.kind == "Join" {
+                let parents: Vec<_> = document
+                    .graph
+                    .edges
+                    .iter()
+                    .filter(|e| e.target == node.id)
+                    .collect();
+                let distinct: std::collections::BTreeSet<_> =
+                    parents.iter().map(|e| &e.source).collect();
+                if parents.len() < 2
+                    || distinct.len() != parents.len()
+                    || node.config.keys().any(|k| k != "policy")
+                    || node
+                        .config
+                        .get("policy")
+                        .is_some_and(|v| !matches!(v.as_str(), Some("all" | "collect")))
+                {
+                    return Err(error(
+                        400,
+                        "Join requires distinct branch inputs and an all or collect policy",
+                    ));
+                }
             }
             if matches!(
                 node.kind.as_str(),
@@ -565,6 +651,7 @@ impl Workspace {
             children: Vec::new(),
             child_count: 0,
             external: None,
+            pending: Vec::new(),
             logical_clock: now,
             webhook_response: doc
                 .graph
@@ -1030,6 +1117,7 @@ impl Workspace {
                 record.wake_at = None;
                 if parts[3] == "cancel" {
                     record.external = None;
+                    record.pending.clear();
                 }
                 if parts[3] == "resume" {
                     record.advance(now)?
@@ -1165,7 +1253,12 @@ impl Workspace {
             if record.status()? != RunStatus::Running {
                 continue;
             }
-            if let Some(external) = &record.external {
+            if let Some(external) = record
+                .external
+                .iter()
+                .chain(record.pending.iter())
+                .find(|e| connectors_data::handles(&e.task.node.kind))
+            {
                 if connectors_data::handles(&external.task.node.kind) {
                     let time = if record.mode == Mode::Simulation {
                         record.logical_clock
@@ -1200,7 +1293,12 @@ impl Workspace {
         if record.status()? != RunStatus::Running {
             return Ok(false);
         }
-        let Some(external) = &mut record.external else {
+        let Some(external) = record
+            .external
+            .iter_mut()
+            .chain(record.pending.iter_mut())
+            .find(|e| e.task.id == task_id)
+        else {
             return Ok(false);
         };
         if external.task.id != task_id || !connectors_data::handles(&external.task.node.kind) {
@@ -1216,14 +1314,19 @@ impl Workspace {
                 continue;
             }
             let run_id = record.restore()?.id().to_string();
-            if let Some(external) = &mut record.external {
+            for external in record.external.iter_mut().chain(record.pending.iter_mut()) {
                 if external.task.node.kind != "Execute Workflow"
                     && !connectors_data::handles(&external.task.node.kind)
                     && !external.dispatched
                     && now < external.task.deadline_ms
                 {
                     external.dispatched = true;
-                    record.wake_at = Some(external.task.deadline_ms);
+                    record.wake_at = Some(
+                        record
+                            .wake_at
+                            .unwrap_or(external.task.deadline_ms)
+                            .min(external.task.deadline_ms),
+                    );
                     return Ok(Some((run_id, external.task.clone())));
                 }
             }
@@ -1247,18 +1350,32 @@ impl Workspace {
         };
         if !record
             .external
-            .as_ref()
+            .iter()
+            .chain(record.pending.iter())
+            .find(|e| e.task.id == task_id)
             .is_some_and(|e| e.dispatched && e.task.id == task_id)
         {
             return Ok(false);
         }
+        let now = if record.mode == Mode::Simulation {
+            now.max(record.logical_clock)
+        } else {
+            now
+        };
         let mut run = record.restore()?;
         if !matches!(run.status(), RunStatus::Running | RunStatus::Paused) {
             return Ok(false);
         }
         run.complete(task_id, outcome, now)
             .map_err(|e| error(500, e.to_string()))?;
-        record.external = None;
+        if record
+            .external
+            .as_ref()
+            .is_some_and(|e| e.task.id == task_id)
+        {
+            record.external = None;
+        }
+        record.pending.retain(|e| e.task.id != task_id);
         record.checkpoint = run.checkpoint().map_err(|e| error(500, e.to_string()))?;
         record.advance(now)?;
         let simulation = record.mode == Mode::Simulation;
@@ -1297,6 +1414,7 @@ impl Workspace {
                 record.host_error = Some("engine_transition_failed".into());
                 record.wake_at = None;
                 record.external = None;
+                record.pending.clear();
             }
         }
         for (id, status) in before {

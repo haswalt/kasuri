@@ -1,0 +1,139 @@
+{
+  "schemaVersion": 1,
+  "id": "20-parallel-context",
+  "name": "Parallel context write and processing",
+  "description": "Context writes run alongside processing after the required gate. Join waits for both. No input, secrets or configuration required.",
+  "status": "draft",
+  "revision": 0,
+  "updatedAt": "",
+  "nodes": [
+    {
+      "id": "start",
+      "type": "Manual Trigger",
+      "label": "Start",
+      "config": {}
+    },
+    {
+      "id": "create",
+      "type": "Context Store",
+      "label": "Ensure synthetic context",
+      "config": {
+        "command": {
+          "operation": "create_table",
+          "definition": {
+            "id": "example-parallel",
+            "name": "Parallel example context",
+            "kind": "context"
+          }
+        }
+      }
+    },
+    {
+      "id": "split",
+      "type": "Split / Parallel",
+      "label": "Independent work",
+      "config": {
+        "concurrency": 4
+      }
+    },
+    {
+      "id": "write",
+      "type": "Context Store",
+      "label": "Record independent context",
+      "config": {
+        "command": {
+          "operation": "put",
+          "tableId": "example-parallel",
+          "key": "synthetic-event",
+          "value": {
+            "recorded": true
+          },
+          "ttlMs": 60000
+        }
+      }
+    },
+    {
+      "id": "wait",
+      "type": "Wait / Delay",
+      "label": "Independent processing delay",
+      "config": {
+        "delayMs": 200
+      }
+    },
+    {
+      "id": "process",
+      "type": "Map / Transform",
+      "label": "Processing result",
+      "config": {
+        "mapping": {
+          "processed": true
+        }
+      }
+    },
+    {
+      "id": "join",
+      "type": "Join",
+      "label": "Wait for both results",
+      "config": {
+        "policy": "all"
+      }
+    },
+    {
+      "id": "summary",
+      "type": "Map / Transform",
+      "label": "Combined result",
+      "config": {
+        "mapping": {
+          "recorded": {
+            "$input": "/write/row/value/recorded"
+          },
+          "processed": {
+            "$input": "/process/processed"
+          }
+        }
+      }
+    }
+  ],
+  "edges": [
+    {
+      "id": "0",
+      "source": "start",
+      "target": "create"
+    },
+    {
+      "id": "1",
+      "source": "create",
+      "target": "split"
+    },
+    {
+      "id": "2",
+      "source": "split",
+      "target": "write"
+    },
+    {
+      "id": "3",
+      "source": "split",
+      "target": "wait"
+    },
+    {
+      "id": "4",
+      "source": "wait",
+      "target": "process"
+    },
+    {
+      "id": "5",
+      "source": "write",
+      "target": "join"
+    },
+    {
+      "id": "6",
+      "source": "process",
+      "target": "join"
+    },
+    {
+      "id": "7",
+      "source": "join",
+      "target": "summary"
+    }
+  ]
+}

@@ -217,3 +217,22 @@ fn invalid_outputs_fail_children_and_deadlines_cancel_even_when_handled() {
         "cancelled"
     );
 }
+
+#[test]
+fn failed_parallel_invocation_prevents_dispatch_of_queued_children() {
+    let mut ws = Workspace::default();
+    save(&mut ws, &child(0));
+    publish(&mut ws, "child");
+    let mut graph = parent("await");
+    graph["nodes"].as_array_mut().unwrap().push(
+        json!({"id":"split","type":"Split / Parallel","label":"Split","config":{"concurrency":2}}),
+    );
+    graph["nodes"].as_array_mut().unwrap().push(json!({"id":"second","type":"Execute Workflow","label":"Second","config":{"workflowId":"child"}}));
+    graph["nodes"][1]["config"]["inputPointer"] = json!("/missing");
+    graph["edges"] = json!([{"id":"s","source":"start","target":"split"},{"id":"a","source":"split","target":"invoke"},{"id":"b","source":"split","target":"second"}]);
+    save(&mut ws, &graph);
+    let run = start(&mut ws, "run");
+    assert_eq!(run["status"], "failed");
+    assert!(run["children"].as_array().unwrap().is_empty());
+    assert_eq!(ws.runs.len(), 1);
+}

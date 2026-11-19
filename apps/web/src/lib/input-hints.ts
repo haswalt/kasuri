@@ -44,13 +44,21 @@ function inferredSchema(value:Json, depth=0): Json {
 }
 export function workflowInputHints(workflow: Workflow, nodeId: string | undefined, run: Run | null, fixture: string): InputHints {
   let initial: Json={};try {initial=JSON.parse(fixture)}catch { /* The input editor reports invalid JSON. */ }
+  const cache=new Map<string,InputHints>(),visiting=new Set<string>()
   function output(id:string,depth=0):InputHints {
-    if(depth>12)return {sample:null}
+    if(cache.has(id))return cache.get(id)!
+    if(depth>12||visiting.has(id))return {sample:null}
     const node=workflow.nodes.find(n=>n.id===id);if(!node)return {sample:null}
+    visiting.add(id)
     const incoming=workflow.edges.find(e=>e.target===id)
     const parent=incoming?output(incoming.source,depth+1):{sample:initial}
     let hint:InputHints=parent
-    if(node.type==='Parse Body')hint={sample:null,schema:{type:'object',properties:{valid:{type:'boolean'},value:{},errors:{type:'array'}}}}
+    if(node.type==='Join') {
+      const sample:Record<string,Json>={},properties:Record<string,Json>={}
+      for(const edge of workflow.edges.filter(e=>e.target===id)) {const branch=output(edge.source,depth+1);sample[edge.source]=node.config.policy==='collect'?{status:'succeeded',output:branch.sample}:branch.sample;properties[edge.source]=node.config.policy==='collect'?{type:'object',properties:{status:{enum:['succeeded','failed','skipped']},output:branch.schema??{},error:{type:'string'}}}:branch.schema??inferredSchema(branch.sample)}
+      hint={sample,schema:{type:'object',properties}}
+    } else if(node.type==='Execute Workflow') hint={sample:null,schema:{type:'object',properties:{runId:{type:'string'},workflowId:{type:'string'},revision:{type:'integer'},status:{enum:['running','paused','succeeded','failed','cancelled']},...(node.config.mode==='background'?{}:{output:{}})}}}
+    else if(node.type==='Parse Body')hint={sample:null,schema:{type:'object',properties:{valid:{type:'boolean'},value:{},errors:{type:'array'}}}}
     else if(node.type==='Validate Schema')hint={sample:null,schema:{type:'object',properties:{valid:{type:'boolean'},errors:{type:'array'},errorsTruncated:{type:'boolean'},value:decodeJson(node.config.schema)??{}}}}
     else if(node.type==='Map / Transform') {
       const mapping=object(decodeJson(node.config.mapping));const sample:Record<string,Json>={};const properties:Record<string,Json>={}
@@ -71,7 +79,8 @@ export function workflowInputHints(workflow: Workflow, nodeId: string | undefine
       const fixture=object(decodeJson(node.config.simulationResponse));hint={sample:{status:fixture.status??200,contentType:'application/json',body:fixture.body??null}}
     }
     const observed=run?.nodes.find(n=>n.id===id)?.output
-    return observed===undefined?hint:{...hint,sample:observed}
+    const result=observed===undefined?hint:{...hint,sample:observed}
+    visiting.delete(id);cache.set(id,result);return result
   }
   const source=workflow.edges.find(e=>e.target===nodeId)?.source
   return source?output(source):{sample:initial}

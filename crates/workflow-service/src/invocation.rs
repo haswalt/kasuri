@@ -212,6 +212,7 @@ impl Workspace {
         run.cancel().map_err(|e| error(500, e.to_string()))?;
         record.checkpoint = run.checkpoint().map_err(|e| error(500, e.to_string()))?;
         record.external = None;
+        record.pending.clear();
         record.wake_at = None;
         Ok(true)
     }
@@ -231,14 +232,23 @@ impl Workspace {
             let cancelled: Vec<String> = self
                 .runs
                 .iter()
-                .filter(|r| {
-                    r.status()
-                        .is_ok_and(|s| matches!(s, RunStatus::Failed | RunStatus::Cancelled))
-                })
                 .flat_map(|r| {
+                    let terminal = r
+                        .status()
+                        .is_ok_and(|s| matches!(s, RunStatus::Failed | RunStatus::Cancelled));
+                    let run = r.restore().ok();
                     r.children
                         .iter()
-                        .filter(|c| c.awaited)
+                        .filter(move |c| {
+                            c.awaited
+                                && (terminal
+                                    || run.as_ref().is_some_and(|run| {
+                                        !matches!(
+                                            run.nodes().get(&c.node_id),
+                                            Some(NodeState::Running { .. })
+                                        )
+                                    }))
+                        })
                         .map(|c| c.run_id.clone())
                 })
                 .collect();
@@ -249,15 +259,29 @@ impl Workspace {
                 .runs
                 .iter()
                 .filter(|r| r.status().is_ok_and(|s| s == RunStatus::Running))
-                .filter_map(|r| {
+                .flat_map(|r| {
+                    let id = r.restore().unwrap().id().to_string();
                     r.external
-                        .as_ref()
+                        .iter()
+                        .chain(r.pending.iter())
                         .filter(|e| e.task.node.kind == "Execute Workflow")
-                        .map(|e| (r.restore().unwrap().id().into(), e.task.clone()))
+                        .map(move |e| (id.clone(), e.task.clone()))
                 })
                 .collect();
             for (id, task) in pending {
                 let index = self.run_index(&id).unwrap();
+                if !self.runs[index]
+                    .status()
+                    .is_ok_and(|s| s == RunStatus::Running)
+                    || !self.runs[index]
+                        .external
+                        .iter()
+                        .chain(self.runs[index].pending.iter())
+                        .any(|e| e.task.id == task.id)
+                {
+                    continue;
+                }
+
                 // Virtual completion times cannot expire unrelated live runs.
                 let time = if self.runs[index].mode == Mode::Simulation {
                     self.runs[index].logical_clock
@@ -367,7 +391,14 @@ impl Workspace {
         run.complete(&task.id, outcome, now)
             .map_err(|e| error(500, e.to_string()))?;
         record.checkpoint = run.checkpoint().map_err(|e| error(500, e.to_string()))?;
-        record.external = None;
+        if record
+            .external
+            .as_ref()
+            .is_some_and(|e| e.task.id == task.id)
+        {
+            record.external = None;
+        }
+        record.pending.retain(|e| e.task.id != task.id);
         record.logical_clock = record.logical_clock.max(now);
         record.advance(now)
     }
@@ -448,6 +479,7 @@ impl Workspace {
             children: vec![],
             child_count: 0,
             external: None,
+            pending: Vec::new(),
             logical_clock: time,
             trigger_context: json!({"trigger":"workflow","parent":parent}),
             webhook_response: None,

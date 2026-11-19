@@ -273,5 +273,19 @@
       "invoke": "succeeded",
       "background": "succeeded"
     }
+  },
+  {
+    "file": "workflows/20-parallel-context.json",
+    "outputs": {
+      "summary": {
+        "recorded": true,
+        "processed": true
+      }
+    },
+    "statuses": {
+      "write": "succeeded",
+      "process": "succeeded",
+      "join": "succeeded"
+    }
   }
 ]

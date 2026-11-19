@@ -1,6 +1,6 @@
 # Implemented connectors
 
-The runtime advertises 20 node types: Manual Trigger, Webhook, Schedule, Map / Transform, IF / Condition, Merge, Wait / Delay, JSON Utilities, Error Handler, Filter, Sort, HTTP Request, Data Tables, Context Store, Request Context Respond to Webhook, Validate Schema, Parse Body, Execute Workflow Trigger and Execute Workflow. A catalogue entry marked Planned is not executable.
+The runtime advertises 22 node types: Manual Trigger, Webhook, Schedule, Map / Transform, IF / Condition, Merge, Wait / Delay, JSON Utilities, Error Handler, Filter, Sort, HTTP Request, Data Tables, Context Store, Request Context Respond to Webhook, Validate Schema, Parse Body, Execute Workflow Trigger, Execute Workflow, Split / Parallel and Join. A catalogue entry marked Planned is not executable.
 
 ## Data Tables and Context Store
 
@@ -132,3 +132,7 @@ Decode JSON, XML, text and form data with an explicit validity result. Select th
 ## Workflow invocation
 
 Publish a reusable workflow with Execute Workflow Trigger, then call it using Execute Workflow in await or background mode. Targets and revisions are selectable. Definitions and parent/child links are durable and simulation mode propagates. See [workflow invocation](workflow-invocation.md).
+
+## Parallel execution
+
+Split / Parallel explicitly enables bounded concurrent branches. Join waits for all parents and either returns active outputs or collects per-branch errors. Existing multi-edge graphs remain serial. See [parallel semantics](parallel.md) and [example 20](../examples/workflows/20-parallel-context.json).

@@ -25,6 +25,7 @@ Every example accepts the default `{}` input. No edits, accounts, API keys, envi
 | [17 Body parsing](workflows/17-body-parsing.json) | Combined formats | Decode synthetic JSON, XML, form and text, then validate the parsed JSON. No configuration required. |
 | [18 Reusable workflow](workflows/18-reusable-workflow.json) | Simple contract | A standalone simulated child with explicit input/output schemas and a durable wait. |
 | [19 Invoke workflow](workflows/19-invoke-workflow.json) | Parent/child | Import and publish example 18 first, then await a result and launch background work. No secrets or configuration edits. |
+| [20 Parallel context](workflows/20-parallel-context.json) | Parallel branches | Record context alongside processing, then join both results. No input or configuration required. |
 
 Together these cover every currently implemented node: Manual Trigger, Webhook, Schedule, Map / Transform, IF / Condition, Merge, Wait / Delay, JSON Utilities, Error Handler, HTTP Request, Filter and Sort.
 

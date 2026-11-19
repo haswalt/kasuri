@@ -659,7 +659,7 @@ export function WorkflowEditor({
                                 editNode({
                                   config: {
                                     ...node.config,
-                                    [key]: e.target.value
+                                    [key]: node.type==='Split / Parallel'&&key==='concurrency'?Number(e.target.value):e.target.value
                                   }
                                 })
                               }
@@ -679,7 +679,7 @@ export function WorkflowEditor({
                                 editNode({
                                   config: {
                                     ...node.config,
-                                    [key]: e.target.value
+                                    [key]: node.type==='Split / Parallel'&&key==='concurrency'?Number(e.target.value):e.target.value
                                   }
                                 })
                               }
@@ -699,7 +699,7 @@ export function WorkflowEditor({
                                 editNode({
                                   config: {
                                     ...node.config,
-                                    [key]: e.target.value
+                                    [key]: node.type==='Split / Parallel'&&key==='concurrency'?Number(e.target.value):e.target.value
                                   }
                                 })
                               }

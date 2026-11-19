@@ -19,6 +19,7 @@ import { checkPublications } from './publication-checks.mjs'
 import { checkStorage } from './storage-checks.mjs'
 import { checkWorkspaces } from './workspace-checks.mjs'
 import { checkMcp } from './mcp-checks.mjs'
+import { checkParallel } from './parallel-checks.mjs'
 import { checkInvocations } from './invocation-checks.mjs'
 import { checkParsing } from './parsing-checks.mjs'
 import { checkValidation } from './validation-checks.mjs'
@@ -110,6 +111,8 @@ try {
   if (process.argv.includes('--validation-only')) {
     await checkParsing(origin, 'test:runtime-check', async () => {await stop();start();await healthy(origin)})
     await checkValidation(origin, 'test:runtime-check', async () => {await stop();start();await healthy(origin)})
+  } else if (process.argv.includes('--parallel-only')) {
+    await checkParallel(origin, 'test:runtime-check', async () => {await stop();start();await healthy(origin)})
   } else if (process.argv.includes('--invocations-only')) {
     await checkInvocations(origin, 'test:runtime-check', async () => {await stop();start();await healthy(origin)})
   } else if (process.argv.includes('--conditions-only')) {
@@ -127,6 +130,7 @@ try {
       await healthy(origin)
     })
   } else {
+    await checkParallel(origin, 'test:runtime-check', async () => {await stop();start();await healthy(origin)})
     await checkInvocations(origin, 'test:runtime-check', async () => {await stop();start();await healthy(origin)})
     await checkParsing(origin, 'test:runtime-check', async () => {await stop();start();await healthy(origin)})
     await checkValidation(origin, 'test:runtime-check', async () => {await stop();start();await healthy(origin)})

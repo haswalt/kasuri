@@ -10,6 +10,41 @@ use workflow_schema::Workflow;
 pub const CHECKPOINT_VERSION: u32 = 1;
 const MAX_CHECKPOINT_BYTES: usize = 2_097_152;
 const MAX_VALUE_BYTES: usize = 65_536;
+/// Legacy graphs retain one in-flight slot. Explicit split markers opt into a bound.
+pub fn concurrency(workflow: &Workflow) -> usize {
+    workflow
+        .nodes
+        .iter()
+        .filter(|n| n.kind == "Split / Parallel")
+        .map(|n| {
+            n.config
+                .get("concurrency")
+                .and_then(|v| {
+                    v.as_u64()
+                        .or_else(|| v.as_str().and_then(|v| v.parse().ok()))
+                })
+                .filter(|v| matches!(v, 2 | 4 | 8))
+                .unwrap_or(4) as usize
+        })
+        .min()
+        .unwrap_or(1)
+}
+
+fn collected_failure(workflow: &Workflow, node_id: &str) -> bool {
+    let outgoing: Vec<_> = workflow
+        .edges
+        .iter()
+        .filter(|e| e.source == node_id)
+        .collect();
+    !outgoing.is_empty()
+        && outgoing.iter().all(|e| {
+            workflow.nodes.iter().any(|n| {
+                n.id == e.target
+                    && n.kind == "Join"
+                    && n.config.get("policy").and_then(Value::as_str) == Some("collect")
+            })
+        })
+}
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -228,7 +263,7 @@ impl Run {
                 .values()
                 .filter(|s| matches!(s, NodeState::Running { .. }))
                 .count()
-                > 1
+                > concurrency(&run.workflow)
         {
             return Err(error("Invalid checkpoint node set"));
         }
@@ -282,10 +317,11 @@ impl Run {
             }
         }
         if run.status == RunStatus::Succeeded
-            && !run
-                .nodes
-                .values()
-                .all(|s| matches!(s, NodeState::Succeeded { .. } | NodeState::Skipped))
+            && !run.nodes.iter().all(|(id, s)| {
+                matches!(s, NodeState::Succeeded { .. } | NodeState::Skipped)
+                    || (matches!(s, NodeState::Failed { .. })
+                        && collected_failure(&run.workflow, id))
+            })
         {
             return Err(error("Successful checkpoint has unfinished nodes"));
         }
@@ -348,12 +384,20 @@ impl Run {
     pub fn next(&mut self, now_ms: u64) -> Result<Dispatch, EngineError> {
         // Apply each state transition atomically, including checkpoint budget enforcement.
         let mut candidate = self.clone();
-        let dispatch = candidate.advance(now_ms)?;
+        let dispatch = candidate.advance(now_ms, false)?;
         candidate.checkpoint()?;
         *self = candidate;
         Ok(dispatch)
     }
-    fn advance(&mut self, now_ms: u64) -> Result<Dispatch, EngineError> {
+    /// Select a new task without redispatching an already running sibling.
+    pub fn next_parallel(&mut self, now_ms: u64) -> Result<Dispatch, EngineError> {
+        let mut candidate = self.clone();
+        let dispatch = candidate.advance(now_ms, true)?;
+        candidate.checkpoint()?;
+        *self = candidate;
+        Ok(dispatch)
+    }
+    fn advance(&mut self, now_ms: u64, parallel: bool) -> Result<Dispatch, EngineError> {
         self.observe(now_ms)?;
         if !matches!(self.status, RunStatus::Running | RunStatus::Paused) {
             return Ok(Dispatch::Finished(self.status));
@@ -364,28 +408,36 @@ impl Run {
         if self.status == RunStatus::Paused {
             return Ok(Dispatch::Paused);
         }
-        if let Some(task) = self.nodes.values().find_map(|s| {
-            if let NodeState::Running { task } = s {
-                Some(task.clone())
-            } else {
-                None
-            }
-        }) {
+        let running: Vec<Task> = self
+            .nodes
+            .values()
+            .filter_map(|s| {
+                if let NodeState::Running { task } = s {
+                    Some(task.clone())
+                } else {
+                    None
+                }
+            })
+            .collect();
+        for task in running {
             if now_ms < task.deadline_ms {
-                return Ok(Dispatch::Task(Box::new(task)));
-            }
-            self.apply(
-                &task.id,
-                Outcome::Failed {
-                    failure: Failure {
-                        code: FailureCode::Timeout,
-                        retryable: true,
+                if !parallel {
+                    return Ok(Dispatch::Task(Box::new(task)));
+                }
+            } else {
+                self.apply(
+                    &task.id,
+                    Outcome::Failed {
+                        failure: Failure {
+                            code: FailureCode::Timeout,
+                            retryable: true,
+                        },
                     },
-                },
-                now_ms,
-            )?;
-            if self.status == RunStatus::Failed {
-                return Ok(Dispatch::Finished(self.status));
+                    now_ms,
+                )?;
+                if self.status == RunStatus::Failed {
+                    return Ok(Dispatch::Finished(self.status));
+                }
             }
         }
         for state in self.nodes.values_mut() {
@@ -403,6 +455,13 @@ impl Run {
                 };
             }
         }
+        let slots_full = parallel
+            && self
+                .nodes
+                .values()
+                .filter(|s| matches!(s, NodeState::Running { .. }))
+                .count()
+                >= concurrency(&self.workflow);
         // Iterate to propagate skipped branches even when nodes are not topologically ordered.
         loop {
             let mut skipped = false;
@@ -430,15 +489,49 @@ impl Run {
                         _ => None,
                     })
                     .collect();
-                if !parents.is_empty() && active.is_empty() {
+                if !parents.is_empty()
+                    && active.is_empty()
+                    && !(node.kind == "Join"
+                        && node.config.get("policy").and_then(Value::as_str) == Some("collect")
+                        && parents
+                            .iter()
+                            .any(|e| matches!(self.nodes[&e.source], NodeState::Failed { .. })))
+                {
                     self.nodes.insert(node.id.clone(), NodeState::Skipped);
                     skipped = true;
+                    continue;
+                }
+                if slots_full {
                     continue;
                 }
                 if self.dispatches >= self.limits.max_dispatches {
                     return Ok(self.terminate(FailureCode::BudgetExceeded));
                 }
-                let input = if parents.is_empty() {
+                let input = if node.kind == "Join"
+                    && node.config.get("policy").and_then(Value::as_str) == Some("collect")
+                {
+                    Value::Object(
+                        parents
+                            .iter()
+                            .map(|edge| {
+                                let entry = match &self.nodes[&edge.source] {
+                                    NodeState::Succeeded { output, port, .. }
+                                        if *port == edge.source_port =>
+                                    {
+                                        json!({"status":"succeeded","output":output})
+                                    }
+                                    NodeState::Failed { failure, .. } => {
+                                        json!({"status":"failed","error":failure.code})
+                                    }
+                                    _ => json!({"status":"skipped"}),
+                                };
+                                (edge.source.clone(), entry)
+                            })
+                            .collect(),
+                    )
+                } else if node.kind == "Join" {
+                    Value::Object(active.into_iter().collect())
+                } else if parents.is_empty() {
                     self.input.clone()
                 } else if parents.len() == 1 {
                     active[0].1.clone()
@@ -472,7 +565,8 @@ impl Run {
             .values()
             .filter_map(|s| match s {
                 NodeState::Waiting { until_ms, .. } => Some(*until_ms),
-                NodeState::Retry { at_ms, .. } => Some(*at_ms),
+                NodeState::Retry { at_ms, .. } if !slots_full || *at_ms > now_ms => Some(*at_ms),
+                NodeState::Running { task } if parallel => Some(task.deadline_ms),
                 _ => None,
             })
             .min();
@@ -567,8 +661,11 @@ impl Run {
                         attempts: task.attempt,
                     }
                 } else {
-                    self.status = RunStatus::Failed;
-                    self.failure = Some(failure.code.clone());
+                    let collected = collected_failure(&self.workflow, &task.node.id);
+                    if !collected {
+                        self.status = RunStatus::Failed;
+                        self.failure = Some(failure.code.clone());
+                    }
                     NodeState::Failed {
                         failure,
                         attempts: task.attempt,

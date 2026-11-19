@@ -7,7 +7,7 @@ export function category(kind: string): NodeCategory {
   if (/Error|Sentry|PagerDuty/.test(kind)) return 'error'
   if (/Cloudflare|D1|R2|KV|Queues/.test(kind)) return 'cf'
   if (
-    /Parse Body|Validate Schema|Respond to Webhook|Data Tables|Context Store|Request Context|Map|IF|Sort|Filter|Merge|Wait|JSON|CSV|XML|Loop|Batch|Code|Execute/.test(
+    /Parse Body|Validate Schema|Respond to Webhook|Data Tables|Context Store|Request Context|Split|Join|Map|IF|Sort|Filter|Merge|Wait|JSON|CSV|XML|Loop|Batch|Code|Execute/.test(
       kind
     )
   )
