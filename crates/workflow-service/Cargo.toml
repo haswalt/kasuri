@@ -20,5 +20,7 @@ sha2 = "0.10"
 
 connectors-data = { path = "../connectors-data" }
 
+jsonschema = { version = "=0.61.2", default-features = false }
+
 [dev-dependencies]
 workflow-data = { path = "../workflow-data" }

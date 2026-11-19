@@ -1,6 +1,6 @@
 use crate::auth::{Auth, Credential, Receipt, hash};
 use serde_json::{Value, json};
-use workflow_service::{Document, Workspace, manifests};
+use workflow_service::{Document, Workspace};
 
 fn definitions() -> Vec<(&'static str, &'static str, &'static str, bool, Value)> {
     let id = json!({"type":"string","minLength":1,"maxLength":160});
@@ -14,7 +14,7 @@ fn definitions() -> Vec<(&'static str, &'static str, &'static str, bool, Value)>
         object(props, req)
     };
     let version = json!({"type":"integer","minimum":0});
-    let workflow = json!({"type":"object","description":"A schemaVersion 1 Kasuri workflow export, with stable node/edge IDs, connector versions, configuration and optional canvas positions.","required":["schemaVersion","id","name","nodes","edges"]});
+    let workflow = json!({"$ref":"#/$defs/WorkflowDefinition"});
     vec![
         (
             "data_tables_list",
@@ -72,6 +72,37 @@ fn definitions() -> Vec<(&'static str, &'static str, &'static str, bool, Value)>
                 json!({"commands":{"type":"array","minItems":1,"maxItems":100,"items":workflow_data::mutation_schema()}}),
                 vec!["commands"],
             ),
+        ),
+        (
+            "workflows_schema_get",
+            "read",
+            "Get the authoritative versioned graph/config JSON Schema and defaults. Node kind uses type; labels are required. Read before building.",
+            false,
+            object(json!({}), vec![]),
+        ),
+        (
+            "workflows_examples_list",
+            "read",
+            "List tested public workflow patterns and dependency IDs; no workspace data or side effects. Fetch a definition with workflows_examples_get.",
+            false,
+            object(
+                json!({"cursor":{"type":"integer","minimum":0},"limit":{"type":"integer","minimum":1,"maximum":100}}),
+                vec![],
+            ),
+        ),
+        (
+            "workflows_examples_get",
+            "read",
+            "Get a tested public workflow, synthetic input, asserted outputs and dependency/publication instructions. Does not install anything.",
+            false,
+            object(json!({"exampleId":id}), vec!["exampleId"]),
+        ),
+        (
+            "platform_capabilities_get",
+            "read",
+            "Read workflow execution, input/output wiring, publication, simulation, retry and scope semantics before designing a workflow.",
+            false,
+            object(json!({}), vec![]),
         ),
         (
             "connectors_list",
@@ -273,8 +304,19 @@ fn definitions() -> Vec<(&'static str, &'static str, &'static str, bool, Value)>
     ]
 }
 pub fn list(c: &Credential) -> Vec<Value> {
-    definitions().into_iter().filter(|(_,scope,_,_,_)|c.permits("read")&&c.permits(scope)).map(|(name,_,description,mutation,schema)|json!({"name":name,"description":description,"inputSchema":schema,"annotations":{"readOnlyHint":!mutation,"destructiveHint":mutation,"idempotentHint":true,"openWorldHint":name=="runs_start"||name=="runs_resume"||name.starts_with("workflows_p")||name=="workflows_resume"}})).collect()
+    definitions().into_iter().filter(|(_,scope,_,_,_)|c.permits("read")&&c.permits(scope)).map(|(name,_,description,mutation,mut schema)|{
+        if matches!(name,"workflows_create"|"workflows_update"|"workflows_validate"){
+            let mut definition=workflow_service::definition::schema();
+            let defs=definition.as_object_mut().unwrap().remove("$defs").unwrap_or(json!({}));
+            schema["$defs"]=defs;
+            definition.as_object_mut().unwrap().remove("$id");
+            definition.as_object_mut().unwrap().remove("$schema");
+            schema["$defs"]["WorkflowDefinition"]=definition;
+        }
+        json!({"name":name,"description":description,"inputSchema":schema,"annotations":{"readOnlyHint":!mutation,"destructiveHint":mutation,"idempotentHint":true,"openWorldHint":name=="runs_start"||name=="runs_resume"||name.starts_with("workflows_p")||name=="workflows_resume"}})
+    }).collect()
 }
+
 fn err(code: &str, message: &str) -> Value {
     json!({"code":code,"message":message})
 }
@@ -321,14 +363,18 @@ fn handle(
     )
     .map(|(_, v)| v)
     .map_err(|e| {
-        err(
+        let mut value = err(
             if e.status == 409 {
                 "conflict"
             } else {
                 "operation_failed"
             },
             &e.message,
-        )
+        );
+        if !e.diagnostics.is_empty() {
+            value["errors"] = json!(e.diagnostics);
+        }
+        value
     })
 }
 fn page(items: Vec<Value>, args: &Value) -> Result<Value, Value> {
@@ -413,7 +459,27 @@ fn execute(
             .map_err(convert);
     }
     match name {
-        "connectors_list" => Ok(json!({"connectors":manifests()})),
+        "connectors_list" => Ok(crate::discovery::connectors()),
+        "workflows_schema_get" => Ok(workflow_service::definition::discovery()),
+        "platform_capabilities_get" => Ok(crate::discovery::capabilities()),
+        "workflows_examples_list" => page(
+            crate::discovery::examples()
+                .into_iter()
+                .map(|mut e| {
+                    e.as_object_mut().unwrap().remove("workflow");
+                    e.as_object_mut().unwrap().remove("expectedOutputs");
+                    e
+                })
+                .collect(),
+            args,
+        ),
+        "workflows_examples_get" => {
+            let id = required(args, "exampleId")?;
+            crate::discovery::examples()
+                .into_iter()
+                .find(|e| e["id"] == id)
+                .ok_or_else(|| err("not_found", "Public example not found"))
+        }
         "workflows_list" => {
             let query = args["search"].as_str().unwrap_or("").to_lowercase();
             page(ws.workflows.iter().filter(|w|w.archived_at.is_none() && w.graph.name.to_lowercase().contains(&query)).map(|w|json!({"id":w.graph.id,"name":w.graph.name,"revision":w.graph.revision,"version":w.version,"status":w.status,"lifecycle":w.lifecycle,"hasUnpublishedChanges":w.has_unpublished_changes,"updatedAt":w.updated_at,"nodeCount":w.graph.nodes.len(),"nextScheduledAt":w.next_scheduled_at})).collect(),args)
@@ -478,22 +544,19 @@ fn execute(
             if !args["workflow"].is_object() {
                 return Err(err("invalid_arguments", "Expected workflow object"));
             };
-            let mut doc = args["workflow"].clone();
-            doc["status"] = json!("draft");
-            doc["updatedAt"] = json!("");
-            let result = serde_json::from_value::<Document>(doc)
-                .map_err(|_| "Invalid workflow document".to_string())
-                .and_then(|d| Workspace::executable(&d).map_err(|e| e.message));
-            Ok(match result {
-                Ok(()) => json!({"valid":true,"errors":[]}),
-                Err(message) => json!({"valid":false,"errors":[{"message":message}]}),
-            })
+            Ok(workflow_service::definition::validate(&args["workflow"]))
         }
         "workflows_create" | "workflows_update" => {
             let mut doc = args["workflow"].clone();
             if !doc.is_object() {
                 return Err(err("invalid_arguments", "Expected workflow object"));
             };
+            let errors = workflow_service::definition::shape_errors(&doc);
+            if !errors.is_empty() {
+                return Err(
+                    json!({"code":"invalid_workflow","message":"Invalid workflow definition","errors":errors}),
+                );
+            }
             let id = required(&doc, "id")?.to_string();
             if name == "workflows_create" {
                 if ws.workflows.iter().any(|w| w.graph.id == id) {
@@ -865,7 +928,22 @@ pub fn call_with_data(
 
         if mutation { json!({"id":v["id"],"workflowId":v["workflowId"],"version":v["version"],"revision":v["revision"],"status":v["status"],"detailsTool":if name.starts_with("runs_"){"runs_get"}else{"workflows_get"}}) } else { v }
     });
-    let mut result = content(result);
+    // These payloads are compiled public contracts/fixtures, never workspace/user data.
+    // Key-based credential redaction would corrupt schemas (e.g. password properties).
+    let public = matches!(
+        name,
+        "workflows_schema_get"
+            | "platform_capabilities_get"
+            | "workflows_examples_list"
+            | "workflows_examples_get"
+            | "connectors_list"
+    );
+    let mut result = match result {
+        Ok(data) if public => {
+            json!({"isError":false,"content":[{"type":"text","text":data.to_string()}],"structuredContent":data})
+        }
+        other => content(other),
+    };
     if result.to_string().len() > 131072 {
         result = content(Err(err(
             "response_too_large",

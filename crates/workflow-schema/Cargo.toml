@@ -6,3 +6,6 @@ edition.workspace = true
 [dependencies]
 serde.workspace = true
 serde_json.workspace = true
+
+schemars = "=1.2.3"
+jsonschema = { version = "=0.61.2", default-features = false }

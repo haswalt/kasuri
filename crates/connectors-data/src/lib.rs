@@ -197,7 +197,7 @@ pub fn handles(kind: &str) -> bool {
 pub fn manifests() -> Vec<connector_sdk::NodeManifest> {
     ["Data Tables", "Context Store"].into_iter().map(|kind| connector_sdk::NodeManifest {
         kind: kind.into(), version: 1,
-        config_schema: serde_json::json!({"type":"object","properties":{"command":{"type":"object","description":"Typed data command; static operation/tableId, explicit $input JSON-pointer references in payloads."}},"required":["command"],"additionalProperties":false}),
+        config_schema: serde_json::json!({"type":"object","properties":{"command":{"oneOf":[{"type":"object"},{"type":"string"}],"description":"Typed data command object or JSON-encoded object; static operation/tableId, explicit $input JSON-pointer references in payloads."}},"required":["command"],"additionalProperties":false}),
         output_ports: vec!["success".into(), "error".into()], has_external_side_effects: true,
     }).collect()
 }

@@ -197,13 +197,13 @@ pub fn manifests() -> Vec<connector_sdk::NodeManifest> {
     use serde_json::json;
     [
         ("Manual Trigger", json!({"type":"object","properties":{}})),
-        ("Webhook", json!({"type":"object","properties":{"authentication":{"enum":["none","bearer","query","hmac_sha256","hmac"]},"signingSecret":{"type":"string"},"queryParameter":{"type":"string","default":"key"},"contextHeaders":{"type":"array","items":{"type":"string"}},"contextQuery":{"type":"array","items":{"type":"string"}}}})),
+        ("Webhook", json!({"type":"object","properties":{"authentication":{"enum":["none","bearer","query","hmac_sha256","hmac"]},"signingSecret":{"type":"string"},"queryParameter":{"type":"string","default":"key"},"contextHeaders":{"oneOf":[{"type":"array","items":{"type":"string"}},{"type":"string","description":"JSON-encoded header name array"}]},"contextQuery":{"oneOf":[{"type":"array","items":{"type":"string"}},{"type":"string","description":"JSON-encoded query name array"}]}}})),
         ("Schedule", json!({"type":"object","properties":{"cron":{"type":"string"}}})),
         ("Filter", { let mut schema = conditions::schema(); schema["properties"]["arrayPointer"] = json!({"type":"string"}); schema }),
-        ("Split / Batch",json!({"type":"object","properties":{"arrayPointer":{"type":"string"},"batchSize":{"type":"integer","minimum":1,"maximum":100,"default":10}},"additionalProperties":false})),
+        ("Split / Batch",json!({"type":"object","properties":{"arrayPointer":{"type":"string"},"batchSize":{"oneOf":[{"type":"integer","minimum":1,"maximum":100},{"type":"string","pattern":"^\\+?0*(?:[1-9][0-9]?|100)$"}],"default":10}},"additionalProperties":false})),
         ("Aggregate",json!({"type":"object","properties":{"arrayPointer":{"type":"string"},"operation":{"enum":["collect","count","sum"]},"pointer":{"type":"string"},"missing":{"enum":["fail","skip"]}},"required":["operation"],"additionalProperties":false})),
         ("Sort", json!({"type":"object","properties":{"arrayPointer":{"type":"string"},"pointer":{"type":"string"},"order":{"enum":["asc","desc"]}}})),
-        ("Split / Parallel", json!({"type":"object","properties":{"concurrency":{"enum":[2,4,8],"default":4}},"additionalProperties":false})),
+        ("Split / Parallel", json!({"type":"object","properties":{"concurrency":{"anyOf":[{"enum":[2,4,8]},{"type":"string","pattern":"^\\+?0*[248]$"}],"default":4}},"additionalProperties":false})),
         ("Join", json!({"type":"object","properties":{"policy":{"enum":["all","collect"]}},"additionalProperties":false})),
         ("Merge", routing::merge_schema()),
         ("Expressions", expressions::schema()),
@@ -211,7 +211,7 @@ pub fn manifests() -> Vec<connector_sdk::NodeManifest> {
         ("Error Handler", json!({"type":"object","properties":{}})),
         ("Map / Transform", json!({"type":"object","properties":{"mapping":{"oneOf":[{"type":"object"},{"type":"string","description":"JSON-encoded mapping object"}]}},"required":["mapping"]})),
         ("IF / Condition", conditions::schema()),
-        ("Wait / Delay", json!({"type":"object","properties":{"delayMs":{"oneOf":[{"type":"integer","minimum":0},{"type":"string","pattern":"^[0-9]+$"}]}},"required":["delayMs"]})),
+        ("Wait / Delay", json!({"type":"object","properties":{"delayMs":{"oneOf":[{"type":"integer","minimum":0},{"type":"string","pattern":"^\\+?[0-9]+$"}]}},"required":["delayMs"]})),
         ("Parse Body", json!({"type":"object","properties":{"format":{"enum":["json","xml","text","form"]},"pointer":{"type":"string"}},"required":["format"],"additionalProperties":false})),
         ("JSON Utilities", json!({"type":"object","properties":{"operation":{"enum":["parse","stringify"]}},"required":["operation"]})),
     ].into_iter().map(|(kind, config_schema)| connector_sdk::NodeManifest {

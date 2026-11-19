@@ -256,7 +256,12 @@ fn evaluate_rules(any: bool, rules: &[Rule], input: &Value) -> bool {
     }
 }
 pub fn schema() -> Value {
-    json!({"type":"object","properties":{"match":{"enum":["all","any"]},"conditions":{"type":"array","minItems":1,"maxItems":32,"items":{"type":"object","properties":{"field":{"type":"string"},"operator":{"enum":["equals","not_equals","exists","not_exists","is_empty","is_not_empty","contains","not_contains","starts_with","ends_with","greater_than","greater_or_equal","less_than","less_or_equal"]},"value":{},"valueType":{"enum":["string","number","boolean","null","json"]}},"required":["field","operator"],"additionalProperties":false}},"pointer":{"type":"string"},"equals":{}}})
+    let mut schema = json!({"type":"object","properties":{"match":{"enum":["all","any"]},"conditions":{"type":"array","minItems":1,"maxItems":32,"items":{"type":"object","properties":{"field":{"type":"string"},"operator":{"enum":["equals","not_equals","exists","not_exists","is_empty","is_not_empty","contains","not_contains","starts_with","ends_with","greater_than","greater_or_equal","less_than","less_or_equal"]},"value":{},"valueType":{"enum":["string","number","boolean","null","json"]}},"required":["field","operator"],"additionalProperties":false}},"pointer":{"type":"string"},"equals":{}}});
+    let rows = schema["properties"]["conditions"].clone();
+    schema["properties"]["conditions"] =
+        json!({"oneOf":[rows,{"type":"string","description":"JSON-encoded condition row array"}]});
+    schema["anyOf"] = json!([{"required":["conditions"]},{"required":["pointer","equals"]}]);
+    schema
 }
 
 /// Compile collection predicates once, preserving legacy Filter JSON-text values.

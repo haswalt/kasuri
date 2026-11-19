@@ -15,3 +15,6 @@ url = "2"
 workflow-data = { path = "../workflow-data" }
 
 connectors-data = { path = "../connectors-data" }
+
+[dev-dependencies]
+jsonschema = { version = "=0.61.2", default-features = false }

@@ -1,7 +1,9 @@
 //! Versioned workflow graph contracts, compatible with the React editor's JSON exports.
+use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
+pub mod contract;
+pub use contract::{Diagnostic, json_schema, shape_diagnostics};
 use serde_json::{Map, Value};
-use std::collections::{BTreeMap, BTreeSet, VecDeque};
 
 pub const SCHEMA_VERSION: u32 = 1;
 pub const MAX_NODES: usize = 100;
@@ -23,27 +25,32 @@ fn success() -> String {
     "success".into()
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "camelCase")]
 pub struct Workflow {
+    #[schemars(range(min = 1, max = 1))]
     pub schema_version: u32,
+    #[schemars(length(min = 1, max = 160))]
     pub id: String,
+    #[schemars(length(min = 1, max = 160))]
     pub name: String,
     #[serde(default)]
     pub description: String,
     #[serde(default)]
     pub revision: u32,
+    #[schemars(length(min = 1, max = 100))]
     pub nodes: Vec<Node>,
+    #[schemars(length(max = 500))]
     pub edges: Vec<Edge>,
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
 pub struct Position {
     pub x: f64,
     pub y: f64,
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "camelCase")]
 pub struct Node {
     pub id: String,
@@ -59,6 +66,7 @@ pub struct Node {
     #[serde(default)]
     pub retry: RetryPolicy,
     #[serde(default = "timeout")]
+    #[schemars(range(min = 1))]
     pub timeout_ms: u64,
 }
 
@@ -71,7 +79,7 @@ impl Node {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "camelCase")]
 pub struct Edge {
     pub id: String,
@@ -81,10 +89,11 @@ pub struct Edge {
     pub source_port: String,
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "camelCase")]
 pub struct RetryPolicy {
     #[serde(default = "one")]
+    #[schemars(range(min = 1, max = 10))]
     pub max_attempts: u32,
     #[serde(default = "delay")]
     pub delay_ms: u64,
@@ -134,121 +143,9 @@ impl Workflow {
     /// Require one trigger, a connected directed acyclic graph and explicit branch ports.
     /// Node configuration and supported connector versions are checked by the adapter.
     pub fn validate(&self) -> Result<(), ValidationError> {
-        let fail = |message: &str| Err(ValidationError(message.into()));
-        if self.schema_version != SCHEMA_VERSION {
-            return fail("Unsupported workflow schema version");
+        match self.diagnostics().first() {
+            Some(d) => Err(ValidationError(d.message.clone())),
+            None => Ok(()),
         }
-        if self.id.trim().is_empty() || self.name.trim().is_empty() {
-            return fail("Workflow ID and name are required");
-        }
-        if self.nodes.is_empty() || self.nodes.len() > MAX_NODES {
-            return fail("Workflow must contain between 1 and 100 nodes");
-        }
-        if serde_json::to_vec(self)
-            .map_err(|_| ValidationError("Cannot serialize graph".into()))?
-            .len()
-            > MAX_GRAPH_BYTES
-        {
-            return fail("Workflow exceeds graph size limit");
-        }
-        let mut nodes = BTreeMap::new();
-        for node in &self.nodes {
-            if node
-                .position
-                .as_ref()
-                .is_some_and(|p| !p.x.is_finite() || !p.y.is_finite())
-            {
-                return fail("Invalid node position");
-            }
-            if node.id.trim().is_empty()
-                || node.kind.trim().is_empty()
-                || node.label.trim().is_empty()
-                || node.version == 0
-            {
-                return fail("Nodes require an ID, type, label and positive version");
-            }
-            if nodes.insert(node.id.as_str(), node).is_some() {
-                return fail("Duplicate node ID");
-            }
-            if node.timeout_ms == 0 {
-                return fail("Node timeout must be positive");
-            }
-            if !(1..=10).contains(&node.retry.max_attempts)
-                || node.retry.delay_ms > node.retry.max_delay_ms
-            {
-                return fail("Invalid retry policy (1–10 attempts, delay <= max delay)");
-            }
-            if serde_json::to_vec(&node.config).unwrap().len() > MAX_CONFIG_BYTES {
-                return fail("Node configuration exceeds size limit");
-            }
-        }
-        let triggers: Vec<_> = self.nodes.iter().filter(|n| n.is_trigger()).collect();
-        if triggers.len() != 1 {
-            return fail("Exactly one trigger is required");
-        }
-        let mut edge_ids = BTreeSet::new();
-        let mut connections = BTreeSet::new();
-        let mut indegree: BTreeMap<&str, usize> = nodes.keys().map(|id| (*id, 0)).collect();
-        for edge in &self.edges {
-            if edge.id.trim().is_empty() || !edge_ids.insert(&edge.id) {
-                return fail("Empty or duplicate edge ID");
-            }
-            let Some(source) = nodes.get(edge.source.as_str()) else {
-                return fail("Edge source does not exist");
-            };
-            if !nodes.contains_key(edge.target.as_str()) {
-                return fail("Edge target does not exist");
-            }
-            if !connections.insert((&edge.source, &edge.target, &edge.source_port)) {
-                return fail("Duplicate connection");
-            }
-            let valid_port = if source.kind == "IF / Condition" {
-                matches!(edge.source_port.as_str(), "true" | "false" | "error")
-            } else if source.kind == "Switch / Router" {
-                matches!(edge.source_port.as_str(), "fallback" | "error")
-                    || source
-                        .config
-                        .get("rules")
-                        .and_then(serde_json::Value::as_array)
-                        .is_some_and(|rules| {
-                            rules.iter().any(|r| {
-                                r.get("port").and_then(serde_json::Value::as_str)
-                                    == Some(edge.source_port.as_str())
-                            })
-                        })
-            } else {
-                matches!(edge.source_port.as_str(), "success" | "error")
-            };
-            if !valid_port {
-                return fail("Unsupported source port");
-            }
-            *indegree.get_mut(edge.target.as_str()).unwrap() += 1;
-        }
-        if indegree[triggers[0].id.as_str()] != 0 {
-            return fail("Trigger cannot have incoming edges");
-        }
-        if self
-            .nodes
-            .iter()
-            .any(|n| !n.is_trigger() && indegree[n.id.as_str()] == 0)
-        {
-            return fail("Unreachable node");
-        }
-        let mut queue = VecDeque::from([triggers[0].id.as_str()]);
-        let mut visited = 0;
-        while let Some(id) = queue.pop_front() {
-            visited += 1;
-            for edge in self.edges.iter().filter(|e| e.source == id) {
-                let count = indegree.get_mut(edge.target.as_str()).unwrap();
-                *count -= 1;
-                if *count == 0 {
-                    queue.push_back(&edge.target);
-                }
-            }
-        }
-        if visited != self.nodes.len() {
-            return fail("Graph contains a cycle or unreachable nodes");
-        }
-        Ok(())
     }
 }

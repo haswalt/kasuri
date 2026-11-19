@@ -106,3 +106,53 @@ The SQLite host commits data mutations, durable data receipts and semantic audit
 Record deletion is permanent and is explicitly part of `data_write`; it does not reuse the workflow-only `delete` scope. Table deletion/schema migration remain separate implementation increments.
 
 Data workflow execution also requires explicit dataset scopes: simulation needs `data_read`, while starting/resuming live mutations or publishing/resuming their triggers additionally needs `data_write`. The ordinary workflow execution/publication scopes still apply. `runs_get` requires `data_read` for a run containing data nodes because its outputs can contain dataset values. Run controls inspect the pinned run graph; trigger resumption inspects the published graph. Existing workflow grants cannot bypass dataset restrictions by dispatching a data node.
+
+## Building workflows without the visual editor
+
+Start with these read-scoped discovery tools; they never install examples or mutate workspace data:
+
+| Tool | Returns |
+| --- | --- |
+| `workflows_schema_get` | Versioned JSON Schema for the graph, nodes, edges, retry/position/default fields and implemented connector configuration. |
+| `platform_capabilities_get` | Data flow, branch/child semantics, publication, simulation, retries, scopes and limits. |
+| `workflows_examples_list` | Paginated metadata for the repository's tested synthetic workflows, including dependency IDs. |
+| `workflows_examples_get` | One complete workflow, its synthetic input, asserted outputs and dependency/publication instructions. |
+| `connectors_list` | Implemented names/versions/config schemas/ports/side effects, input ports and configurations taken from public examples. |
+
+The schema is generated from the engine's Rust/Serde graph types and composed with the actual connector manifests. Create/update/validate tool input schemas embed this same contract with resolvable local definitions. Runtime publication/execution uses the same structural/configuration schema plus topology and adapter-specific checks. The platform API also exposes `GET /api/workflows/schema` and `POST /api/workflows/validate` (the latter accepts the workflow object directly). These routes require platform access, not an MCP token.
+
+Canonical field names are `nodes[].type` for the connector name, required `nodes[].label` for the display name, and `edges[].source`, `target`, `sourcePort` for connections. Node and edge IDs are stable, workflow-local references. Version defaults to 1, sourcePort to `success`, timeoutMs to 30000 and retry.maxAttempts to 1. There is no `connectorKind`, `from`, `to` or `targetPort` graph field. IF ports are `true`/`false`/`error`; Switch ports are configured rule names plus `fallback`/`error`. Other nodes use `success`/`error`.
+
+Use this loop:
+
+1. Discover the schema, capabilities and relevant connector examples.
+2. Construct a definition or fetch a public example. Change IDs and references consistently when avoiding existing workflow IDs.
+3. Call `workflows_validate` with `{"workflow": ...}`. This checks shape, topology, connector configuration and graph-local contracts without saving or resolving live publication availability.
+4. Fix reported paths and validate again. Do not retry unchanged invalid definitions.
+5. Call `workflows_create` with the workflow and a fresh idempotencyKey; obtain the edit version with `workflows_get`.
+6. Simulate using that expectedVersion, then inspect the returned run using `runs_get`. Simulations may be asynchronous; poll until terminal.
+
+Validation returns bounded, structured diagnostics, for example:
+
+```json
+{
+  "valid": false,
+  "schemaVersion": 1,
+  "errors": [
+    {
+      "code": "REQUIRED_PROPERTY",
+      "path": "/nodes/0/label",
+      "message": "Required property is missing",
+      "nodeId": "start",
+      "connector": "Manual Trigger"
+    }
+  ],
+  "errorsTruncated": false
+}
+```
+
+Codes cover missing/wrong-typed fields, unsupported schema/connector values, duplicate IDs/connections, missing edge endpoints, invalid output ports, unreachable/cyclic graphs, retry/deadline limits and connector configurations. `expected` supplies supported constants, enums or JSON types where available; `suggestion` is optional. Paths are JSON Pointers relative to the proposed workflow. Diagnostics omit raw input values and upstream error bodies. Later validation stages may require another pass after structural errors are corrected. A maximum of 32 errors is returned; errorsTruncated is conservatively true at that bound.
+
+For a parent/child example, fetch `19-invoke-workflow`; its dependency is `18-reusable-workflow`. Create the child using its declared ID, publish it with explicit publish scope, then create/simulate the caller. If choosing fresh IDs, update the caller's workflowId references. Validation alone does not publish dependencies or verify their deployment-local existence. Workflow-to-workflow and Each simulations still require a valid published child; data-access scopes remain explicit.
+
+Discovery assets are compiled from public repository fixtures, not production workflows. Their schema properties must remain intact even when named password/token/authorization; workspace/run responses still receive credential redaction. Existing scoped access, expectedVersion and idempotency requirements are unchanged. Higher-level add-node/connect-node mutation tools remain future work; complete-document building is supported through this contract now.

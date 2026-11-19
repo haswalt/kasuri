@@ -69,3 +69,11 @@ By-key values must be text, numbers or booleans and use their typed JSON represe
 - [28: deterministic UTC date calculation](../examples/workflows/28-date-expressions.json).
 
 All three import and simulate with `{}` and no credentials or configuration. The runtime suite also exercises real runs, a restart between source and expression, fallback routing, skipped-node defaults, invalid reference rejection and MCP simulation.
+
+## Building a response from several earlier nodes
+
+Place Expressions immediately before Respond to Webhook. Each output field may reference a different graph ancestor or the original trigger input. The response node can then send the assembled object using its existing whole-input body reference. This is available now; placing Merge nodes between otherwise sequential steps is unnecessary.
+
+For example, expression fields can use `{"op":"trigger","path":"/orderId"}`, `{"op":"node","nodeId":"calculate","path":"/total"}` and `{"op":"node","nodeId":"shipping","path":"/output/body"}`. For raw request text, parse it with Parse Body first and reference that node's `/value/orderId` instead of assuming the trigger is already an object. Paths depend on those nodes' actual outputs: Execute Workflow wraps an awaited child's result in `output`; inspect runs_get or the child contract rather than assuming an HTTP envelope. Validate Schema followed by IF can check the assembled response and route to an explicit error response before sending it.
+
+Direct expression bindings inside arbitrary connector configuration are not implemented yet. A planned shared engine input-binding layer will reuse this evaluator for HTTP requests, response bodies, conditions and child-workflow inputs. It must preserve typed values, graph dependencies, explicit missing/error handling and simulation/restart behavior. Secret stores and private host/auth context remain unavailable; sensitive business data in an allowed upstream output remains the workflow author's responsibility to select appropriately.

@@ -309,7 +309,14 @@ impl DurableObject for WorkflowWorkspace {
             }
             Err(error) => {
                 self.save(&mut workspace).await?;
-                api_error(error.status, &error.message)
+                if error.diagnostics.is_empty() {
+                    api_error(error.status, &error.message)
+                } else {
+                    Ok(Response::from_json(
+                        &json!({"error":error.message,"errors":error.diagnostics}),
+                    )?
+                    .with_status(error.status))
+                }
             }
         }
     }

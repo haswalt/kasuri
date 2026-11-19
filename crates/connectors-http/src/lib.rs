@@ -491,6 +491,6 @@ pub fn manifest() -> NodeManifest {
         version: 1,
         output_ports: vec!["success".into(), "error".into()],
         has_external_side_effects: true,
-        config_schema: json!({"type":"object","required":["url"],"properties":{"url":{"type":"string","format":"uri"},"method":{"enum":["GET","HEAD","POST","PUT","PATCH","DELETE"]},"query":{"oneOf":[{"type":"object"},{"type":"string"}]},"headers":{"oneOf":[{"type":"object"},{"type":"string"}]},"body":{},"authentication":{"enum":["none","basic"]},"username":{"type":"string"},"passwordSecret":{"type":"string"},"responseType":{"enum":["json","text"]},"simulationResponse":{}}}),
+        config_schema: json!({"type":"object","required":["url"],"properties":{"url":{"type":"string","format":"uri"},"method":{"anyOf":[{"enum":["GET","HEAD","POST","PUT","PATCH","DELETE"]},{"type":"string","pattern":"^(?:[Gg][Ee][Tt]|[Hh][Ee][Aa][Dd]|[Pp][Oo][Ss][Tt]|[Pp][Uu][Tt]|[Pp][Aa][Tt][Cc][Hh]|[Dd][Ee][Ll][Ee][Tt][Ee])$"}],"description":"HTTP method; uppercase recommended, case-insensitive for compatibility"},"query":{"oneOf":[{"type":"object"},{"type":"string"}]},"headers":{"oneOf":[{"type":"object"},{"type":"string"}]},"body":{},"authentication":{"enum":["none","basic"]},"username":{"type":"string"},"passwordSecret":{"type":"string"},"responseType":{"enum":["json","text"]},"simulationResponse":{}}}),
     }
 }

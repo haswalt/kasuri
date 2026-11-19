@@ -1,6 +1,7 @@
 //! The Rust application layer shared by Cloudflare and self-hosted Wasm deployments.
 //! All workspace data is persistent. No sample workflows, seed data or expiry mode.
 mod audit;
+pub mod definition;
 mod http_api;
 pub mod invocation;
 mod items;
@@ -25,6 +26,7 @@ pub const MAX_BODY_BYTES: usize = 131_072;
 pub struct ApiError {
     pub status: u16,
     pub message: String,
+    pub diagnostics: Vec<workflow_schema::Diagnostic>,
 }
 impl std::fmt::Display for ApiError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -36,6 +38,7 @@ fn error(status: u16, message: impl Into<String>) -> ApiError {
     ApiError {
         status,
         message: message.into(),
+        diagnostics: Vec::new(),
     }
 }
 fn timestamp(now: u64) -> Result<DateTime<Utc>, ApiError> {
@@ -469,10 +472,19 @@ impl Workspace {
             .ok_or_else(|| error(404, "Workflow not found"))
     }
     pub fn executable(document: &Document) -> Result<(), ApiError> {
-        document
-            .graph
-            .validate()
-            .map_err(|e| error(400, e.to_string()))?;
+        let diagnostics =
+            definition::schema_errors(&serde_json::to_value(&document.graph).unwrap());
+        if !diagnostics.is_empty() {
+            let mut failure = error(400, "Invalid workflow definition");
+            failure.diagnostics = diagnostics;
+            return Err(failure);
+        }
+        let diagnostics = document.graph.diagnostics();
+        if !diagnostics.is_empty() {
+            let mut failure = error(400, diagnostics[0].message.clone());
+            failure.diagnostics = diagnostics;
+            return Err(failure);
+        }
         if document
             .graph
             .nodes
@@ -483,172 +495,202 @@ impl Workspace {
             return Err(error(400, "Respond to Webhook requires a Webhook trigger"));
         }
         let manifests = manifests();
-        for node in &document.graph.nodes {
-            if node.kind == "Expressions" {
-                let refs = connectors_core::expressions::validate(&node.config)
-                    .map_err(|_| error(400, "Invalid or over-budget expression tree"))?;
-                let mut ancestors = std::collections::BTreeSet::new();
-                let mut pending = vec![node.id.clone()];
-                while let Some(id) = pending.pop() {
-                    for edge in document.graph.edges.iter().filter(|e| e.target == id) {
-                        if ancestors.insert(edge.source.clone()) {
-                            pending.push(edge.source.clone());
-                        }
+        for (node_index, node) in document.graph.nodes.iter().enumerate() {
+            let result = (|| -> Result<(), ApiError> {
+                if node.kind == "Map / Transform" {
+                    let mapping = node.config.get("mapping").cloned().unwrap_or(Value::Null);
+                    let mapping = if let Value::String(text) = mapping {
+                        serde_json::from_str::<Value>(&text).unwrap_or(Value::Null)
+                    } else {
+                        mapping
+                    };
+                    if !mapping.is_object() {
+                        return Err(error(
+                            400,
+                            "Mapping must be an object or a JSON-encoded object",
+                        ));
                     }
                 }
-                if refs.iter().any(|id| !ancestors.contains(id)) {
-                    return Err(error(400, "Expressions can reference upstream nodes only"));
+                if node.kind == "Expressions" {
+                    let refs = connectors_core::expressions::validate(&node.config)
+                        .map_err(|_| error(400, "Invalid or over-budget expression tree"))?;
+                    let mut ancestors = std::collections::BTreeSet::new();
+                    let mut pending = vec![node.id.clone()];
+                    while let Some(id) = pending.pop() {
+                        for edge in document.graph.edges.iter().filter(|e| e.target == id) {
+                            if ancestors.insert(edge.source.clone()) {
+                                pending.push(edge.source.clone());
+                            }
+                        }
+                    }
+                    if refs.iter().any(|id| !ancestors.contains(id)) {
+                        return Err(error(400, "Expressions can reference upstream nodes only"));
+                    }
                 }
-            }
-            if node.kind == "Switch / Router" {
-                connectors_core::routing::validate_switch(&node.config)
-                    .map_err(|_| error(400, "Invalid Switch routes or conditions"))?;
-            }
-            if node.kind == "Merge" {
-                connectors_core::routing::validate_merge(&node.config)
-                    .map_err(|_| error(400, "Invalid Merge policy"))?;
-                if node
-                    .config
-                    .get("sources")
-                    .and_then(Value::as_array)
-                    .is_some_and(|sources| {
-                        sources.iter().any(|id| {
-                            !document.graph.edges.iter().any(|e| {
-                                e.target == node.id && Some(e.source.as_str()) == id.as_str()
+                if node.kind == "Switch / Router" {
+                    connectors_core::routing::validate_switch(&node.config)
+                        .map_err(|_| error(400, "Invalid Switch routes or conditions"))?;
+                }
+                if node.kind == "Merge" {
+                    connectors_core::routing::validate_merge(&node.config)
+                        .map_err(|_| error(400, "Invalid Merge policy"))?;
+                    if node
+                        .config
+                        .get("sources")
+                        .and_then(Value::as_array)
+                        .is_some_and(|sources| {
+                            sources.iter().any(|id| {
+                                !document.graph.edges.iter().any(|e| {
+                                    e.target == node.id && Some(e.source.as_str()) == id.as_str()
+                                })
                             })
                         })
-                    })
-                {
-                    return Err(error(400, "Merge sources must be connected input nodes"));
+                    {
+                        return Err(error(400, "Merge sources must be connected input nodes"));
+                    }
                 }
-            }
-            if node.kind == "Validate Schema" {
-                connectors_core::validation::validate(&node.config)
-                    .map_err(|_| error(400, "Invalid or unsupported validation schema"))?;
-            }
-            if node.kind == "Split / Parallel" {
-                if node.config.keys().any(|k| k != "concurrency")
-                    || node.config.get("concurrency").is_some_and(|v| {
-                        v.as_u64()
-                            .or_else(|| v.as_str().and_then(|s| s.parse().ok()))
-                            .is_none_or(|v| !matches!(v, 2 | 4 | 8))
-                    })
-                    || document
+                if node.kind == "Validate Schema" {
+                    connectors_core::validation::validate(&node.config)
+                        .map_err(|_| error(400, "Invalid or unsupported validation schema"))?;
+                }
+                if node.kind == "Split / Parallel" {
+                    if node.config.keys().any(|k| k != "concurrency")
+                        || node.config.get("concurrency").is_some_and(|v| {
+                            v.as_u64()
+                                .or_else(|| v.as_str().and_then(|s| s.parse().ok()))
+                                .is_none_or(|v| !matches!(v, 2 | 4 | 8))
+                        })
+                        || document
+                            .graph
+                            .edges
+                            .iter()
+                            .filter(|e| e.source == node.id && e.source_port == "success")
+                            .count()
+                            < 2
+                    {
+                        return Err(error(
+                            400,
+                            "Split requires at least two outgoing branches and concurrency 2, 4 or 8",
+                        ));
+                    }
+                }
+                if node.kind == "Join" {
+                    let parents: Vec<_> = document
                         .graph
                         .edges
                         .iter()
-                        .filter(|e| e.source == node.id && e.source_port == "success")
-                        .count()
-                        < 2
-                {
-                    return Err(error(
-                        400,
-                        "Split requires at least two outgoing branches and concurrency 2, 4 or 8",
-                    ));
+                        .filter(|e| e.target == node.id)
+                        .collect();
+                    let distinct: std::collections::BTreeSet<_> =
+                        parents.iter().map(|e| &e.source).collect();
+                    if parents.len() < 2
+                        || distinct.len() != parents.len()
+                        || node.config.keys().any(|k| k != "policy")
+                        || node
+                            .config
+                            .get("policy")
+                            .is_some_and(|v| !matches!(v.as_str(), Some("all" | "collect")))
+                    {
+                        return Err(error(
+                            400,
+                            "Join requires distinct branch inputs and an all or collect policy",
+                        ));
+                    }
                 }
-            }
-            if node.kind == "Join" {
-                let parents: Vec<_> = document
-                    .graph
-                    .edges
-                    .iter()
-                    .filter(|e| e.target == node.id)
-                    .collect();
-                let distinct: std::collections::BTreeSet<_> =
-                    parents.iter().map(|e| &e.source).collect();
-                if parents.len() < 2
-                    || distinct.len() != parents.len()
-                    || node.config.keys().any(|k| k != "policy")
-                    || node
+                if matches!(
+                    node.kind.as_str(),
+                    "Execute Workflow" | "Execute Workflow Trigger" | "Each / Loop"
+                ) {
+                    invocation::validate_node(node, &document.graph)?;
+                }
+                if matches!(node.kind.as_str(), "Split / Batch" | "Aggregate") {
+                    connectors_core::collections::validate(&node.kind, &node.config)
+                        .map_err(|_| error(400, "Invalid collection configuration"))?;
+                }
+                if node.kind == "Parse Body" {
+                    connectors_core::parsing::validate(&node.config)
+                        .map_err(|_| error(400, "Invalid body parser configuration"))?;
+                }
+                if node.kind == "Filter" {
+                    connectors_core::conditions::validate_filter(&node.config)
+                        .map_err(|_| error(400, "Invalid Filter conditions"))?;
+                }
+                if node.kind == "IF / Condition" {
+                    connectors_core::conditions::validate(&node.config)
+                        .map_err(|_| error(400, "Invalid IF conditions"))?;
+                }
+                if node.kind == "Respond to Webhook" {
+                    connectors_webhook::response::validate(&node.config)
+                        .map_err(|_| error(400, "Invalid webhook response configuration"))?;
+                }
+                if node.kind == "Request Context"
+                    && (node.config.keys().any(|k| k != "part")
+                        || node.config.get("part").is_some_and(|p| {
+                            !matches!(
+                                p.as_str(),
+                                Some("metadata" | "body" | "raw_body" | "headers" | "query")
+                            )
+                        }))
+                {
+                    return Err(error(400, "Invalid Request Context part"));
+                }
+                if node.kind == "Webhook" {
+                    connectors_webhook::context::selection(&node.config)
+                        .map_err(|_| error(400, "Invalid request context field selection"))?;
+                    match node
                         .config
-                        .get("policy")
-                        .is_some_and(|v| !matches!(v.as_str(), Some("all" | "collect")))
-                {
-                    return Err(error(
-                        400,
-                        "Join requires distinct branch inputs and an all or collect policy",
-                    ));
+                        .get("authentication")
+                        .and_then(Value::as_str)
+                        .unwrap_or("bearer")
+                    {
+                        "none" | "bearer" => {}
+                        "query"
+                            if node
+                                .config
+                                .get("queryParameter")
+                                .and_then(Value::as_str)
+                                .is_some_and(connectors_webhook::valid_parameter)
+                                || !node.config.contains_key("queryParameter") => {}
+                        "hmac" | "hmac_sha256"
+                            if node
+                                .config
+                                .get("signingSecret")
+                                .and_then(Value::as_str)
+                                .is_some_and(|s| !s.is_empty()) => {}
+                        _ => {
+                            return Err(error(400, "Invalid webhook authentication configuration"));
+                        }
+                    }
                 }
-            }
-            if matches!(
-                node.kind.as_str(),
-                "Execute Workflow" | "Execute Workflow Trigger" | "Each / Loop"
-            ) {
-                invocation::validate_node(node, &document.graph)?;
-            }
-            if matches!(node.kind.as_str(), "Split / Batch" | "Aggregate") {
-                connectors_core::collections::validate(&node.kind, &node.config)
-                    .map_err(|_| error(400, "Invalid collection configuration"))?;
-            }
-            if node.kind == "Parse Body" {
-                connectors_core::parsing::validate(&node.config)
-                    .map_err(|_| error(400, "Invalid body parser configuration"))?;
-            }
-            if node.kind == "Filter" {
-                connectors_core::conditions::validate_filter(&node.config)
-                    .map_err(|_| error(400, "Invalid Filter conditions"))?;
-            }
-            if node.kind == "IF / Condition" {
-                connectors_core::conditions::validate(&node.config)
-                    .map_err(|_| error(400, "Invalid IF conditions"))?;
-            }
-            if node.kind == "Respond to Webhook" {
-                connectors_webhook::response::validate(&node.config)
-                    .map_err(|_| error(400, "Invalid webhook response configuration"))?;
-            }
-            if node.kind == "Request Context"
-                && (node.config.keys().any(|k| k != "part")
-                    || node.config.get("part").is_some_and(|p| {
-                        !matches!(
-                            p.as_str(),
-                            Some("metadata" | "body" | "raw_body" | "headers" | "query")
-                        )
-                    }))
-            {
-                return Err(error(400, "Invalid Request Context part"));
-            }
-            if node.kind == "Webhook" {
-                connectors_webhook::context::selection(&node.config)
-                    .map_err(|_| error(400, "Invalid request context field selection"))?;
-                match node
-                    .config
-                    .get("authentication")
-                    .and_then(Value::as_str)
-                    .unwrap_or("bearer")
-                {
-                    "none" | "bearer" => {}
-                    "query"
-                        if node
-                            .config
-                            .get("queryParameter")
-                            .and_then(Value::as_str)
-                            .is_some_and(connectors_webhook::valid_parameter)
-                            || !node.config.contains_key("queryParameter") => {}
-                    "hmac" | "hmac_sha256"
-                        if node
-                            .config
-                            .get("signingSecret")
-                            .and_then(Value::as_str)
-                            .is_some_and(|s| !s.is_empty()) => {}
-                    _ => return Err(error(400, "Invalid webhook authentication configuration")),
+                if connectors_data::handles(&node.kind) {
+                    connectors_data::access(node)
+                        .map_err(|_| error(400, "Invalid data connector configuration"))?;
                 }
-            }
-            if connectors_data::handles(&node.kind) {
-                connectors_data::access(node)
-                    .map_err(|_| error(400, "Invalid data connector configuration"))?;
-            }
-            if node.kind == "HTTP Request" {
-                let mut node = node.clone();
-                node.config.remove("query");
-                node.config.remove("body");
-                connectors_http::validate(&Task{context:Value::Null,id:"validate".into(),idempotency_key:"validate".into(),node,input:Value::Null,attempt:1,deadline_ms:1}).map_err(|_|error(400,"Invalid HTTP request: use HTTPS, a supported auth configuration and one attempt for writes"))?;
-            }
-            if !manifests
-                .iter()
-                .any(|m| m.kind == node.kind && m.version == node.version)
-            {
-                return Err(error(400, format!("{} is not implemented", node.kind)));
-            }
+                if node.kind == "HTTP Request" {
+                    let mut node = node.clone();
+                    node.config.remove("query");
+                    node.config.remove("body");
+                    connectors_http::validate(&Task{context:Value::Null,id:"validate".into(),idempotency_key:"validate".into(),node,input:Value::Null,attempt:1,deadline_ms:1}).map_err(|_|error(400,"Invalid HTTP request: use HTTPS, a supported auth configuration and one attempt for writes"))?;
+                }
+                if !manifests
+                    .iter()
+                    .any(|m| m.kind == node.kind && m.version == node.version)
+                {
+                    return Err(error(400, format!("{} is not implemented", node.kind)));
+                }
+                Ok(())
+            })();
+            result.map_err(|mut failure| {
+                failure.diagnostics.push(
+                    workflow_schema::Diagnostic::new(
+                        "INVALID_CONNECTOR_CONFIG",
+                        format!("/nodes/{node_index}/config"),
+                        failure.message.clone(),
+                    )
+                    .node(&node.id, &node.kind),
+                );
+                failure
+            })?;
         }
         Ok(())
     }
@@ -849,6 +891,14 @@ impl Workspace {
         if body.len() > MAX_BODY_BYTES {
             return Err(error(413, "Request exceeds 128 KiB"));
         }
+        if method == "GET" && path == "/api/workflows/schema" {
+            return Ok((200, definition::discovery()));
+        }
+        if method == "POST" && path == "/api/workflows/validate" {
+            let value: Value =
+                serde_json::from_slice(body).map_err(|_| error(400, "Invalid JSON"))?;
+            return Ok((200, definition::validate(&value)));
+        }
         if method == "GET" && path == "/api/audit" {
             return Ok((200, self.audit_page(0, 100)));
         }
@@ -976,8 +1026,20 @@ impl Workspace {
             ));
         }
         if parts[1] == "workflows" && method == "PUT" && parts.len() == 3 {
-            let mut doc: Document = serde_json::from_slice(body)
-                .map_err(|_| error(400, "Invalid workflow document"))?;
+            let mut doc: Document = serde_json::from_slice(body).map_err(|_| {
+                let mut failure = error(400, "Invalid workflow document");
+                if let Ok(value) = serde_json::from_slice::<Value>(body) {
+                    failure.diagnostics = definition::shape_errors(&value);
+                }
+                if failure.diagnostics.is_empty() {
+                    failure.diagnostics.push(workflow_schema::Diagnostic::new(
+                        "INVALID_DOCUMENT_METADATA",
+                        "",
+                        "Use graph fields from workflows_schema_get and valid export metadata",
+                    ));
+                }
+                failure
+            })?;
             if doc.imported_from.as_ref().is_some_and(|source| {
                 source.is_empty()
                     || source.len() > 160
@@ -1575,14 +1637,14 @@ pub fn schedule(workflow: &Workflow, after: u64) -> Result<Option<Schedule>, Api
 
 pub fn manifests() -> Vec<connector_sdk::NodeManifest> {
     let mut manifests = connectors_core::manifests();
-    manifests.push(connector_sdk::NodeManifest{kind:"Each / Loop".into(),version:1,config_schema:json!({"type":"object","properties":{"workflowId":{"type":"string"},"revision":{"type":"integer","minimum":1},"arrayPointer":{"type":"string"},"concurrency":{"enum":[1,2,4]},"failurePolicy":{"enum":["fail","collect"]}},"required":["workflowId"],"additionalProperties":false}),output_ports:vec!["success".into(),"error".into()],has_external_side_effects:true});
+    manifests.push(connector_sdk::NodeManifest{kind:"Each / Loop".into(),version:1,config_schema:json!({"type":"object","properties":{"workflowId":{"type":"string"},"revision":{"type":"integer","minimum":1},"arrayPointer":{"type":"string"},"concurrency":{"anyOf":[{"enum":[1,2,4]},{"type":"string","pattern":"^\\+?0*[124]$"}]},"failurePolicy":{"enum":["fail","collect"]}},"required":["workflowId"],"additionalProperties":false}),output_ports:vec!["success".into(),"error".into()],has_external_side_effects:true});
 
     manifests.push(connector_sdk::NodeManifest{kind:"Execute Workflow Trigger".into(),version:1,config_schema:json!({"type":"object","properties":{"outputNodeId":{"type":"string"},"inputSchema":{},"outputSchema":{}},"required":["outputNodeId"],"additionalProperties":false}),output_ports:vec!["success".into(),"error".into()],has_external_side_effects:false});
     manifests.push(connector_sdk::NodeManifest{kind:"Execute Workflow".into(),version:1,config_schema:json!({"type":"object","properties":{"workflowId":{"type":"string"},"revision":{"type":"integer","minimum":1},"mode":{"enum":["await","background"]},"inputPointer":{"type":"string"}},"required":["workflowId"],"additionalProperties":false}),output_ports:vec!["success".into(),"error".into()],has_external_side_effects:true});
 
     manifests.push(connectors_http::manifest());
     manifests.extend(connectors_data::manifests());
-    manifests.push(connector_sdk::NodeManifest{kind:"Respond to Webhook".into(),version:1,config_schema:json!({"type":"object","properties":{"status":{"type":"integer","default":200},"responseType":{"enum":["json","text"]},"headers":{"type":"object"},"body":{}},"additionalProperties":false}),output_ports:vec!["success".into(),"error".into()],has_external_side_effects:true});
+    manifests.push(connector_sdk::NodeManifest{kind:"Respond to Webhook".into(),version:1,config_schema:json!({"type":"object","properties":{"status":{"oneOf":[{"type":"integer","minimum":200,"maximum":599},{"type":"string","description":"Numeric status or JSON-encoded $input reference"},{"type":"object","properties":{"$input":{"type":"string"}},"required":["$input"],"additionalProperties":false}],"default":200},"responseType":{"enum":["json","text"]},"headers":{"oneOf":[{"type":"object"},{"type":"string","description":"JSON-encoded response headers"}]},"body":{}},"additionalProperties":false}),output_ports:vec!["success".into(),"error".into()],has_external_side_effects:true});
     manifests.push(connector_sdk::NodeManifest {kind:"Request Context".into(),version:1,config_schema:json!({"type":"object","properties":{"part":{"enum":["metadata","body","raw_body","headers","query"]}},"additionalProperties":false}),output_ports:vec!["success".into(),"error".into()],has_external_side_effects:false});
     manifests
 }
