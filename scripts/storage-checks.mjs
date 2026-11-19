@@ -26,6 +26,20 @@ export function checkStorage() {
     for (const [kind,key] of [['workflow','workflows'],['run','runs'],['audit','audit'],['webhook','webhooks'],['webhook_event','webhookEvents'],['revision','revisions']]) {
       assert.deepEqual(rows.filter(r=>r.kind===kind).map(r=>JSON.parse(r.body)),legacy[key])
     }
+    db.exec("CREATE TABLE catalogue(id TEXT PRIMARY KEY,name TEXT NOT NULL); INSERT INTO catalogue VALUES('personal','Before')")
+    db.exec('BEGIN')
+    try {
+      assert.throws(() => {
+        db.exec("UPDATE catalogue SET name='Tentative' WHERE id='personal'")
+        save.run(JSON.stringify({...legacy,auditSequence:99}))
+        // Fail after both catalogue and generation writes, before cleanup/commit.
+        db.exec('INSERT INTO table_that_does_not_exist VALUES(1)')
+      }, /no such table/)
+    } finally {
+      db.exec('ROLLBACK')
+    }
+    assert.equal(db.prepare("SELECT name FROM catalogue WHERE id='personal'").get().name,'Before')
+    assert.deepEqual(db.prepare(sql('LOAD_RECORDS')).all(),rows,'A failed multi-table transaction leaves catalogue and checkpoint unchanged')
     assert.throws(()=>save.run('{invalid JSON'))
     assert.deepEqual(db.prepare(sql('LOAD_RECORDS')).all(),rows,'Failed writes preserve the complete previous generation')
     save.run(JSON.stringify({...legacy,workflows:[],runs:[],audit:[],webhooks:[],webhookEvents:[],revisions:[]}))

@@ -18,6 +18,7 @@ impl WorkflowWorkspace {
         id: &str,
         name: &str,
         before: Option<&str>,
+        stage: impl FnOnce(&SqlStorage) -> Result<()> + 'static,
     ) -> Result<()> {
         let mut workspace = self.load()?;
         workspace.record_audit("browser", action, id, "succeeded", crate::now(), "");
@@ -27,7 +28,7 @@ impl WorkflowWorkspace {
             event["changes"] = json!([{"field":"name","before":before,"after":name}]);
             event["context"] = json!({"scope":"owner workspace catalogue"});
         }
-        self.save(&mut workspace).await
+        self.save_with_sql(&mut workspace, stage).await
     }
 
     pub(crate) fn browser_workspace_key(&self) -> Result<String> {
@@ -117,12 +118,22 @@ impl WorkflowWorkspace {
                 if member[0].name == name {
                     return Ok(Some(Response::from_json(&json!({"id":id,"name":name}))?));
                 }
-                sql.exec(
-                    "UPDATE workspace_memberships SET name=? WHERE id=?",
-                    Some(vec![name.into(), id.into()]),
-                )?;
-                self.catalogue_audit("workspace.renamed", id, name, Some(&member[0].name))
-                    .await?;
+                let next_name = name.to_string();
+                let target_id = id.to_string();
+                self.catalogue_audit(
+                    "workspace.renamed",
+                    id,
+                    name,
+                    Some(&member[0].name),
+                    move |sql| {
+                        sql.exec(
+                            "UPDATE workspace_memberships SET name=? WHERE id=?",
+                            Some(vec![next_name.into(), target_id.into()]),
+                        )?;
+                        Ok(())
+                    },
+                )
+                .await?;
                 return Ok(Some(Response::from_json(&json!({"id":id,"name":name}))?));
             }
             // Authenticate the new workspace before publishing its directory entry.
@@ -138,12 +149,16 @@ impl WorkflowWorkspace {
                 return Err(internal("Could not initialize workspace"));
             }
             let id = id.to_string();
-            self.state.storage().sql().exec(
-                "INSERT INTO workspace_memberships(id,name) VALUES(?,?)",
-                Some(vec![id.clone().into(), name.into()]),
-            )?;
-            self.catalogue_audit("workspace.created", &id, name, None)
-                .await?;
+            let next_name = name.to_string();
+            let target_id = id.clone();
+            self.catalogue_audit("workspace.created", &id, name, None, move |sql| {
+                sql.exec(
+                    "INSERT INTO workspace_memberships(id,name) VALUES(?,?)",
+                    Some(vec![target_id.into(), next_name.into()]),
+                )?;
+                Ok(())
+            })
+            .await?;
             return Ok(Some(
                 Response::from_json(&json!({"id":id,"name":name}))?.with_status(201),
             ));

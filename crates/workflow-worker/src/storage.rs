@@ -3,6 +3,8 @@
 use crate::{WorkflowWorkspace, internal};
 use serde::Deserialize;
 use serde_json::{Value, json};
+use std::{cell::RefCell, rc::Rc};
+use worker::wasm_bindgen::{JsCast, JsValue, closure::Closure};
 use worker::*;
 use workflow_service::Workspace;
 
@@ -61,6 +63,40 @@ fn decode(rows: Vec<Record>) -> Result<Workspace> {
     Workspace::from_json(&root.to_string()).map_err(internal)
 }
 impl WorkflowWorkspace {
+    /// workers-rs 0.9 exposes SQL but not transactionSync. Bind the documented
+    /// synchronous storage method in Rust; never fall back to non-atomic writes.
+    pub(crate) fn sql_transaction<T: 'static>(
+        &self,
+        operation: impl FnOnce(SqlStorage) -> Result<T> + 'static,
+    ) -> Result<T> {
+        let raw = self.state.as_raw().storage().map_err(Error::from)?;
+        let method = js_sys::Reflect::get(raw.as_ref(), &JsValue::from_str("transactionSync"))?
+            .dyn_into::<js_sys::Function>()
+            .map_err(|_| internal("Synchronous SQLite transactions are unavailable"))?;
+        let slot = Rc::new(RefCell::new(None));
+        let output = slot.clone();
+        let sql = self.state.storage().sql();
+        let callback =
+            Closure::once_assert_unwind_safe(move || -> std::result::Result<JsValue, JsValue> {
+                let value = operation(sql);
+                let failed = value.is_err();
+                *output.borrow_mut() = Some(value);
+                if failed {
+                    Err(JsValue::from_str("SQLite transaction aborted"))
+                } else {
+                    Ok(JsValue::NULL)
+                }
+            });
+        let committed = method.call1(raw.as_ref(), callback.as_ref());
+        let result = slot.borrow_mut().take();
+        match (committed, result) {
+            (Ok(_), Some(value)) => value,
+            (Err(_), Some(Err(error))) => Err(error),
+            (Err(error), _) => Err(Error::from(error)),
+            _ => Err(internal("SQLite transaction callback did not run")),
+        }
+    }
+
     pub(crate) fn load(&self) -> Result<Workspace> {
         let sql = self.state.storage().sql();
         sql.exec(CREATE_RECORDS, None)?;
@@ -82,13 +118,23 @@ impl WorkflowWorkspace {
             .unwrap_or_else(|| Ok(Workspace::default()))
     }
     pub(crate) async fn save(&self, workspace: &mut Workspace) -> Result<()> {
-        // Retention and size limits remain enforced before any durable mutation.
+        self.save_with_sql(workspace, |_| Ok(())).await
+    }
+    pub(crate) async fn save_with_sql(
+        &self,
+        workspace: &mut Workspace,
+        stage: impl FnOnce(&SqlStorage) -> Result<()> + 'static,
+    ) -> Result<()> {
+        // All validation and retention precedes the atomic commit. No callback I/O.
         let body = workspace.checkpoint().map_err(internal)?;
-        let sql = self.state.storage().sql();
-        sql.exec(CREATE_RECORDS, None)?;
-        sql.exec(STORE_RECORDS, Some(vec![body.into()]))?;
-        sql.exec("DELETE FROM workspace_records WHERE generation < (SELECT MAX(generation) FROM workspace_records)", None)?;
-        sql.exec("DELETE FROM workspace WHERE id=1", None)?;
+        self.sql_transaction(move |sql| {
+            stage(&sql)?;
+            sql.exec(CREATE_RECORDS,None)?;
+            sql.exec(STORE_RECORDS,Some(vec![body.into()]))?;
+            sql.exec("DELETE FROM workspace_records WHERE generation < (SELECT MAX(generation) FROM workspace_records)",None)?;
+            sql.exec("DELETE FROM workspace WHERE id=1",None)?;
+            Ok(())
+        })?;
         if let Some(at) = workspace.next_alarm() {
             self.state
                 .storage()
