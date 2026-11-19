@@ -216,6 +216,10 @@ pub struct Receipt {
     pub key: String,
     pub fingerprint: String,
     pub result: Value,
+    /// Original host clock when this effect committed, never the replay time.
+    /// Legacy receipts have no trustworthy completion time.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub completed_at: Option<u64>,
 }
 /// All methods are synchronous. A host transaction must roll back every write
 /// if any method fails; receipts must not commit separately from row mutations.
@@ -415,6 +419,7 @@ pub fn apply(
             key: key.into(),
             fingerprint,
             result: result.clone(),
+            completed_at: Some(now),
         })?;
     }
     Ok(result)
@@ -471,6 +476,7 @@ pub fn apply_batch(
         key: receipt_key.into(),
         fingerprint,
         result: result.clone(),
+        completed_at: Some(now),
     })?;
     Ok(result)
 }

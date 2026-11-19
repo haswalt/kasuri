@@ -378,3 +378,32 @@ fn partial_updates_preserve_unrelated_fields_expiry_and_reject_stale_versions() 
     assert_eq!(unchanged["status"], "unchanged");
     assert_eq!(unchanged["row"]["version"], updated["row"]["version"]);
 }
+
+#[test]
+fn receipt_completion_clock_survives_replay_and_legacy_deserialization() {
+    let mut store = MemoryStore::default();
+    create(&mut store);
+    let action = insert("timed", json!({"active":true}));
+    store
+        .execute(action.clone(), Some("timed-write"), 10)
+        .unwrap();
+    store.execute(action, Some("timed-write"), 1000).unwrap();
+    assert_eq!(store.receipts["timed-write"].completed_at, Some(10));
+
+    let batch = vec![insert("batch-timed", json!({"active":true}))];
+    store
+        .execute_batch(batch.clone(), "timed-batch", 20)
+        .unwrap();
+    store.execute_batch(batch, "timed-batch", 2000).unwrap();
+    assert_eq!(store.receipts["timed-batch"].completed_at, Some(20));
+
+    // Missing timestamps are unknown, not epoch zero or recovery wall time.
+    let legacy: workflow_data::Receipt = serde_json::from_value(json!({
+        "key":"legacy", "fingerprint":"original", "result":{"status":"inserted"}
+    }))
+    .unwrap();
+    assert_eq!(legacy.completed_at, None);
+    let serialized = serde_json::to_value(&store.receipts["timed-write"]).unwrap();
+    let restored: workflow_data::Receipt = serde_json::from_value(serialized).unwrap();
+    assert_eq!(restored.completed_at, Some(10));
+}

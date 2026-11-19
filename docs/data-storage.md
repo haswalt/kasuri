@@ -12,7 +12,7 @@ Hosts execute each mutation and receipt in the same storage transaction. The rec
 
 Queries use bounded keyset pagination, JSON-pointer filters and explicit continuation. An empty result page can still have a continuation cursor when a scan found no matching rows. Result and scan-byte budgets bound memory separately from row count. Current bounds are 32 KiB per JSON value, 100 result rows, 1,000 scanned rows/1 MiB per scan and approximately 60 KiB per query result. These keep node outputs within the engine's existing JSON budget. Live keyset pagination is not a historical snapshot; simulation hosts must pin/copy a source snapshot into an isolated overlay and keep it separate from live storage.
 
-Persistent table rows must live outside workflow/run JSON checkpoints. Engine task receipts must remain recoverable until the completed task checkpoint is durable; time-based cleanup alone is insufficient for a long-running workflow. Run-scoped receipt cleanup and SQLite simulation snapshots are part of the host integration still to come.
+Persistent table rows must live outside workflow/run JSON checkpoints. Engine task receipts must remain recoverable until the completed task checkpoint is durable; time-based cleanup alone is insufficient for a long-running workflow. Receipts retain the original host completion clock, unchanged by replay, so future task recovery can distinguish an effect committed before its deadline from a new late execution. Legacy receipts without that clock remain explicitly unknown. This metadata alone does not change engine timeout behavior. Run-scoped receipt cleanup and SQLite simulation snapshots are part of the host integration still to come.
 
 
 ## Owner management API
