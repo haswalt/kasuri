@@ -58,6 +58,8 @@ pub struct Document {
     pub lifecycle: Option<Lifecycle>,
     #[serde(default)]
     pub has_unpublished_changes: bool,
+    #[serde(default)]
+    pub archived_at: Option<String>,
     pub updated_at: String,
     /// Optimistic concurrency version, incremented by every saved mutation.
     #[serde(default)]
@@ -270,7 +272,7 @@ impl Workspace {
     }
     pub fn snapshot(&self) -> Result<Value, ApiError> {
         Ok(
-            json!({"workflows":self.workflows,"runs":self.runs.iter().take(100).map(|r|r.view(true)).collect::<Result<Vec<_>,_>>()?,"connectors":manifests()}),
+            json!({"workflows":self.workflows.iter().filter(|w|w.archived_at.is_none()).collect::<Vec<_>>(),"runs":self.runs.iter().take(100).map(|r|r.view(true)).collect::<Result<Vec<_>,_>>()?,"connectors":manifests()}),
         )
     }
     fn index(&self, id: &str) -> Result<usize, ApiError> {
@@ -472,6 +474,12 @@ impl Workspace {
             return Ok((200, self.snapshot()?));
         }
         let parts: Vec<_> = path.trim_matches('/').split('/').collect();
+        if method == "GET" && path == "/api/workflows/trash" {
+            return Ok((
+                200,
+                json!({"workflows":self.workflows.iter().filter(|w|w.archived_at.is_some()).collect::<Vec<_>>()}),
+            ));
+        }
         if method == "POST" && path == "/api/runs" {
             #[derive(Deserialize)]
             #[serde(rename_all = "camelCase")]
@@ -489,6 +497,9 @@ impl Workspace {
                 ));
             }
             let doc = self.workflows[self.index(&input.workflow_id)?].clone();
+            if doc.archived_at.is_some() {
+                return Err(error(404, "Workflow is in trash"));
+            }
             if let Some(expected) = serde_json::from_slice::<Value>(body)
                 .ok()
                 .and_then(|v| v["expectedVersion"].as_u64())
@@ -514,6 +525,58 @@ impl Workspace {
         {
             return Err(error(400, "Invalid resource ID"));
         }
+        if parts[1] == "workflows"
+            && method == "POST"
+            && parts.len() == 4
+            && matches!(parts[3], "archive" | "restore")
+        {
+            let index = self.index(id)?;
+            let input: Value = serde_json::from_slice(body)
+                .map_err(|_| error(400, "Expected edit precondition"))?;
+            let expected = input["expectedVersion"]
+                .as_u64()
+                .ok_or_else(|| error(428, "expectedVersion is required"))?;
+            let mut doc = self.workflows[index].clone();
+            if expected != doc.version {
+                return Err(error(409, "Workflow changed; reload before moving it"));
+            }
+            let archive = parts[3] == "archive";
+            if archive == doc.archived_at.is_some() {
+                return Ok((200, serde_json::to_value(doc).unwrap()));
+            }
+            doc.archived_at = archive.then(|| iso(now));
+            if let Some(lifecycle) = &mut doc.lifecycle {
+                lifecycle.enabled = false;
+            }
+            doc.status = if doc
+                .lifecycle
+                .as_ref()
+                .is_some_and(|l| l.published_revision.is_some())
+            {
+                Publication::Paused
+            } else {
+                Publication::Draft
+            };
+            doc.next_scheduled_at = None;
+            doc.updated_at = iso(now);
+            doc.version = doc
+                .version
+                .checked_add(1)
+                .ok_or_else(|| error(409, "Version exhausted"))?;
+            self.workflows[index] = doc.clone();
+            return Ok((200, serde_json::to_value(doc).unwrap()));
+        }
+        if parts[1] == "workflows"
+            && self
+                .index(id)
+                .is_ok_and(|i| self.workflows[i].archived_at.is_some())
+            && method != "GET"
+        {
+            return Err(error(
+                409,
+                "Restore the workflow from trash before editing or publishing",
+            ));
+        }
         if parts[1] == "workflows" && method == "PUT" && parts.len() == 3 {
             let mut doc: Document = serde_json::from_slice(body)
                 .map_err(|_| error(400, "Invalid workflow document"))?;
@@ -526,6 +589,7 @@ impl Workspace {
             {
                 return Err(error(400, "Invalid workflow metadata or graph size"));
             }
+            doc.archived_at = None;
             doc.lifecycle = Some(Lifecycle::default());
             doc.has_unpublished_changes = true;
             doc.status = Publication::Draft;

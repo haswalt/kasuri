@@ -79,6 +79,9 @@ impl Workspace {
     }
     pub fn live_document(&self, id: &str) -> Result<Document, ApiError> {
         let mut doc = self.workflows[self.index(id)?].clone();
+        if doc.archived_at.is_some() {
+            return Err(error(404, "Workflow is in trash"));
+        }
         let revision = doc
             .lifecycle
             .as_ref()

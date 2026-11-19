@@ -34,6 +34,7 @@ import {
   category,
   csvCell
 } from './design/ui-model'
+import { WorkflowTrash } from './components/WorkflowTrash'
 import { WorkflowHistory } from './components/WorkflowHistory'
 import { Settings } from './components/Settings'
 import { RunDetails } from './components/RunDetails'
@@ -61,6 +62,8 @@ function App() {
   const [workspaceDialog, setWorkspaceDialog] = useState<'create' | 'rename' | null>(null)
   const [workspaceName, setWorkspaceName] = useState('')
   const [historyTarget, setHistoryTarget] = useState<Workflow | null>(null)
+  const [archiveTarget, setArchiveTarget] = useState<Workflow | null>(null)
+  const [showTrash, setShowTrash] = useState(false)
   const workspaceLabel = memberships.find((w) => w.id === route.workspaceKey)?.name || (route.workspaceKey === 'personal' ? 'Personal workspace' : 'Workspace')
   const [workflows, setWorkflows] = useState<Workflow[]>([]),
     [runs, setRuns] = useState<Run[]>([]),
@@ -863,6 +866,7 @@ function App() {
                   }
                   actions={
                     <>
+                      <Button disabled={disabled} onClick={() => setShowTrash(true)}>Trash</Button>
                       <Button
                         disabled={disabled}
                         onClick={() => fileInput.current?.click()}
@@ -1092,10 +1096,10 @@ function App() {
                                   <hr />
                                   <Button
                                     tone="danger"
-                                    disabled
-                                    title="Deletion and restore are not implemented"
+                                    disabled={disabled}
+                                    onClick={() => setArchiveTarget(w)}
                                   >
-                                    Delete <small>Planned</small>
+                                    Move to trash
                                   </Button>
                                 </Menu>
                               </td>
@@ -1615,6 +1619,26 @@ function App() {
           }}
         />
       )}
+      {showTrash && <WorkflowTrash close={() => setShowTrash(false)} restored={(restored) => { replace(restored); undo.current = null; setUndoAvailable(false); setNotice('Workflow restored. Triggers remain paused.'); void refresh() }} />}
+      {archiveTarget && <Dialog title="Move workflow to trash" onClose={() => {if (!busy) setArchiveTarget(null)}}>
+        <div className={styles.settingsFields}>
+          <p>Move “{archiveTarget.name}” to trash? This stops new triggers and schedules. Existing runs finish, and the workflow, history and runs remain recoverable.</p>
+          <Button tone="danger" disabled={busy} onClick={() => void perform(async () => {
+            const current = dirty.current.has(archiveTarget.id) ? await save(archiveTarget) : archiveTarget
+            const archived = await api.workflowAction(current.id, 'archive', current.version)
+            setWorkflows((entries) => entries.filter((w) => w.id !== archived.id))
+            setArchiveTarget(null)
+            setNotice('Workflow moved to trash. Existing runs continue.')
+            setUndoAvailable(true)
+            undo.current = async () => {
+              replace(await api.workflowAction(archived.id, 'restore', archived.version))
+              setNotice('Workflow restored. Triggers remain paused.')
+              setUndoAvailable(false)
+              undo.current = null
+            }
+          })}>Move to trash</Button>
+        </div>
+      </Dialog>}
       {historyTarget && <WorkflowHistory workflow={historyTarget} busy={busy} dirty={dirtyIds.has(historyTarget.id)} close={() => setHistoryTarget(null)} restore={(revision) => {
         void perform(async () => {
           const restored = await api.restoreRevision(historyTarget.id, revision, historyTarget.version)

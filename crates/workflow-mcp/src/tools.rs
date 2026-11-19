@@ -58,6 +58,33 @@ fn definitions() -> Vec<(&'static str, &'static str, &'static str, bool, Value)>
             ),
         ),
         (
+            "workflows_trash",
+            "read",
+            "Browse recoverable archived workflows.",
+            false,
+            list.clone(),
+        ),
+        (
+            "workflows_archive",
+            "delete",
+            "Move a workflow to recoverable trash and stop new triggers. Existing runs finish; no data is permanently deleted.",
+            true,
+            mutate(
+                json!({"workflowId":id,"expectedVersion":version}),
+                vec!["workflowId", "expectedVersion"],
+            ),
+        ),
+        (
+            "workflows_restore",
+            "delete",
+            "Restore an archived workflow without reactivating triggers.",
+            true,
+            mutate(
+                json!({"workflowId":id,"expectedVersion":version}),
+                vec!["workflowId", "expectedVersion"],
+            ),
+        ),
+        (
             "workflows_validate",
             "read",
             "Validate schema, topology and connector configuration without saving, publishing or executing.",
@@ -272,7 +299,32 @@ fn execute(
         "connectors_list" => Ok(json!({"connectors":manifests()})),
         "workflows_list" => {
             let query = args["search"].as_str().unwrap_or("").to_lowercase();
-            page(ws.workflows.iter().filter(|w|w.graph.name.to_lowercase().contains(&query)).map(|w|json!({"id":w.graph.id,"name":w.graph.name,"revision":w.graph.revision,"version":w.version,"status":w.status,"lifecycle":w.lifecycle,"hasUnpublishedChanges":w.has_unpublished_changes,"updatedAt":w.updated_at,"nodeCount":w.graph.nodes.len(),"nextScheduledAt":w.next_scheduled_at})).collect(),args)
+            page(ws.workflows.iter().filter(|w|w.archived_at.is_none() && w.graph.name.to_lowercase().contains(&query)).map(|w|json!({"id":w.graph.id,"name":w.graph.name,"revision":w.graph.revision,"version":w.version,"status":w.status,"lifecycle":w.lifecycle,"hasUnpublishedChanges":w.has_unpublished_changes,"updatedAt":w.updated_at,"nodeCount":w.graph.nodes.len(),"nextScheduledAt":w.next_scheduled_at})).collect(),args)
+        }
+        "workflows_trash" => page(
+            ws.workflows
+                .iter()
+                .filter(|w| w.archived_at.is_some())
+                .map(|w| serde_json::to_value(w).unwrap())
+                .collect(),
+            args,
+        ),
+        "workflows_archive" | "workflows_restore" => {
+            let id = version(ws, args)?;
+            let action = if name == "workflows_archive" {
+                "archive"
+            } else {
+                "restore"
+            };
+            handle(
+                ws,
+                "POST",
+                &format!("/api/workflows/{id}/{action}"),
+                json!({"expectedVersion":args["expectedVersion"]}),
+                now,
+                nonce,
+                actor,
+            )
         }
         "workflows_get" => {
             Ok(serde_json::to_value(existing(ws, required(args, "workflowId")?)?).unwrap())

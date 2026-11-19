@@ -233,6 +233,20 @@ export async function checkMcp(origin, credentials, restart) {
   const afterRestore = (await tool(reader.token,'workflows_get',{workflowId:controlled.id})).structuredContent
   assert.equal(afterRestore.lifecycle.publishedRevision,1)
   assert.equal(afterRestore.lifecycle.enabled,true)
+  const archiveArgs={workflowId:controlled.id,expectedVersion:afterRestore.version,idempotencyKey:'archive-control-workflow'}
+  assert.equal((await tool(operator.token,'workflows_archive',archiveArgs)).isError,true,'Existing Operator permissions cannot delete workflows')
+  const manager=await owner('mcp/credentials','POST',{name:'Runtime manager',role:'manager',expiresDays:1})
+  const archived=await tool(manager.token,'workflows_archive',archiveArgs)
+  assert.equal(archived.isError,false)
+  const remainingWorkflows=await tool(reader.token,'workflows_list',{})
+  assert.equal(remainingWorkflows.structuredContent.items.some(w=>w.id===controlled.id),false)
+  const trash=await tool(reader.token,'workflows_trash',{})
+  assert.equal(trash.structuredContent.items.some(w=>w.id===controlled.id),true)
+  const recovered=await tool(manager.token,'workflows_restore',{workflowId:controlled.id,expectedVersion:archived.structuredContent.version,idempotencyKey:'restore-trashed-control'})
+  assert.equal(recovered.isError,false)
+  assert.equal(recovered.structuredContent.status,'paused')
+  assert.equal((await tool(reader.token,'workflows_get',{workflowId:controlled.id})).structuredContent.lifecycle.enabled,false)
+
   // HTTP simulation must use its embedded fixture through the MCP interface too.
   const httpExample = JSON.parse(
     readFileSync('examples/workflows/06-public-http.json', 'utf8')

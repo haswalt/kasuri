@@ -7,13 +7,16 @@ use workflow_service::Workspace;
 
 pub const PROTOCOL: &str = "2025-11-25";
 pub const SCOPES: &[&str] = &[
-    "read", "audit", "write", "simulate", "publish", "execute", "control",
+    "read", "audit", "write", "simulate", "publish", "execute", "control", "delete",
 ];
 pub fn role(role: &str) -> Vec<String> {
     let scopes: &[&str] = match role {
         "reader" => &["read", "audit"],
         "builder" => &["read", "audit", "write", "simulate"],
-        "operator" => SCOPES,
+        "operator" => &[
+            "read", "audit", "write", "simulate", "publish", "execute", "control",
+        ],
+        "manager" => SCOPES,
         _ => &[],
     };
     scopes.iter().map(|s| s.to_string()).collect()

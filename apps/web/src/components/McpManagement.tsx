@@ -12,7 +12,8 @@ const scopeLabels: Record<string, string> = {
   simulate: 'Run offline simulations',
   publish: 'Publish and activate schedules or webhook triggers',
   execute: 'Start real runs with external effects',
-  control: 'Pause, resume or cancel runs'
+  control: 'Pause, resume or cancel runs',
+  delete: 'Move workflows to trash and restore them'
 }
 export function McpManagement({ authorizeId }: { authorizeId: string | null }) {
   const [data, setData] = useState<McpStatus | null>(null),
@@ -276,6 +277,7 @@ export function McpManagement({ authorizeId }: { authorizeId: string | null }) {
                   Builder — edit drafts and simulate
                 </option>
                 <option value="operator">Operator — publish and execute</option>
+                <option value="manager">Manager — operator plus workflow trash</option>
               </select>
             </label>
             <ul>

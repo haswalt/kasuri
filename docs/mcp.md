@@ -19,6 +19,7 @@ Configure a Streamable HTTP client with the copied URL and an `Authorization: Be
 | Reader | `read audit` | Connector schemas, workflows, recorded runs and audit reads |
 | Builder | Reader + `write simulate` | Create/edit/clone drafts and run offline simulations |
 | Operator | Builder + `publish execute control` | Activate triggers, start real runs, pause/resume/cancel runs |
+| Manager | Operator + `delete` | Move workflows to recoverable trash and restore them |
 
 Credential administration is owner-only through the browser portal; agents cannot mint credentials, approve OAuth grants or change their own permissions. Scopes apply to the entire selected workspace, not individual workflows. The underlying credential API also accepts explicit subsets of the advertised scopes; MCP tools require baseline `read` plus the appropriate operation scope.
 
@@ -44,13 +45,14 @@ Discovery only lists tools permitted by the credential. The server checks scopes
 
 | Scope | Tools |
 | --- | --- |
-| `read` | `connectors_list`, `workflows_list`, `workflows_get`, `workflows_revisions`, `workflows_validate`, `runs_list`, `runs_get` |
+| `read` | `connectors_list`, `workflows_list`, `workflows_get`, `workflows_revisions`, `workflows_trash`, `workflows_validate`, `runs_list`, `runs_get` |
 | `audit` | `audit_list` |
 | `write` | `workflows_create`, `workflows_update`, `workflows_clone`, `workflows_restore_revision` |
 | `simulate` | `runs_simulate` |
 | `publish` | `workflows_publish`, `workflows_pause`, `workflows_resume` |
 | `execute` | `runs_start` |
 | `control` | `runs_pause`, `runs_resume`, `runs_cancel` |
+| `delete` | `workflows_archive`, `workflows_restore` |
 
 Use `workflows_get` to retrieve the saved graph and its `version`. This edit version changes on saved mutations. `revision` is a monotonic publication counter. Unchanged publish and repeated pause/resume are no-ops and preserve the edit version. Publishing unchanged paused content does not resume triggers. Update passes a `workflow` object and `expectedVersion`. Publication and execution pass `workflowId` and `expectedVersion`. Stale versions return a structured conflict. The UI also submits edit versions, so an agent edit cannot be silently overwritten by a stale UI save. Legacy unversioned REST writes remain accepted for compatibility; new REST integrations should always supply the version.
 
@@ -81,3 +83,5 @@ Back up the complete Durable Object storage, including the browser session-auth 
 Protocol references: [MCP 2025 transport](https://modelcontextprotocol.io/specification/2025-11-25/basic/transports), [MCP authorization](https://modelcontextprotocol.io/specification/2025-11-25/basic/authorization), [modern/legacy compatibility](https://modelcontextprotocol.io/specification/2026-07-28/basic/versioning), [Cloudflare MCP portals](https://developers.cloudflare.com/cloudflare-one/access-controls/ai-controls/mcp-portals/).
 
 Draft saves preserve the published graph, webhook authentication and schedule. `lifecycle.publishedRevision`, `lifecycle.enabled` and `hasUnpublishedChanges` describe these independent states. History starts with this storage version; legacy active/paused definitions become explicitly marked current baselines, while edited legacy drafts with unavailable live definitions require explicit review and publication. History currently shares the bounded workspace checkpoint budget.
+
+Workflow trash is recoverable. Archiving stops future triggers and scheduling, retains definitions/history/runs, and leaves in-flight runs to finish. Restoring never reactivates triggers. The `delete` scope is explicit; existing Operator/Builder grants are not expanded. No permanent-delete tool is exposed.
