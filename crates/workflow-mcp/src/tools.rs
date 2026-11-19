@@ -38,6 +38,26 @@ fn definitions() -> Vec<(&'static str, &'static str, &'static str, bool, Value)>
             object(json!({"workflowId":id}), vec!["workflowId"]),
         ),
         (
+            "workflows_revisions",
+            "read",
+            "Browse retained immutable publications. Legacy baselines are marked; missing historical definitions cannot be reconstructed.",
+            false,
+            object(
+                json!({"workflowId":id,"cursor":{"type":"integer","minimum":0},"limit":{"type":"integer","minimum":1,"maximum":100}}),
+                vec!["workflowId"],
+            ),
+        ),
+        (
+            "workflows_restore_revision",
+            "write",
+            "Restore a retained publication into the draft without changing the live definition or activation. Publishing is a separate operation.",
+            true,
+            mutate(
+                json!({"workflowId":id,"revision":{"type":"integer","minimum":1},"expectedVersion":version}),
+                vec!["workflowId", "revision", "expectedVersion"],
+            ),
+        ),
+        (
             "workflows_validate",
             "read",
             "Validate schema, topology and connector configuration without saving, publishing or executing.",
@@ -252,10 +272,38 @@ fn execute(
         "connectors_list" => Ok(json!({"connectors":manifests()})),
         "workflows_list" => {
             let query = args["search"].as_str().unwrap_or("").to_lowercase();
-            page(ws.workflows.iter().filter(|w|w.graph.name.to_lowercase().contains(&query)).map(|w|json!({"id":w.graph.id,"name":w.graph.name,"revision":w.graph.revision,"version":w.version,"status":w.status,"updatedAt":w.updated_at,"nodeCount":w.graph.nodes.len(),"nextScheduledAt":w.next_scheduled_at})).collect(),args)
+            page(ws.workflows.iter().filter(|w|w.graph.name.to_lowercase().contains(&query)).map(|w|json!({"id":w.graph.id,"name":w.graph.name,"revision":w.graph.revision,"version":w.version,"status":w.status,"lifecycle":w.lifecycle,"hasUnpublishedChanges":w.has_unpublished_changes,"updatedAt":w.updated_at,"nodeCount":w.graph.nodes.len(),"nextScheduledAt":w.next_scheduled_at})).collect(),args)
         }
         "workflows_get" => {
             Ok(serde_json::to_value(existing(ws, required(args, "workflowId")?)?).unwrap())
+        }
+        "workflows_revisions" => {
+            let id = required(args, "workflowId")?;
+            existing(ws, id)?;
+            page(
+                ws.revisions
+                    .iter()
+                    .rev()
+                    .filter(|r| r.workflow_id == id)
+                    .map(|r| serde_json::to_value(r).unwrap())
+                    .collect(),
+                args,
+            )
+        }
+        "workflows_restore_revision" => {
+            let id = version(ws, args)?;
+            let revision = args["revision"]
+                .as_u64()
+                .ok_or_else(|| err("invalid_arguments", "Expected revision"))?;
+            handle(
+                ws,
+                "POST",
+                &format!("/api/workflows/{id}/revisions/{revision}/restore"),
+                json!({"expectedVersion":args["expectedVersion"]}),
+                now,
+                nonce,
+                actor,
+            )
         }
         "workflows_validate" => {
             if !args["workflow"].is_object() {

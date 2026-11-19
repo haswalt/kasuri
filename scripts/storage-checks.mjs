@@ -13,22 +13,22 @@ export function checkStorage() {
   try {
     db.exec(sql('CREATE_RECORDS'))
     db.exec('CREATE TABLE workspace(id INTEGER PRIMARY KEY, body TEXT NOT NULL)')
-    const legacy = {management:{credentials:'synthetic'},auditSequence:2,workflows:[{id:'first',nodes:[{id:'start'}]},{id:'second'}],runs:[{checkpoint:'synthetic checkpoint'}],audit:[{id:1},{id:2}],webhooks:[{workflowId:'first',endpointId:'hook'}],webhookEvents:[{event_id:'event'}]}
+    const legacy = {management:{credentials:'synthetic'},auditSequence:2,revisions:[{workflowId:'first',revision:1,graph:{id:'first'}}],workflows:[{id:'first',nodes:[{id:'start'}]},{id:'second'}],runs:[{checkpoint:'synthetic checkpoint'}],audit:[{id:1},{id:2}],webhooks:[{workflowId:'first',endpointId:'hook'}],webhookEvents:[{event_id:'event'}]}
     db.prepare('INSERT INTO workspace VALUES(1,?)').run(JSON.stringify(legacy))
     const save = db.prepare(sql('STORE_RECORDS'))
     save.run(db.prepare('SELECT body FROM workspace').get().body)
     const rows = db.prepare(sql('LOAD_RECORDS')).all()
-    assert.equal(rows.length,8)
+    assert.equal(rows.length,9)
     const metadata = JSON.parse(rows.find(r=>r.kind==='metadata').body)
     assert.equal(metadata.storageVersion,1)
     assert.deepEqual(metadata.management,legacy.management)
-    for (const key of ['workflows','runs','audit','webhooks','webhookEvents']) assert.equal(key in metadata,false)
-    for (const [kind,key] of [['workflow','workflows'],['run','runs'],['audit','audit'],['webhook','webhooks'],['webhook_event','webhookEvents']]) {
+    for (const key of ['workflows','runs','audit','webhooks','webhookEvents','revisions']) assert.equal(key in metadata,false)
+    for (const [kind,key] of [['workflow','workflows'],['run','runs'],['audit','audit'],['webhook','webhooks'],['webhook_event','webhookEvents'],['revision','revisions']]) {
       assert.deepEqual(rows.filter(r=>r.kind===kind).map(r=>JSON.parse(r.body)),legacy[key])
     }
     assert.throws(()=>save.run('{invalid JSON'))
     assert.deepEqual(db.prepare(sql('LOAD_RECORDS')).all(),rows,'Failed writes preserve the complete previous generation')
-    save.run(JSON.stringify({...legacy,workflows:[],runs:[],audit:[],webhooks:[],webhookEvents:[]}))
+    save.run(JSON.stringify({...legacy,workflows:[],runs:[],audit:[],webhooks:[],webhookEvents:[],revisions:[]}))
     const empty = db.prepare(sql('LOAD_RECORDS')).all()
     assert.equal(empty.length,1,'Deleted records never leak from older generations')
     assert.equal(empty[0].kind,'metadata')

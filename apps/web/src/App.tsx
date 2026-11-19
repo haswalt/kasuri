@@ -34,6 +34,7 @@ import {
   category,
   csvCell
 } from './design/ui-model'
+import { WorkflowHistory } from './components/WorkflowHistory'
 import { Settings } from './components/Settings'
 import { RunDetails } from './components/RunDetails'
 const WorkflowEditor = lazy(() =>
@@ -59,6 +60,7 @@ function App() {
   const [memberships, setMemberships] = useState<WorkspaceMembership[]>([])
   const [workspaceDialog, setWorkspaceDialog] = useState<'create' | 'rename' | null>(null)
   const [workspaceName, setWorkspaceName] = useState('')
+  const [historyTarget, setHistoryTarget] = useState<Workflow | null>(null)
   const workspaceLabel = memberships.find((w) => w.id === route.workspaceKey)?.name || (route.workspaceKey === 'personal' ? 'Personal workspace' : 'Workspace')
   const [workflows, setWorkflows] = useState<Workflow[]>([]),
     [runs, setRuns] = useState<Run[]>([]),
@@ -228,7 +230,7 @@ function App() {
     setDirtyIds(new Set(dirty.current))
     setWorkflows((ws) =>
       ws.map((v) =>
-        v.id === w.id ? { ...w, status: 'draft', nextScheduledAt: null } : v
+        v.id === w.id ? { ...w, status: v.status, lifecycle: v.lifecycle, nextScheduledAt: v.nextScheduledAt, hasUnpublishedChanges: true } : v
       )
     )
   }
@@ -281,7 +283,7 @@ function App() {
       replace(changed)
       setNotice(
         action === 'publish'
-          ? 'Workflow published.'
+          ? changed.revision === current.revision ? 'No publication changes. The live revision and activation state are unchanged.' : 'Workflow published and activated.'
           : action === 'pause'
             ? 'Workflow paused. New trigger events are rejected.'
             : 'Workflow resumed.'
@@ -450,15 +452,12 @@ function App() {
           <Pill
             status={workflow.status}
             label={
-              (dirtyIds.has(workflow.id)
-                ? 'Draft'
-                : workflow.status[0].toUpperCase() + workflow.status.slice(1)) +
-              ' v' +
-              workflow.revision
+              workflow.status[0].toUpperCase() + workflow.status.slice(1) +
+              (workflow.lifecycle?.publishedRevision ? ' · live v' + workflow.lifecycle.publishedRevision : '')
             }
           />
           <small>
-            {dirtyIds.has(workflow.id) ? 'Unsaved changes' : 'Saved'}
+            {dirtyIds.has(workflow.id) ? 'Unsaved draft' : workflow.hasUnpublishedChanges ? 'Draft changes saved' : 'Saved'}
           </small>
         </div>
         <div className={styles.editorActions}>
@@ -518,8 +517,9 @@ function App() {
             <Icon name="download" />
             Export
           </Button>
-          <Button visual="primary" disabled={disabled} onClick={publish}>
-            Publish v{workflow.revision + 1}
+          <Button onClick={() => setHistoryTarget(workflow)}>History</Button>
+          <Button visual="primary" disabled={disabled || (!dirtyIds.has(workflow.id) && workflow.hasUnpublishedChanges === false)} onClick={publish}>
+            {workflow.hasUnpublishedChanges === false && !dirtyIds.has(workflow.id) ? 'Published' : 'Publish & activate v' + (workflow.revision + 1)}
           </Button>
         </div>
       </div>
@@ -1011,6 +1011,8 @@ function App() {
                               </td>
                               <td>
                                 <Pill status={w.status} />
+                                {w.status !== 'draft' && w.hasUnpublishedChanges && <small>Draft changes</small>}
+                                {w.lifecycle?.needsReview && <small>Publication review required</small>}
                               </td>
                               <td>
                                 {latest ? (
@@ -1058,11 +1060,8 @@ function App() {
                               </td>
                               <td>
                                 <Menu iconOnly label={<Icon name="more" />}>
-                                  {w.status === 'draft' ? (
-                                    <Button onClick={() => act(w, 'publish')}>
-                                      Publish & activate
-                                    </Button>
-                                  ) : (
+                                  {(w.status === 'draft' || w.hasUnpublishedChanges) && <Button onClick={() => act(w, 'publish')}>Publish & activate</Button>}
+                                  {w.status === 'draft' ? null : (
                                     <Button
                                       onClick={() =>
                                         act(
@@ -1081,6 +1080,7 @@ function App() {
                                   <Button onClick={() => showRun(w)}>
                                     Run now…
                                   </Button>
+                                  <Button onClick={() => setHistoryTarget(w)}>Publication history</Button>
                                   <Button onClick={() => clone(w)}>
                                     Duplicate
                                   </Button>
@@ -1615,6 +1615,15 @@ function App() {
           }}
         />
       )}
+      {historyTarget && <WorkflowHistory workflow={historyTarget} busy={busy} dirty={dirtyIds.has(historyTarget.id)} close={() => setHistoryTarget(null)} restore={(revision) => {
+        void perform(async () => {
+          const restored = await api.restoreRevision(historyTarget.id, revision, historyTarget.version)
+          replace(restored)
+          setHistoryTarget(null)
+          open(restored)
+          setNotice('Publication restored to draft. Review and publish to change the live definition.')
+        })
+      }} />}
       {workspaceDialog && (
         <Dialog title={workspaceDialog === 'create' ? 'Create workspace' : 'Rename workspace'} onClose={() => { if (!busy) setWorkspaceDialog(null) }}>
           <form className={styles.settingsFields} onSubmit={(e) => {

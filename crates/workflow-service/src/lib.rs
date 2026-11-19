@@ -1,10 +1,12 @@
 //! The Rust application layer shared by Cloudflare and self-hosted Wasm deployments.
 //! All workspace data is persistent. No sample workflows, seed data or expiry mode.
+mod publication;
 use chrono::{DateTime, SecondsFormat, Utc};
 use chrono_tz::Tz;
 use connector_sdk::{Connector, FailureCode, Outcome, Task};
 use connectors_core::CoreConnector;
 use croner::Cron;
+pub use publication::{Lifecycle, Revision};
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 use std::str::FromStr;
@@ -52,6 +54,10 @@ pub struct Document {
     #[serde(flatten)]
     pub graph: Workflow,
     pub status: Publication,
+    #[serde(default)]
+    pub lifecycle: Option<Lifecycle>,
+    #[serde(default)]
+    pub has_unpublished_changes: bool,
     pub updated_at: String,
     /// Optimistic concurrency version, incremented by every saved mutation.
     #[serde(default)]
@@ -215,6 +221,8 @@ pub struct Workspace {
     pub webhooks: Vec<WebhookRegistration>,
     #[serde(default)]
     pub webhook_events: Vec<WebhookEvent>,
+    #[serde(default)]
+    pub revisions: Vec<Revision>,
     pub workflows: Vec<Document>,
     pub runs: Vec<RunRecord>,
 }
@@ -223,7 +231,10 @@ impl Workspace {
         if text.len() > MAX_STATE_BYTES {
             return Err(error(500, "Stored workspace exceeds size limit"));
         }
-        serde_json::from_str(text).map_err(|_| error(500, "Invalid stored workspace"))
+        let mut ws: Self =
+            serde_json::from_str(text).map_err(|_| error(500, "Invalid stored workspace"))?;
+        ws.migrate_publications();
+        Ok(ws)
     }
     pub fn checkpoint(&mut self) -> Result<String, ApiError> {
         loop {
@@ -404,7 +415,7 @@ impl Workspace {
                 .find(|w| w.graph.id == id)
                 .map(|w| (w.version, w.graph.revision))
         });
-        let result = self.handle_inner(method, path, body, now, run_id);
+        let result = self.handle_inner(method, path, body, now, run_id, actor);
         if matches!(method, "POST" | "PUT" | "DELETE") {
             let target = result
                 .as_ref()
@@ -448,7 +459,9 @@ impl Workspace {
         body: &[u8],
         now: u64,
         run_id: &str,
+        actor: &str,
     ) -> Result<(u16, Value), ApiError> {
+        self.migrate_publications();
         if body.len() > MAX_BODY_BYTES {
             return Err(error(413, "Request exceeds 128 KiB"));
         }
@@ -513,6 +526,8 @@ impl Workspace {
             {
                 return Err(error(400, "Invalid workflow metadata or graph size"));
             }
+            doc.lifecycle = Some(Lifecycle::default());
+            doc.has_unpublished_changes = true;
             doc.status = Publication::Draft;
             doc.updated_at = iso(now);
             doc.next_scheduled_at = None;
@@ -528,7 +543,21 @@ impl Workspace {
                     .version
                     .checked_add(1)
                     .ok_or_else(|| error(409, "Version exhausted"))?;
-                doc.graph.revision = self.workflows[index].graph.revision;
+                let current = &self.workflows[index];
+                doc.graph.revision = current.graph.revision;
+                doc.lifecycle = current.lifecycle.clone();
+                doc.status = current.status;
+                doc.next_scheduled_at = current.next_scheduled_at;
+                doc.has_unpublished_changes = doc
+                    .lifecycle
+                    .as_ref()
+                    .and_then(|l| l.published_revision)
+                    .and_then(|live| {
+                        self.revisions
+                            .iter()
+                            .find(|r| r.workflow_id == id && r.revision == live)
+                    })
+                    .is_none_or(|r| r.fingerprint != publication::fingerprint(&doc.graph));
                 self.workflows[index] = doc.clone();
             } else {
                 doc.graph.revision = 0;
@@ -536,6 +565,61 @@ impl Workspace {
                 self.workflows.push(doc.clone());
             }
             return Ok((200, serde_json::to_value(doc).unwrap()));
+        }
+        if parts[1] == "workflows" && parts.get(3) == Some(&"revisions") {
+            let index = self.index(id)?;
+            if method == "GET" && parts.len() == 4 {
+                let entries: Vec<_> = self
+                    .revisions
+                    .iter()
+                    .filter(|r| r.workflow_id == id)
+                    .rev()
+                    .collect();
+                return Ok((
+                    200,
+                    json!({"revisions":entries,"needsReview":self.workflows[index].lifecycle.as_ref().is_some_and(|l|l.needs_review)}),
+                ));
+            }
+            if method == "POST" && parts.len() == 6 && parts[5] == "restore" {
+                let revision: u32 = parts[4]
+                    .parse()
+                    .map_err(|_| error(400, "Invalid revision"))?;
+                let input: Value = serde_json::from_slice(body)
+                    .map_err(|_| error(400, "Expected edit precondition"))?;
+                let expected = input["expectedVersion"]
+                    .as_u64()
+                    .ok_or_else(|| error(428, "expectedVersion is required"))?;
+                let mut doc = self.workflows[index].clone();
+                if expected != doc.version {
+                    return Err(error(409, "Workflow changed; reload before restoring"));
+                }
+                let snapshot = self
+                    .revisions
+                    .iter()
+                    .find(|r| r.workflow_id == id && r.revision == revision)
+                    .ok_or_else(|| error(404, "Revision not found"))?;
+                let latest = doc.graph.revision;
+                doc.graph = snapshot.graph.clone();
+                doc.graph.revision = latest;
+                doc.has_unpublished_changes = doc
+                    .lifecycle
+                    .as_ref()
+                    .and_then(|l| l.published_revision)
+                    .and_then(|live| {
+                        self.revisions
+                            .iter()
+                            .find(|r| r.workflow_id == id && r.revision == live)
+                    })
+                    .is_none_or(|r| r.fingerprint != publication::fingerprint(&doc.graph));
+                doc.version = doc
+                    .version
+                    .checked_add(1)
+                    .ok_or_else(|| error(409, "Version exhausted"))?;
+                doc.updated_at = iso(now);
+                self.workflows[index] = doc.clone();
+                return Ok((200, serde_json::to_value(doc).unwrap()));
+            }
+            return Err(error(404, "Revision route not found"));
         }
         if parts[1] == "workflows" && method == "POST" && parts.len() == 4 {
             let index = self.index(id)?;
@@ -549,21 +633,32 @@ impl Workspace {
                 }
             }
             match parts[3] {
-                "pause" => {
-                    doc.status = Publication::Paused;
-                    doc.next_scheduled_at = None;
+                "publish" => {
+                    return Ok((
+                        200,
+                        serde_json::to_value(self.publish(index, now, actor)?).unwrap(),
+                    ));
                 }
-                "publish" | "resume" => {
-                    Self::executable(&doc)?;
-                    doc.next_scheduled_at = schedule(&doc.graph, now)?.map(|s| s.at);
-                    doc.status = Publication::Active;
-                    if parts[3] == "publish" {
-                        doc.graph.revision = doc
-                            .graph
-                            .revision
-                            .checked_add(1)
-                            .ok_or_else(|| error(409, "Revision limit reached"))?
+                "pause" | "resume" => {
+                    let live = self.live_document(id)?;
+                    let enabled = parts[3] == "resume";
+                    if doc.lifecycle.as_ref().is_some_and(|l| l.enabled == enabled) {
+                        return Ok((200, serde_json::to_value(doc).unwrap()));
                     }
+                    if enabled {
+                        Self::executable(&live)?;
+                    }
+                    doc.lifecycle.as_mut().unwrap().enabled = enabled;
+                    doc.status = if enabled {
+                        Publication::Active
+                    } else {
+                        Publication::Paused
+                    };
+                    doc.next_scheduled_at = if enabled {
+                        schedule(&live.graph, now)?.map(|s| s.at)
+                    } else {
+                        None
+                    };
                 }
                 _ => return Err(error(404, "Unknown workflow action")),
             }
@@ -620,7 +715,12 @@ impl Workspace {
     pub fn webhook_info(&self, id: &str) -> Result<Value, ApiError> {
         let doc = self.webhook_document(id)?;
         let registration = self.webhooks.iter().find(|w| w.workflow_id == id);
-        let trigger = doc
+        let live = self.live_document(id).ok();
+        let effective = live
+            .as_ref()
+            .filter(|d| d.graph.nodes.iter().any(|n| n.kind == "Webhook"))
+            .unwrap_or(doc);
+        let trigger = effective
             .graph
             .nodes
             .iter()
@@ -655,7 +755,10 @@ impl Workspace {
         now: u64,
         run_id: &str,
     ) -> Result<Value, ApiError> {
-        let doc = self.webhook_document(id)?.clone();
+        let doc = self.live_document(id)?;
+        if !doc.graph.nodes.iter().any(|n| n.kind == "Webhook") {
+            return Err(error(404, "Webhook is not active"));
+        }
         if doc.status != Publication::Active
             || !self
                 .webhooks
@@ -799,8 +902,9 @@ impl Workspace {
             })
             .map(|(i, w)| (i, w.clone()))
             .collect();
-        for (index, doc) in due {
-            let due_at = doc.next_scheduled_at.unwrap();
+        for (index, draft) in due {
+            let due_at = draft.next_scheduled_at.unwrap();
+            let doc = self.live_document(&draft.graph.id)?;
             let id = format!("cron-{}-{}-{due_at}", doc.graph.id, doc.graph.revision);
             if !self
                 .runs

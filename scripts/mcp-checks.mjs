@@ -220,6 +220,19 @@ export async function checkMcp(origin, credentials, restart) {
     ).structuredContent.status,
     'cancelled'
   )
+  const revisions = await tool(reader.token, 'workflows_revisions', {workflowId: controlled.id})
+  assert.equal(revisions.isError,false)
+  assert.equal(revisions.structuredContent.items[0].revision,1)
+  const currentControl = (await tool(reader.token,'workflows_get',{workflowId:controlled.id})).structuredContent
+  const restoreArgs = {workflowId:controlled.id,revision:1,expectedVersion:currentControl.version,idempotencyKey:'restore-control-revision'}
+  assert.equal((await tool(reader.token,'workflows_restore_revision',restoreArgs)).isError,true)
+  const restored = await tool(builder.token,'workflows_restore_revision',restoreArgs)
+  assert.equal(restored.isError,false)
+  assert.equal(restored.structuredContent.revision,1)
+  assert.deepEqual(await tool(builder.token,'workflows_restore_revision',restoreArgs),restored)
+  const afterRestore = (await tool(reader.token,'workflows_get',{workflowId:controlled.id})).structuredContent
+  assert.equal(afterRestore.lifecycle.publishedRevision,1)
+  assert.equal(afterRestore.lifecycle.enabled,true)
   // HTTP simulation must use its embedded fixture through the MCP interface too.
   const httpExample = JSON.parse(
     readFileSync('examples/workflows/06-public-http.json', 'utf8')

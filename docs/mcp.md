@@ -44,15 +44,15 @@ Discovery only lists tools permitted by the credential. The server checks scopes
 
 | Scope | Tools |
 | --- | --- |
-| `read` | `connectors_list`, `workflows_list`, `workflows_get`, `workflows_validate`, `runs_list`, `runs_get` |
+| `read` | `connectors_list`, `workflows_list`, `workflows_get`, `workflows_revisions`, `workflows_validate`, `runs_list`, `runs_get` |
 | `audit` | `audit_list` |
-| `write` | `workflows_create`, `workflows_update`, `workflows_clone` |
+| `write` | `workflows_create`, `workflows_update`, `workflows_clone`, `workflows_restore_revision` |
 | `simulate` | `runs_simulate` |
 | `publish` | `workflows_publish`, `workflows_pause`, `workflows_resume` |
 | `execute` | `runs_start` |
 | `control` | `runs_pause`, `runs_resume`, `runs_cancel` |
 
-Use `workflows_get` to retrieve the saved graph and its `version`. This edit version changes on every save or publication action; the existing `revision` remains a publication counter. Update passes a `workflow` object and `expectedVersion`. Publication and execution pass `workflowId` and `expectedVersion`. Stale versions return a structured conflict. The UI also submits edit versions, so an agent edit cannot be silently overwritten by a stale UI save. Legacy unversioned REST writes remain accepted for compatibility; new REST integrations should always supply the version.
+Use `workflows_get` to retrieve the saved graph and its `version`. This edit version changes on saved mutations. `revision` is a monotonic publication counter. Unchanged publish and repeated pause/resume are no-ops and preserve the edit version. Publishing unchanged paused content does not resume triggers. Update passes a `workflow` object and `expectedVersion`. Publication and execution pass `workflowId` and `expectedVersion`. Stale versions return a structured conflict. The UI also submits edit versions, so an agent edit cannot be silently overwritten by a stale UI save. Legacy unversioned REST writes remain accepted for compatibility; new REST integrations should always supply the version.
 
 All mutating MCP tools require an 8–128 character `idempotencyKey`. Retry the exact same request with the same key after a timeout/reconnect: the original result is returned without creating another workflow/run. Reusing a key with changed arguments produces a conflict. Receipts are tied to the credential, persist across restarts and last 24 hours. Use a fresh key for a new operation or corrected request. Once that window expires, inspect current state before retrying an uncertain old operation. Mutation results contain stable IDs/status/version and identify the detail tool to call next.
 
@@ -68,7 +68,7 @@ The current log retains 1,000 records and reports its oldest retained ID and tot
 
 Credentials are limited to 64, OAuth client registrations to 128, pending authorization requests to 64, and unexpired mutation receipts to 64 per workspace. Unused OAuth registrations can be cleared from the owner portal without revoking existing grants. Public registration, OAuth and MCP requests have per-minute budgets; authenticated credentials also allow at most 120 requests per minute. Cloudflare's connecting-IP header partitions the public budgets; self-hosting without that header uses a shared bucket. These counters never authorize a request. Requests and results are bounded, and all MCP credentials/receipts share the workspace checkpoint budget.
 
-Historical revisions/diffs, detailed execution logs/timings, step-input history/replay, a connection vault, per-workflow grants and MCP resources are future work and are not advertised as supported tools. OAuth here authorizes the existing browser workspace; it does not add user accounts or team membership.
+Detailed execution logs/timings, step-input history/replay, a connection vault, per-workflow grants and MCP resources remain future work. `workflows_revisions` browses retained immutable definitions, with marked legacy baselines; `workflows_restore_revision` restores one into the draft without changing the live definition. Publish separately to roll back as a new revision. OAuth here authorizes the existing browser workspace; it does not add user accounts or team membership.
 
 ## Deployment and tests
 
@@ -79,3 +79,5 @@ Back up the complete Durable Object storage, including the browser session-auth 
 `pnpm test:rust` covers authorization policy, version conflicts, idempotent recovery, PKCE/redirect/audience checks, refresh replay, redaction and retention. `pnpm test:runtime` exercises the real Rust/Wasm HTTP boundary, restart persistence, workspace isolation, discovery, scopes, consent/CSRF, code exchange and revocation. The same MCP checks run in the Docker integration harness. No public credentials, live client grants or external identity-provider accounts are required for these tests.
 
 Protocol references: [MCP 2025 transport](https://modelcontextprotocol.io/specification/2025-11-25/basic/transports), [MCP authorization](https://modelcontextprotocol.io/specification/2025-11-25/basic/authorization), [modern/legacy compatibility](https://modelcontextprotocol.io/specification/2026-07-28/basic/versioning), [Cloudflare MCP portals](https://developers.cloudflare.com/cloudflare-one/access-controls/ai-controls/mcp-portals/).
+
+Draft saves preserve the published graph, webhook authentication and schedule. `lifecycle.publishedRevision`, `lifecycle.enabled` and `hasUnpublishedChanges` describe these independent states. History starts with this storage version; legacy active/paused definitions become explicitly marked current baselines, while edited legacy drafts with unavailable live definitions require explicit review and publication. History currently shares the bounded workspace checkpoint budget.

@@ -131,19 +131,17 @@ impl WorkflowWorkspace {
             Some(r) => r,
             None => return api_error(404, "Webhook not found"),
         };
-        let doc = match workspace.webhook_document(id) {
+        let doc = match workspace.live_document(id) {
             Ok(doc) => doc,
             Err(_) => return api_error(404, "Webhook not found"),
         };
         if doc.status != workflow_service::Publication::Active {
             return api_error(404, "Webhook is not active");
         }
-        let trigger = doc
-            .graph
-            .nodes
-            .iter()
-            .find(|n| n.kind == "Webhook")
-            .unwrap();
+        let trigger = doc.graph.nodes.iter().find(|n| n.kind == "Webhook");
+        let Some(trigger) = trigger else {
+            return api_error(404, "Webhook is not active");
+        };
         let authenticated = match trigger
             .config
             .get("authentication")

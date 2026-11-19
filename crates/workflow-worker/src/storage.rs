@@ -11,15 +11,15 @@ const STORE_RECORDS: &str = r#"
 WITH input(body,generation) AS (
   SELECT json(?), COALESCE((SELECT MAX(generation) FROM workspace_records),0)+1
 ), records(kind,position,body) AS (
-  SELECT 'metadata',0,json_set(json_remove(body,'$.workflows','$.runs','$.audit','$.webhooks','$.webhookEvents'),'$.storageVersion',1) FROM input
+  SELECT 'metadata',0,json_set(json_remove(body,'$.workflows','$.runs','$.audit','$.webhooks','$.webhookEvents','$.revisions'),'$.storageVersion',1) FROM input
   UNION ALL
   SELECT CASE collection.key
     WHEN 'workflows' THEN 'workflow' WHEN 'runs' THEN 'run'
     WHEN 'audit' THEN 'audit' WHEN 'webhooks' THEN 'webhook'
-    WHEN 'webhookEvents' THEN 'webhook_event' END,
+    WHEN 'webhookEvents' THEN 'webhook_event' WHEN 'revisions' THEN 'revision' END,
     CAST(item.key AS INTEGER),item.value
   FROM input,json_each(input.body) AS collection,
-    json_each(CASE WHEN collection.key IN ('workflows','runs','audit','webhooks','webhookEvents') THEN collection.value ELSE '[]' END) AS item
+    json_each(CASE WHEN collection.key IN ('workflows','runs','audit','webhooks','webhookEvents','revisions') THEN collection.value ELSE '[]' END) AS item
 )
 INSERT INTO workspace_records(generation,kind,position,body)
 SELECT input.generation,records.kind,records.position,records.body FROM input,records
@@ -32,8 +32,7 @@ struct Record {
 }
 fn decode(rows: Vec<Record>) -> Result<Workspace> {
     let mut root = None;
-    let mut collections =
-        json!({"workflows":[],"runs":[],"audit":[],"webhooks":[],"webhookEvents":[]});
+    let mut collections = json!({"workflows":[],"runs":[],"audit":[],"webhooks":[],"webhookEvents":[],"revisions":[]});
     for row in rows {
         let value: Value = serde_json::from_str(&row.body).map_err(internal)?;
         let field = match row.kind.as_str() {
@@ -44,6 +43,7 @@ fn decode(rows: Vec<Record>) -> Result<Workspace> {
                 root = Some(value);
                 continue;
             }
+            "revision" => "revisions",
             "workflow" => "workflows",
             "run" => "runs",
             "audit" => "audit",

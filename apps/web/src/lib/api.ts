@@ -29,8 +29,11 @@ async function request<T>(
     throw new Error(result.error || `Request failed (${response.status}).`)
   return result as T
 }
+export type WorkflowRevision = { workflowId: string; revision: number; graph: Workflow; fingerprint: string; publishedAt: string; publishedBy: string; legacyBaseline: boolean }
 export type WorkspaceMembership = { id: string; name: string }
 export const api = {
+  revisions: (id: string) => request<{revisions: WorkflowRevision[]; needsReview: boolean}>(`workflows/${id}/revisions`),
+  restoreRevision: (id: string, revision: number, expectedVersion?: number) => request<Workflow>(`workflows/${id}/revisions/${revision}/restore`, 'POST', {expectedVersion}),
   workspaces: () => request<{ workspaces: WorkspaceMembership[] }>('workspaces'),
   createWorkspace: (name: string) => request<WorkspaceMembership>('workspaces', 'POST', { name }),
   renameWorkspace: (id: string, name: string) => request<WorkspaceMembership>(`workspaces/${id}`, 'PATCH', { name }),
