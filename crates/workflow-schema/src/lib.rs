@@ -8,6 +8,16 @@ use serde_json::{Map, Value};
 pub const SCHEMA_VERSION: u32 = 1;
 pub const LATEST_SCHEMA_VERSION: u32 = 2;
 pub const SUPPORTED_SCHEMA_VERSIONS: &[u32] = &[1, 2];
+/// Connector kinds that start a run and therefore have no input port.
+pub const TRIGGER_KINDS: &[&str] = &[
+    "Manual Trigger",
+    "Webhook",
+    "Schedule",
+    "Execute Workflow Trigger",
+];
+pub fn is_trigger_kind(kind: &str) -> bool {
+    TRIGGER_KINDS.contains(&kind)
+}
 pub const MAX_NODES: usize = 100;
 pub const MAX_GRAPH_BYTES: usize = 1_048_576;
 pub const MAX_CONFIG_BYTES: usize = 65_536;
@@ -77,10 +87,7 @@ pub struct Node {
 
 impl Node {
     pub fn is_trigger(&self) -> bool {
-        matches!(
-            self.kind.as_str(),
-            "Manual Trigger" | "Webhook" | "Schedule" | "Execute Workflow Trigger"
-        )
+        is_trigger_kind(&self.kind)
     }
 }
 
