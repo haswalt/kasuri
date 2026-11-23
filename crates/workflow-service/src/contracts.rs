@@ -45,12 +45,29 @@ fn expression(v: &Value) -> Value {
         _ => json!({}),
     }
 }
+/// Generic description for kinds without a specific contract; every implemented
+/// connector must have its own entry (enforced by tests).
+pub const UNDESCRIBED: &str =
+    "Inspect implemented connector configuration and tested public workflows.";
 pub fn describe(kind: &str, config: &Map<String, Value>) -> Value {
     let mut input = json!({});
     let mut output = json!({});
     let mut selection = Value::Null;
+    let mut child = Value::Null;
     let description = match kind {
-        "Manual Trigger" | "Webhook" | "Schedule" | "Execute Workflow Trigger" => {
+        "Execute Workflow Trigger" => {
+            // The declared contracts are enforced at invocation: inputSchema on the
+            // child's input (passed onward unchanged) and outputSchema on its result.
+            let declared = |key: &str| match decode(config.get(key)) {
+                Value::Null => json!({}),
+                schema => schema,
+            };
+            input = declared("inputSchema");
+            output = input.clone();
+            child = json!({"inputSchema":input,"outputSchema":declared("outputSchema"),"outputNodeId":config.get("outputNodeId").cloned().unwrap_or(Value::Null)});
+            "Starts a child run with one JSON value validated against config.inputSchema and passes it onward unchanged. The node at outputNodeId returns the child result, validated against config.outputSchema; see childContract."
+        }
+        "Manual Trigger" | "Webhook" | "Schedule" => {
             "Starts a run with one JSON value. Trigger input is passed onward unchanged; child and webhook parsing contracts are explicit."
         }
         "Map / Transform" => {
@@ -185,12 +202,13 @@ pub fn describe(kind: &str, config: &Map<String, Value>) -> Value {
             "Combines settled branch inputs. Explicit policies consume an object keyed by source IDs; append/by_key return arrays and select returns the selected source unchanged. Empty config preserves legacy pass-through/keyed behavior."
         }
         "JSON Utilities" => {
-            if config.get("operation").and_then(Value::as_str) == Some("stringify") {
-                output = json!({"type":"string"});
-            } else {
-                input = json!({"type":"string"});
+            match config.get("operation").and_then(Value::as_str) {
+                Some("stringify") => output = json!({"type":"string"}),
+                Some("parse") => input = json!({"type":"string"}),
+                // Missing or unknown operations fail at runtime; promise no contract.
+                _ => {}
             }
-            "Parses JSON text to a value or stringifies a value to JSON text. Parse failures use the error port."
+            "Parses JSON text to a value (operation parse) or stringifies a value to JSON text (operation stringify). config.operation is required; parse failures use the error port."
         }
         "Request Context" => {
             output = match config.get("part").and_then(Value::as_str) {
@@ -217,7 +235,11 @@ pub fn describe(kind: &str, config: &Map<String, Value>) -> Value {
         "Error Handler" => {
             "Receives the explicit failed-node error output and passes it onward. It does not independently intercept unrelated node failures."
         }
-        _ => "Inspect implemented connector configuration and tested public workflows.",
+        _ => UNDESCRIBED,
     };
-    json!({"description":description,"inputSchema":input,"outputSchema":output,"selectedInput":selection,"schemaSemantics":"Schemas describe successful runtime results and may be open where user data or selected contracts determine the shape. Failure routing is separate. No sample values or secrets are inferred from workspace data.","documentationUrl":"https://github.com/haswalt/kasuri","documentationPath":"docs/connectors.md"})
+    let mut contract = json!({"description":description,"inputSchema":input,"outputSchema":output,"selectedInput":selection,"schemaSemantics":"Schemas describe successful runtime results and may be open where user data or selected contracts determine the shape. Failure routing is separate. No sample values or secrets are inferred from workspace data.","documentationUrl":"https://github.com/haswalt/kasuri","documentationPath":"docs/connectors.md"});
+    if !child.is_null() {
+        contract["childContract"] = child;
+    }
+    contract
 }
