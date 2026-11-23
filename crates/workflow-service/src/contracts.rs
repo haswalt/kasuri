@@ -237,7 +237,7 @@ pub fn describe(kind: &str, config: &Map<String, Value>) -> Value {
         }
         _ => UNDESCRIBED,
     };
-    let mut contract = json!({"description":description,"inputSchema":input,"outputSchema":output,"selectedInput":selection,"schemaSemantics":"Schemas describe successful runtime results and may be open where user data or selected contracts determine the shape. Failure routing is separate. No sample values or secrets are inferred from workspace data.","documentationUrl":"https://github.com/haswalt/kasuri","documentationPath":"docs/connectors.md"});
+    let mut contract = json!({"description":description,"inputSchema":input,"outputSchema":output,"selectedInput":selection,"schemaSemantics":"Schemas describe successful runtime results and may be open where user data or selected contracts determine the shape. Failure routing is separate. inputSchema describes the value the connector receives; with format 2 inputBindings that value is the assembled object, not the parent output. No sample values or secrets are inferred from workspace data.","documentationUrl":"https://github.com/haswalt/kasuri","documentationPath":"docs/connectors.md"});
     if !child.is_null() {
         contract["childContract"] = child;
     }
