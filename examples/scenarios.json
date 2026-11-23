@@ -413,5 +413,63 @@
       }
     },
     "statuses": {}
+  },
+  {
+    "file": "workflows/29-order-response-bindings.json",
+    "dependencies": [
+      "workflows/30-shipping-contract.json"
+    ],
+    "outputs": {
+      "calculate": {
+        "total": 948.98
+      },
+      "reply": {
+        "orderId": "ORD-1001",
+        "accepted": true,
+        "total": 948.98,
+        "currency": "GBP",
+        "fulfilment": "priority",
+        "shipping": {
+          "status": "accepted"
+        }
+      }
+    },
+    "response": {
+      "status": 201,
+      "body": {
+        "orderId": "ORD-1001",
+        "accepted": true,
+        "total": 948.98,
+        "currency": "GBP",
+        "fulfilment": "priority",
+        "shipping": {
+          "status": "accepted"
+        }
+      }
+    },
+    "statuses": {
+      "reject": "skipped"
+    }
+  },
+  {
+    "file": "workflows/30-shipping-contract.json",
+    "outputs": {
+      "ack": {
+        "status": "accepted"
+      }
+    },
+    "statuses": {}
+  },
+  {
+    "file": "workflows/31-bound-http-and-condition.json",
+    "outputs": {
+      "accepted": {
+        "accepted": true,
+        "total": 948.98
+      }
+    },
+    "statuses": {
+      "rejected": "skipped"
+    }
   }
 ]

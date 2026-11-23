@@ -17,12 +17,14 @@ pub fn schema() -> Value {
    rule
   }).collect();
   s["$defs"]["Node"]["allOf"]=json!(rules);
-  s["properties"]["schemaVersion"]["const"]=json!(workflow_schema::SCHEMA_VERSION);
+  s["$defs"]["Node"]["properties"]["inputBindings"]=connectors_core::expressions::bindings_schema();
+  s["properties"]["schemaVersion"]["enum"]=json!(workflow_schema::SUPPORTED_SCHEMA_VERSIONS);
+  s["allOf"]=json!([{"if":{"properties":{"nodes":{"contains":{"type":"object","properties":{"inputBindings":{"type":"object","minProperties":1}},"required":["inputBindings"]}}},"required":["nodes"]},"then":{"properties":{"schemaVersion":{"const":2}}}}]);
   s
  }).clone()
 }
 pub fn discovery() -> Value {
-    json!({"schemaVersion":workflow_schema::SCHEMA_VERSION,"supportedSchemaVersions":[workflow_schema::SCHEMA_VERSION],"schema":schema(),"validationTool":"workflows_validate","examplesTool":"workflows_examples_list","notes":["Node connector kind uses type, not connectorKind; label is required.","Default version=1, sourcePort=success, timeoutMs=30000 and retry.maxAttempts=1.","Graph schema/config checks are followed by topology and runtime-specific connector checks; always validate before creating.","Export metadata is accepted; MCP resets status/updatedAt and controls edit version. Publication is separate.","Switch output ports include configured rule names plus fallback/error. IF uses true/false/error; other nodes use success/error."]})
+    json!({"schemaVersion":workflow_schema::LATEST_SCHEMA_VERSION,"supportedSchemaVersions":workflow_schema::SUPPORTED_SCHEMA_VERSIONS,"schema":schema(),"validationTool":"workflows_validate","examplesTool":"workflows_examples_list","notes":["Node connector kind uses type, not connectorKind; label is required.","Default version=1, sourcePort=success, timeoutMs=30000 and retry.maxAttempts=1.","Graph schema/config checks are followed by topology and runtime-specific connector checks; always validate before creating.","Export metadata is accepted; MCP resets status/updatedAt and controls edit version. Publication is separate.","Switch output ports include configured rule names plus fallback/error. IF uses true/false/error; other nodes use success/error."]})
 }
 fn full_validator() -> &'static jsonschema::Validator {
     static VALIDATOR: OnceLock<jsonschema::Validator> = OnceLock::new();
@@ -122,5 +124,5 @@ pub fn errors(value: &Value) -> Vec<Diagnostic> {
 }
 pub fn validate(value: &Value) -> Value {
     let errors = errors(value);
-    json!({"valid":errors.is_empty(),"schemaVersion":workflow_schema::SCHEMA_VERSION,"errors":errors,"errorsTruncated":errors.len()==32})
+    json!({"valid":errors.is_empty(),"schemaVersion":value.get("schemaVersion").cloned().unwrap_or(json!(workflow_schema::LATEST_SCHEMA_VERSION)),"errors":errors,"errorsTruncated":errors.len()==32})
 }

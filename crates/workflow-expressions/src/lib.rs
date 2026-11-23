@@ -11,7 +11,7 @@ fn bad<T>() -> Result<T, FailureCode> {
 fn obj(v: &Value) -> Result<&Map<String, Value>, FailureCode> {
     v.as_object().ok_or(FailureCode::InvalidConfig)
 }
-pub(crate) fn path(v: &Value) -> Result<&str, FailureCode> {
+pub fn path(v: &Value) -> Result<&str, FailureCode> {
     let p = v.as_str().ok_or(FailureCode::InvalidConfig)?;
     if p.len() > 256 || (!p.is_empty() && !p.starts_with('/')) {
         return bad();
@@ -52,7 +52,7 @@ fn inspect(
         .ok_or(FailureCode::InvalidConfig)?;
     let keys: &[&str] = match op {
         "literal" => &["op", "value"],
-        "input" | "trigger" | "run" => &["op", "path"],
+        "input" | "trigger" | "run" | "workflow" => &["op", "path"],
         "node" => &["op", "nodeId", "path"],
         _ => &["op", "args"],
     };
@@ -65,7 +65,7 @@ fn inspect(
                 return bad();
             }
         }
-        "input" | "trigger" | "run" | "node" => {
+        "input" | "trigger" | "run" | "workflow" | "node" => {
             path(o.get("path").ok_or(FailureCode::InvalidConfig)?)?;
             if op == "node" {
                 let id = o
@@ -93,6 +93,9 @@ fn inspect(
     Ok(())
 }
 pub fn validate(config: &Map<String, Value>) -> Result<BTreeSet<String>, FailureCode> {
+    if serde_json::to_vec(config).map_or(true, |v| v.len() > MAX_BYTES) {
+        return Err(FailureCode::BudgetExceeded);
+    }
     if config.len() != 1 {
         return bad();
     }
@@ -145,11 +148,12 @@ fn eval(v: &Value, task: &Task) -> Result<Option<Value>, FailureCode> {
     if op == "literal" {
         return Ok(Some(o["value"].clone()));
     }
-    if matches!(op, "input" | "trigger" | "run" | "node") {
+    if matches!(op, "input" | "trigger" | "run" | "workflow" | "node") {
         let source = match op {
             "input" => Some(&task.input),
             "trigger" => task.context.get("trigger"),
             "run" => task.context.get("run"),
+            "workflow" => task.context.get("workflow"),
             _ => task
                 .context
                 .get("nodes")
@@ -197,7 +201,7 @@ fn eval(v: &Value, task: &Task) -> Result<Option<Value>, FailureCode> {
             let a = req(0)?;
             let b = req(1)?;
             json!(if let (Some(a), Some(b)) = (a.as_number(), b.as_number()) {
-                super::conditions::number_cmp(a, b).is_eq()
+                number_cmp(a, b).is_eq()
             } else {
                 a == b
             })
@@ -206,7 +210,7 @@ fn eval(v: &Value, task: &Task) -> Result<Option<Value>, FailureCode> {
             let a = req(0)?;
             let b = req(1)?;
             let order = if let (Some(a), Some(b)) = (a.as_number(), b.as_number()) {
-                super::conditions::number_cmp(a, b)
+                number_cmp(a, b)
             } else if let (Some(a), Some(b)) = (a.as_str(), b.as_str()) {
                 a.cmp(b)
             } else {
@@ -309,22 +313,35 @@ fn eval(v: &Value, task: &Task) -> Result<Option<Value>, FailureCode> {
     };
     Ok(Some(bounded(result)?))
 }
+/// Assemble a node input using the same evaluator as the Expressions connector.
+pub fn assemble(fields: &Map<String, Value>, task: &Task) -> Result<Value, FailureCode> {
+    validate(&serde_json::from_value(json!({"fields":fields})).unwrap())?;
+    let mut output = Map::new();
+    for (name, expr) in fields {
+        output.insert(name.clone(), required(eval(expr, task)?)?);
+    }
+    bounded(Value::Object(output))
+}
 pub fn execute(task: &Task) -> Outcome {
-    let result = (|| {
-        validate(&task.node.config)?;
-        let fields = task.node.config["fields"].as_object().unwrap();
-        let mut output = Map::new();
-        for (name, expr) in fields {
-            output.insert(name.clone(), required(eval(expr, task)?)?);
-        }
-        bounded(Value::Object(output))
-    })();
+    let result = validate(&task.node.config)
+        .and_then(|_| assemble(task.node.config["fields"].as_object().unwrap(), task));
     match result {
-        Ok(v) => Outcome::success(v),
+        Ok(value) => Outcome::success(value),
         Err(code) => Outcome::Failed {
             failure: Failure::permanent(code),
         },
     }
+}
+pub fn bindings_schema() -> Value {
+    let expressions = schema();
+    let mut fields = expressions["properties"]["fields"].clone();
+    fields["$id"] = json!("urn:kasuri:input-bindings:v1");
+    fields["$defs"] = expressions["$defs"].clone();
+    fields["minProperties"] = json!(0);
+    fields["description"] = json!(
+        "Optional typed assembly of a non-trigger node's input. Empty/omitted preserves normal input. References use original incoming input and graph-ancestor outputs. The assembled object is persisted before dispatch; config stays literal."
+    );
+    fields
 }
 pub fn schema() -> Value {
     let reference = json!({"$ref":"#/$defs/expression"});
@@ -333,9 +350,24 @@ pub fn schema() -> Value {
         "required":["fields"], "additionalProperties":false,
         "$defs":{"expression":{"oneOf":[
             {"type":"object","properties":{"op":{"const":"literal"},"value":{}},"required":["op","value"],"additionalProperties":false},
-            {"type":"object","properties":{"op":{"enum":["input","trigger","run"]},"path":{"type":"string","maxLength":256}},"required":["op","path"],"additionalProperties":false},
+            {"type":"object","properties":{"op":{"enum":["input","trigger","run","workflow"]},"path":{"type":"string","maxLength":256}},"required":["op","path"],"additionalProperties":false},
             {"type":"object","properties":{"op":{"const":"node"},"nodeId":{"type":"string","minLength":1,"maxLength":160},"path":{"type":"string","maxLength":256}},"required":["op","nodeId","path"],"additionalProperties":false},
             {"type":"object","properties":{"op":{"enum":["add","subtract","multiply","divide","equals","greater_than","less_than","date_add_ms","if","concat","coalesce","and","or","lower","upper","trim","length","exists","not","date_parse","date_iso","to_text"]},"args":{"type":"array","minItems":1,"maxItems":16,"items":reference}},"required":["op","args"],"additionalProperties":false}
         ]}},"description":"Bounded expression trees: at most 256 nodes and depth 12. Unary operations take 1 argument, arithmetic/comparisons/date_add_ms take 2, if takes 3; concat/coalesce/and/or take 1–16. Node references must be graph ancestors."
     })
+}
+
+pub fn number_cmp(a: &serde_json::Number, b: &serde_json::Number) -> std::cmp::Ordering {
+    let integer = |n: &serde_json::Number| {
+        n.as_i64()
+            .map(i128::from)
+            .or_else(|| n.as_u64().map(i128::from))
+    };
+    if let (Some(a), Some(b)) = (integer(a), integer(b)) {
+        return a.cmp(&b);
+    }
+    a.as_f64()
+        .unwrap()
+        .partial_cmp(&b.as_f64().unwrap())
+        .unwrap()
 }

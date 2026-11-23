@@ -1,0 +1,8 @@
+[package]
+name = "workflow-expressions"
+version.workspace = true
+edition.workspace = true
+[dependencies]
+serde_json.workspace = true
+connector-sdk.workspace = true
+chrono = { version = "0.4", default-features = false, features = ["std"] }

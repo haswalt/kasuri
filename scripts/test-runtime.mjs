@@ -22,6 +22,7 @@ import { checkMcp } from './mcp-checks.mjs'
 import { checkMcpDiscovery } from './mcp-discovery-checks.mjs'
 import { checkDataTransfer } from './data-transfer-checks.mjs'
 import { checkExpressions } from './expression-checks.mjs'
+import { checkInputBindings } from './input-binding-checks.mjs'
 import { checkItems } from './items-checks.mjs'
 import { checkParallel } from './parallel-checks.mjs'
 import { checkInvocations } from './invocation-checks.mjs'
@@ -115,6 +116,8 @@ try {
   if (process.argv.includes('--validation-only')) {
     await checkParsing(origin, 'test:runtime-check', async () => {await stop();start();await healthy(origin)})
     await checkValidation(origin, 'test:runtime-check', async () => {await stop();start();await healthy(origin)})
+  } else if (process.argv.includes('--bindings-only')) {
+    await checkInputBindings(origin, 'test:runtime-check', async () => {await stop();start();await healthy(origin)})
   } else if (process.argv.includes('--mcp-discovery-only')) {
     await checkMcpDiscovery(origin, 'test:runtime-check')
   } else if (process.argv.includes('--expressions-only')) {
@@ -142,6 +145,7 @@ try {
       await healthy(origin)
     })
   } else {
+    await checkInputBindings(origin, 'test:runtime-check', async () => {await stop();start();await healthy(origin)})
     await checkMcpDiscovery(origin, 'test:runtime-check')
     await checkExpressions(origin, 'test:runtime-check', async () => {await stop();start();await healthy(origin)})
     await checkItems(origin, 'test:runtime-check', async () => {await stop();start();await healthy(origin)})

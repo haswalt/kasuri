@@ -9,7 +9,7 @@ pub fn examples() -> Vec<Value> {
 }
 pub fn capabilities() -> Value {
     json!({
-     "schemaVersion":workflow_schema::SCHEMA_VERSION,"implementedConnectorsTool":"connectors_list","plannedConnectorsExecutable":false,
+     "schemaVersion":workflow_schema::LATEST_SCHEMA_VERSION,"supportedSchemaVersions":workflow_schema::SUPPORTED_SCHEMA_VERSIONS,"implementedConnectorsTool":"connectors_list","plannedConnectorsExecutable":false,
      "buildSequence":["workflows_schema_get","workflows_examples_list","workflows_examples_get","connectors_list","workflows_validate","workflows_create","runs_simulate","runs_get"],
      "dataFlow":["A node receives one JSON value. One active parent passes its output; multiple incoming edges key active outputs by source node ID.","Join always returns branch-keyed data; explicit Merge policies consume selected source IDs. Arrays do not implicitly fan out; use Each / Loop.","Source ports: IF true/false/error; Switch named rules/fallback/error; other nodes success/error. Source/target are node IDs; there is no targetPort field.","Expressions read input/trigger/run and graph-ancestor outputs, using JSON Pointers. Skipped outputs are missing; use exists/coalesce."],
      "publication":["Create/update save a draft without activation. expectedVersion is the optimistic edit version from workflows_get, distinct from publication revision.","Real production triggers and reusable children use immutable published revisions. Execute Workflow Trigger selects outputNodeId and optional input/output contracts.","Create and publish dependency workflows before testing an Execute Workflow or Each caller. Child input stays one JSON value; await returns output in /output, background returns a child-run reference."],

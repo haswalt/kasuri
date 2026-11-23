@@ -1,0 +1,272 @@
+{
+  "schemaVersion": 2,
+  "id": "29-order-response-bindings",
+  "name": "Assemble a webhook response from multiple earlier results",
+  "description": "Synthetic importable example. Simulate with {}. No private data or credentials. Default order values belong only to this workflow example.",
+  "status": "draft",
+  "revision": 0,
+  "updatedAt": "",
+  "nodes": [
+    {
+      "id": "start",
+      "type": "Webhook",
+      "label": "Start",
+      "config": {
+        "authentication": "none"
+      }
+    },
+    {
+      "id": "body",
+      "type": "Parse Body",
+      "label": "Body",
+      "config": {
+        "format": "json"
+      }
+    },
+    {
+      "id": "valid",
+      "type": "IF / Condition",
+      "label": "Valid",
+      "config": {
+        "match": "all",
+        "conditions": [
+          {
+            "field": "valid",
+            "operator": "equals",
+            "valueType": "boolean",
+            "value": true
+          }
+        ]
+      }
+    },
+    {
+      "id": "order",
+      "type": "Expressions",
+      "label": "Order",
+      "config": {
+        "fields": {
+          "orderId": {
+            "op": "coalesce",
+            "args": [
+              {
+                "op": "input",
+                "path": "/value/orderId"
+              },
+              {
+                "op": "literal",
+                "value": "ORD-1001"
+              }
+            ]
+          },
+          "unitPriceMinor": {
+            "op": "coalesce",
+            "args": [
+              {
+                "op": "input",
+                "path": "/value/unitPriceMinor"
+              },
+              {
+                "op": "literal",
+                "value": 47449
+              }
+            ]
+          },
+          "quantity": {
+            "op": "coalesce",
+            "args": [
+              {
+                "op": "input",
+                "path": "/value/quantity"
+              },
+              {
+                "op": "literal",
+                "value": 2
+              }
+            ]
+          },
+          "currency": {
+            "op": "coalesce",
+            "args": [
+              {
+                "op": "input",
+                "path": "/value/currency"
+              },
+              {
+                "op": "literal",
+                "value": "GBP"
+              }
+            ]
+          },
+          "fulfilment": {
+            "op": "coalesce",
+            "args": [
+              {
+                "op": "input",
+                "path": "/value/fulfilment"
+              },
+              {
+                "op": "literal",
+                "value": "priority"
+              }
+            ]
+          }
+        }
+      }
+    },
+    {
+      "id": "calculate",
+      "type": "Expressions",
+      "label": "Calculate",
+      "config": {
+        "fields": {
+          "total": {
+            "op": "divide",
+            "args": [
+              {
+                "op": "multiply",
+                "args": [
+                  {
+                    "op": "input",
+                    "path": "/unitPriceMinor"
+                  },
+                  {
+                    "op": "input",
+                    "path": "/quantity"
+                  }
+                ]
+              },
+              {
+                "op": "literal",
+                "value": 100
+              }
+            ]
+          }
+        }
+      }
+    },
+    {
+      "id": "ship",
+      "type": "Execute Workflow",
+      "label": "Ship",
+      "config": {
+        "workflowId": "30-shipping-contract",
+        "mode": "await"
+      },
+      "inputBindings": {
+        "orderId": {
+          "op": "node",
+          "nodeId": "order",
+          "path": "/orderId"
+        },
+        "total": {
+          "op": "node",
+          "nodeId": "calculate",
+          "path": "/total"
+        },
+        "fulfilment": {
+          "op": "node",
+          "nodeId": "order",
+          "path": "/fulfilment"
+        }
+      }
+    },
+    {
+      "id": "reply",
+      "type": "Respond to Webhook",
+      "label": "Reply",
+      "config": {
+        "status": 201,
+        "body": {
+          "$input": ""
+        }
+      },
+      "inputBindings": {
+        "orderId": {
+          "op": "node",
+          "nodeId": "order",
+          "path": "/orderId"
+        },
+        "currency": {
+          "op": "node",
+          "nodeId": "order",
+          "path": "/currency"
+        },
+        "fulfilment": {
+          "op": "node",
+          "nodeId": "order",
+          "path": "/fulfilment"
+        },
+        "accepted": {
+          "op": "literal",
+          "value": true
+        },
+        "total": {
+          "op": "node",
+          "nodeId": "calculate",
+          "path": "/total"
+        },
+        "shipping": {
+          "op": "node",
+          "nodeId": "ship",
+          "path": "/output"
+        }
+      }
+    },
+    {
+      "id": "reject",
+      "type": "Respond to Webhook",
+      "label": "Reject",
+      "config": {
+        "status": 400,
+        "body": {
+          "error": "invalid_order"
+        }
+      }
+    }
+  ],
+  "edges": [
+    {
+      "id": "0",
+      "source": "start",
+      "target": "body"
+    },
+    {
+      "id": "1",
+      "source": "body",
+      "target": "valid"
+    },
+    {
+      "id": "2",
+      "source": "valid",
+      "target": "order",
+      "sourcePort": "true"
+    },
+    {
+      "id": "3",
+      "source": "valid",
+      "target": "reject",
+      "sourcePort": "false"
+    },
+    {
+      "id": "4",
+      "source": "order",
+      "target": "calculate"
+    },
+    {
+      "id": "5",
+      "source": "calculate",
+      "target": "ship"
+    },
+    {
+      "id": "6",
+      "source": "calculate",
+      "target": "reject",
+      "sourcePort": "error"
+    },
+    {
+      "id": "7",
+      "source": "ship",
+      "target": "reply"
+    }
+  ]
+}

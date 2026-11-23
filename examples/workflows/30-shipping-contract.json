@@ -1,0 +1,65 @@
+{
+  "schemaVersion": 1,
+  "id": "30-shipping-contract",
+  "name": "Synthetic shipping acknowledgement child",
+  "description": "Synthetic importable example. Simulate with {}. No private data or credentials. Default order values belong only to this workflow example.",
+  "status": "draft",
+  "revision": 0,
+  "updatedAt": "",
+  "nodes": [
+    {
+      "id": "start",
+      "type": "Execute Workflow Trigger",
+      "label": "Start",
+      "config": {
+        "outputNodeId": "ack",
+        "inputSchema": {
+          "type": "object"
+        },
+        "outputSchema": {
+          "type": "object",
+          "required": [
+            "status"
+          ],
+          "properties": {
+            "status": {
+              "enum": [
+                "accepted"
+              ]
+            }
+          }
+        }
+      }
+    },
+    {
+      "id": "wait",
+      "type": "Wait / Delay",
+      "label": "Wait",
+      "config": {
+        "delayMs": 200
+      }
+    },
+    {
+      "id": "ack",
+      "type": "Map / Transform",
+      "label": "Ack",
+      "config": {
+        "mapping": {
+          "status": "accepted"
+        }
+      }
+    }
+  ],
+  "edges": [
+    {
+      "id": "0",
+      "source": "start",
+      "target": "wait"
+    },
+    {
+      "id": "1",
+      "source": "wait",
+      "target": "ack"
+    }
+  ]
+}

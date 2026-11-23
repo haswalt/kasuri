@@ -498,6 +498,41 @@ impl Workspace {
         let manifests = manifests();
         for (node_index, node) in document.graph.nodes.iter().enumerate() {
             let result = (|| -> Result<(), ApiError> {
+                if !node.input_bindings.is_empty() {
+                    let fail = |message: &str| {
+                        let mut failure = error(400, message);
+                        failure.diagnostics.push(
+                            workflow_schema::Diagnostic::new(
+                                "INVALID_INPUT_BINDINGS",
+                                format!("/nodes/{node_index}/inputBindings"),
+                                message,
+                            )
+                            .node(&node.id, &node.kind),
+                        );
+                        failure
+                    };
+                    if node.is_trigger() {
+                        return Err(fail(
+                            "Assemble input on a downstream node; triggers expose the original event",
+                        ));
+                    }
+                    let config =
+                        serde_json::from_value(json!({"fields":node.input_bindings})).unwrap();
+                    let refs = connectors_core::expressions::validate(&config)
+                        .map_err(|_| fail("Invalid or over-budget input binding expressions"))?;
+                    let mut ancestors = std::collections::BTreeSet::new();
+                    let mut pending = vec![node.id.clone()];
+                    while let Some(id) = pending.pop() {
+                        for edge in document.graph.edges.iter().filter(|e| e.target == id) {
+                            if ancestors.insert(edge.source.clone()) {
+                                pending.push(edge.source.clone());
+                            }
+                        }
+                    }
+                    if refs.iter().any(|id| !ancestors.contains(id)) {
+                        return Err(fail("Input bindings may reference graph ancestors only"));
+                    }
+                }
                 if node.kind == "Map / Transform" {
                     let mapping = node.config.get("mapping").cloned().unwrap_or(Value::Null);
                     let mapping = if let Value::String(text) = mapping {
@@ -682,14 +717,16 @@ impl Workspace {
                 Ok(())
             })();
             result.map_err(|mut failure| {
-                failure.diagnostics.push(
-                    workflow_schema::Diagnostic::new(
-                        "INVALID_CONNECTOR_CONFIG",
-                        format!("/nodes/{node_index}/config"),
-                        failure.message.clone(),
-                    )
-                    .node(&node.id, &node.kind),
-                );
+                if failure.diagnostics.is_empty() {
+                    failure.diagnostics.push(
+                        workflow_schema::Diagnostic::new(
+                            "INVALID_CONNECTOR_CONFIG",
+                            format!("/nodes/{node_index}/config"),
+                            failure.message.clone(),
+                        )
+                        .node(&node.id, &node.kind),
+                    );
+                }
                 failure
             })?;
         }
@@ -1049,7 +1086,7 @@ impl Workspace {
                         .all(|b| b.is_ascii_alphanumeric() || b == b'-' || b == b'_')
             }) || doc.graph.id != id
                 || id.len() > 160
-                || doc.graph.schema_version != 1
+                || !workflow_schema::SUPPORTED_SCHEMA_VERSIONS.contains(&doc.graph.schema_version)
                 || doc.graph.name.len() > 160
                 || doc.graph.nodes.len() > 100
                 || doc.graph.edges.len() > 500

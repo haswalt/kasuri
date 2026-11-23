@@ -10,4 +10,4 @@ workflow-schema.workspace = true
 connectors-validation = { path = "../connectors-validation" }
 roxmltree = "=0.21.1"
 
-chrono = { version = "0.4", default-features = false, features = ["std"] }
+workflow-expressions = { path = "../workflow-expressions" }

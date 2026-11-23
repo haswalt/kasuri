@@ -154,20 +154,8 @@ pub fn validate(config: &Map<String, Value>) -> Result<(), FailureCode> {
         bad()
     }
 }
-pub fn number_cmp(a: &serde_json::Number, b: &serde_json::Number) -> Ordering {
-    let integer = |n: &serde_json::Number| {
-        n.as_i64()
-            .map(i128::from)
-            .or_else(|| n.as_u64().map(i128::from))
-    };
-    if let (Some(a), Some(b)) = (integer(a), integer(b)) {
-        return a.cmp(&b);
-    }
-    a.as_f64()
-        .unwrap()
-        .partial_cmp(&b.as_f64().unwrap())
-        .unwrap()
-}
+pub use workflow_expressions::number_cmp;
+
 fn equal(a: &Value, b: &Value) -> bool {
     if let (Value::Number(a), Value::Number(b)) = (a, b) {
         number_cmp(a, b) == Ordering::Equal

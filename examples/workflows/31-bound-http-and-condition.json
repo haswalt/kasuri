@@ -1,0 +1,194 @@
+{
+  "schemaVersion": 2,
+  "id": "31-bound-http-and-condition",
+  "name": "Send and verify earlier results without Merge nodes",
+  "description": "Synthetic importable example. Simulate with {}. No private data or credentials. Default order values belong only to this workflow example.",
+  "status": "draft",
+  "revision": 0,
+  "updatedAt": "",
+  "nodes": [
+    {
+      "id": "start",
+      "type": "Manual Trigger",
+      "label": "Start",
+      "config": {}
+    },
+    {
+      "id": "order",
+      "type": "Map / Transform",
+      "label": "Order",
+      "config": {
+        "mapping": {
+          "orderId": "ORD-1001",
+          "unitPriceMinor": 47449,
+          "quantity": 2
+        }
+      }
+    },
+    {
+      "id": "calculate",
+      "type": "Expressions",
+      "label": "Calculate",
+      "config": {
+        "fields": {
+          "total": {
+            "op": "divide",
+            "args": [
+              {
+                "op": "multiply",
+                "args": [
+                  {
+                    "op": "input",
+                    "path": "/unitPriceMinor"
+                  },
+                  {
+                    "op": "input",
+                    "path": "/quantity"
+                  }
+                ]
+              },
+              {
+                "op": "literal",
+                "value": 100
+              }
+            ]
+          }
+        }
+      }
+    },
+    {
+      "id": "send",
+      "type": "HTTP Request",
+      "label": "Send",
+      "config": {
+        "url": "https://httpbin.org/anything",
+        "method": "POST",
+        "body": {
+          "$input": ""
+        },
+        "simulationResponse": {
+          "status": 200,
+          "body": {
+            "json": {
+              "orderId": "ORD-1001",
+              "total": 948.98
+            }
+          }
+        }
+      },
+      "inputBindings": {
+        "orderId": {
+          "op": "node",
+          "nodeId": "order",
+          "path": "/orderId"
+        },
+        "total": {
+          "op": "node",
+          "nodeId": "calculate",
+          "path": "/total"
+        }
+      }
+    },
+    {
+      "id": "verify",
+      "type": "IF / Condition",
+      "label": "Verify",
+      "config": {
+        "match": "all",
+        "conditions": [
+          {
+            "field": "sameOrder",
+            "operator": "equals",
+            "valueType": "boolean",
+            "value": true
+          },
+          {
+            "field": "total",
+            "operator": "greater_than",
+            "valueType": "number",
+            "value": 0
+          }
+        ]
+      },
+      "inputBindings": {
+        "sameOrder": {
+          "op": "equals",
+          "args": [
+            {
+              "op": "node",
+              "nodeId": "send",
+              "path": "/body/json/orderId"
+            },
+            {
+              "op": "node",
+              "nodeId": "order",
+              "path": "/orderId"
+            }
+          ]
+        },
+        "total": {
+          "op": "node",
+          "nodeId": "calculate",
+          "path": "/total"
+        }
+      }
+    },
+    {
+      "id": "accepted",
+      "type": "Map / Transform",
+      "label": "Accepted",
+      "config": {
+        "mapping": {
+          "accepted": true,
+          "total": {
+            "$input": "/total"
+          }
+        }
+      }
+    },
+    {
+      "id": "rejected",
+      "type": "Map / Transform",
+      "label": "Rejected",
+      "config": {
+        "mapping": {
+          "accepted": false
+        }
+      }
+    }
+  ],
+  "edges": [
+    {
+      "id": "0",
+      "source": "start",
+      "target": "order"
+    },
+    {
+      "id": "1",
+      "source": "order",
+      "target": "calculate"
+    },
+    {
+      "id": "2",
+      "source": "calculate",
+      "target": "send"
+    },
+    {
+      "id": "3",
+      "source": "send",
+      "target": "verify"
+    },
+    {
+      "id": "4",
+      "source": "verify",
+      "target": "accepted",
+      "sourcePort": "true"
+    },
+    {
+      "id": "5",
+      "source": "verify",
+      "target": "rejected",
+      "sourcePort": "false"
+    }
+  ]
+}

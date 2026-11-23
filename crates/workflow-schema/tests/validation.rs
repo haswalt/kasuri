@@ -40,7 +40,7 @@ fn requires_unique_ids_single_trigger_and_valid_ports() {
 #[test]
 fn rejects_schema_mismatch_and_unbounded_retry_policy() {
     let mut w = graph();
-    w.schema_version = 2;
+    w.schema_version = 3;
     assert!(w.validate().is_err());
     let mut w = graph();
     w.nodes[0].retry.max_attempts = 100;

@@ -45,9 +45,9 @@ pub fn escape(s: &str) -> String {
 pub fn json_schema() -> Value {
     let mut schema =
         serde_json::to_value(schemars::schema_for!(Workflow)).expect("Rust graph schema");
-    schema["$id"] = json!("urn:kasuri:workflow-definition:v1");
+    schema["$id"] = json!("urn:kasuri:workflow-definition:v2");
     schema["description"] = json!(
-        "Kasuri workflow graph v1. Node connector kind is the 'type' field; edges reference stable node IDs with source, target and sourcePort (default success). One trigger and an acyclic connected graph are required at execution/publication. Export metadata such as status/updatedAt is accepted separately and is server-managed on MCP writes. Use workflows_validate for semantic and connector diagnostics."
+        "Kasuri workflow graph formats 1 and 2. Format 2 enables typed inputBindings. Node connector kind is the 'type' field; edges reference stable node IDs with source, target and sourcePort (default success). One trigger and an acyclic connected graph are required at execution/publication. Export metadata such as status/updatedAt is accepted separately and is server-managed on MCP writes. Use workflows_validate for semantic and connector diagnostics."
     );
     schema
 }
@@ -118,14 +118,14 @@ impl Workflow {
     pub fn diagnostics(&self) -> Vec<Diagnostic> {
         use std::collections::{BTreeMap, BTreeSet, VecDeque};
         let mut out = Vec::new();
-        if self.schema_version != super::SCHEMA_VERSION {
+        if !super::SUPPORTED_SCHEMA_VERSIONS.contains(&self.schema_version) {
             out.push(
                 Diagnostic::new(
                     "UNSUPPORTED_SCHEMA_VERSION",
                     "/schemaVersion",
                     "Unsupported workflow schema version",
                 )
-                .expected(json!(super::SCHEMA_VERSION)),
+                .expected(json!(super::SUPPORTED_SCHEMA_VERSIONS)),
             );
         }
         for (path, value) in [("/id", &self.id), ("/name", &self.name)] {
@@ -150,6 +150,16 @@ impl Workflow {
                 "",
                 "Workflow exceeds graph size limit",
             ));
+        }
+        if self.schema_version < 2 && self.nodes.iter().any(|n| !n.input_bindings.is_empty()) {
+            out.push(
+                Diagnostic::new(
+                    "FEATURE_REQUIRES_SCHEMA_VERSION",
+                    "/schemaVersion",
+                    "Typed input bindings require workflow format 2",
+                )
+                .expected(json!(2)),
+            );
         }
         let mut nodes = BTreeMap::new();
         for (i, n) in self.nodes.iter().enumerate() {

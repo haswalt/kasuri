@@ -36,8 +36,8 @@ fn discovery_and_every_tool_schema_are_valid_offline_and_public() {
         json!({}),
     );
     assert_eq!(
-        discovery["schema"]["properties"]["schemaVersion"]["const"],
-        1
+        discovery["schema"]["properties"]["schemaVersion"]["enum"],
+        json!([1, 2])
     );
     assert_eq!(
         discovery["schema"]["$defs"]["Node"]["properties"]["type"]["type"],

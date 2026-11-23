@@ -197,7 +197,14 @@ impl Run {
         }
         let mut ids = std::collections::BTreeSet::new();
         let mut trigger = false;
-        references(&Value::Object(node.config.clone()), &mut ids, &mut trigger);
+        if node.kind == "Expressions" {
+            references(&Value::Object(node.config.clone()), &mut ids, &mut trigger);
+        }
+        references(
+            &json!({"fields":node.input_bindings}),
+            &mut ids,
+            &mut trigger,
+        );
         let outputs: serde_json::Map<String, Value> = ids
             .intersection(&ancestors)
             .filter_map(|id| {
@@ -208,8 +215,7 @@ impl Run {
                 }
             })
             .collect();
-        let mut context =
-            json!({"nodes":outputs,"run":{"id":self.id,"startedAtMs":self.started_at_ms}});
+        let mut context = json!({"nodes":outputs,"run":{"id":self.id,"startedAtMs":self.started_at_ms},"workflow":{"id":self.workflow.id,"name":self.workflow.name,"revision":self.workflow.revision}});
         if trigger {
             context["trigger"] = self.input.clone();
         }
@@ -607,12 +613,12 @@ impl Run {
                     Value::Object(active.into_iter().collect())
                 };
                 check_value(&input)?;
-                let task = Task {
+                let mut task = Task {
                     id: self.task_id(&node.id, attempt),
                     idempotency_key: self.effect_key(&node.id),
                     node: node.clone(),
                     input,
-                    context: if node.kind == "Expressions" {
+                    context: if node.kind == "Expressions" || !node.input_bindings.is_empty() {
                         self.expression_context(node)
                     } else {
                         Value::Null
@@ -621,6 +627,23 @@ impl Run {
                     deadline_ms: now_ms.saturating_add(node.timeout_ms).min(self.deadline()),
                 };
                 self.dispatches += 1;
+                if !node.input_bindings.is_empty() {
+                    match workflow_expressions::assemble(&node.input_bindings, &task) {
+                        Ok(input) => task.input = input,
+                        Err(code) => {
+                            self.nodes
+                                .insert(node.id.clone(), NodeState::Running { task: task.clone() });
+                            self.apply(
+                                &task.id,
+                                Outcome::Failed {
+                                    failure: Failure::permanent(code),
+                                },
+                                now_ms,
+                            )?;
+                            return self.advance(now_ms, parallel);
+                        }
+                    }
+                }
                 self.nodes
                     .insert(node.id.clone(), NodeState::Running { task: task.clone() });
                 return Ok(Dispatch::Task(Box::new(task)));

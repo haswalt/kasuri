@@ -42,7 +42,19 @@ function inferredSchema(value:Json, depth=0): Json {
   if(typeof value==='object')return {type:'object',properties:Object.fromEntries(Object.entries(value).slice(0,60).map(([k,v])=>[k,inferredSchema(v,depth+1)]))}
   return {type:typeof value}
 }
-export function workflowInputHints(workflow: Workflow, nodeId: string | undefined, run: Run | null, fixture: string, outputOf=false): InputHints {
+export function assembledInputHints(bindings:Record<string,Json>,incoming:InputHints):InputHints {
+ const properties:Record<string,Json>={},sample:Record<string,Json>={}
+ for(const [key,value] of Object.entries(bindings)) {const expression=object(value),op=expression.op;let actual:Json|undefined;let schema:Json={}
+  if(op==='literal'){actual=expression.value;schema=inferredSchema(actual??null)}
+  else if(op==='input'&&typeof expression.path==='string'){actual=inputValue(incoming.sample,expression.path);schema=schemaAt(incoming.schema,expression.path)??{}}
+  else if(['add','subtract','multiply','divide','date_add_ms','date_parse','length'].includes(String(op)))schema={type:'number'}
+  else if(['concat','to_text','lower','upper','trim','date_iso'].includes(String(op)))schema={type:'string'}
+  else if(['exists','equals','greater_than','less_than','and','or','not'].includes(String(op)))schema={type:'boolean'}
+  properties[key]=schema;if(actual!==undefined)sample[key]=actual
+ }
+ return {sample,schema:{type:'object',properties}}
+}
+export function workflowInputHints(workflow: Workflow, nodeId: string | undefined, run: Run | null, fixture: string, outputOf=false, unbound=false): InputHints {
   let initial: Json={};try {initial=JSON.parse(fixture)}catch { /* The input editor reports invalid JSON. */ }
   const cache=new Map<string,InputHints>(),visiting=new Set<string>()
   function output(id:string,depth=0):InputHints {
@@ -51,7 +63,8 @@ export function workflowInputHints(workflow: Workflow, nodeId: string | undefine
     const node=workflow.nodes.find(n=>n.id===id);if(!node)return {sample:null}
     visiting.add(id)
     const incoming=workflow.edges.find(e=>e.target===id)
-    const parent=incoming?output(incoming.source,depth+1):{sample:initial}
+    const original=incoming?output(incoming.source,depth+1):{sample:initial}
+    const parent=Object.keys(node.inputBindings??{}).length?assembledInputHints(node.inputBindings!,original):original
     let hint:InputHints=parent
     if(node.type==='Expressions')hint={sample:null,schema:{type:'object',properties:Object.fromEntries(Object.keys(object(node.config.fields)).map(key=>[key,{}]))}}
     else if(node.type==='Merge'&&node.config.operation)hint={sample:null,schema:node.config.operation==='select'?{}:{type:'array'}}
@@ -89,5 +102,7 @@ export function workflowInputHints(workflow: Workflow, nodeId: string | undefine
   }
   if(outputOf&&nodeId)return output(nodeId)
   const source=workflow.edges.find(e=>e.target===nodeId)?.source
-  return source?output(source):{sample:initial}
+  const original=source?output(source):{sample:initial}
+  const selected=workflow.nodes.find(n=>n.id===nodeId)
+  return !unbound&&Object.keys(selected?.inputBindings??{}).length?assembledInputHints(selected!.inputBindings!,original):original
 }

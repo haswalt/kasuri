@@ -4,7 +4,7 @@ use serde_json::{Map, Value};
 
 pub mod collections;
 pub mod conditions;
-pub mod expressions;
+pub use workflow_expressions as expressions;
 pub mod parsing;
 pub mod routing;
 pub use connectors_validation as validation;

@@ -6,6 +6,8 @@ pub use contract::{Diagnostic, json_schema, shape_diagnostics};
 use serde_json::{Map, Value};
 
 pub const SCHEMA_VERSION: u32 = 1;
+pub const LATEST_SCHEMA_VERSION: u32 = 2;
+pub const SUPPORTED_SCHEMA_VERSIONS: &[u32] = &[1, 2];
 pub const MAX_NODES: usize = 100;
 pub const MAX_GRAPH_BYTES: usize = 1_048_576;
 pub const MAX_CONFIG_BYTES: usize = 65_536;
@@ -28,7 +30,7 @@ fn success() -> String {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "camelCase")]
 pub struct Workflow {
-    #[schemars(range(min = 1, max = 1))]
+    #[schemars(range(min = 1, max = 2))]
     pub schema_version: u32,
     #[schemars(length(min = 1, max = 160))]
     pub id: String,
@@ -63,6 +65,9 @@ pub struct Node {
     pub version: u32,
     #[serde(default)]
     pub config: Map<String, Value>,
+    /// Explicit typed assembly; omitted/empty retains legacy single-JSON input.
+    #[serde(default, skip_serializing_if = "Map::is_empty")]
+    pub input_bindings: Map<String, Value>,
     #[serde(default)]
     pub retry: RetryPolicy,
     #[serde(default = "timeout")]

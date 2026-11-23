@@ -7,6 +7,7 @@ import { connect, connectionError, ports, isTrigger } from '../lib/canvas'
 import { InvocationBuilder } from './InvocationBuilder'
 import { CollectionBuilder } from './CollectionBuilder'
 import { workflowInputHints } from '../lib/input-hints'
+import { InputBindingsBuilder } from './InputBindingsBuilder'
 import { ExpressionBuilder } from './ExpressionBuilder'
 import { RoutingBuilder } from './RoutingBuilder'
 import { ConditionBuilder } from './ConditionBuilder'
@@ -132,6 +133,7 @@ export function WorkflowEditor({
       update({
         ...workflow,
         status: 'draft',
+        schemaVersion: patch.inputBindings&&Object.keys(patch.inputBindings).length?2:workflow.schemaVersion,
         nodes: workflow.nodes.map((n) =>
           n.id === node.id ? { ...n, ...patch } : n
         )
@@ -629,6 +631,8 @@ export function WorkflowEditor({
                         </select>
                       </label>
                     )}
+                    {isTrigger(node.type)&&Object.keys(node.inputBindings??{}).length>0&&<p role="alert">Triggers expose the original event. <Button onClick={()=>editNode({inputBindings:{}})}>Remove trigger bindings</Button></p>}
+                    {!isTrigger(node.type)&&<InputBindingsBuilder key={node.id} workflow={workflow} nodeId={node.id} bindings={node.inputBindings??{}} hints={workflowInputHints(workflow,node.id,result,input,false,true)} nodeHints={id=>workflowInputHints(workflow,id,result,input,true)} triggerHints={workflowInputHints(workflow,workflow.nodes.find(n=>isTrigger(n.type))?.id,result,input)} onChange={inputBindings=>editNode({inputBindings})}/>}
                     {node.type==='Expressions'?<ExpressionBuilder config={node.config} workflow={workflow} nodeId={node.id} hints={inputHints} nodeHints={id=>workflowInputHints(workflow,id,result,input,true)} triggerHints={workflowInputHints(workflow,workflow.nodes.find(n=>isTrigger(n.type))?.id,result,input)} onChange={config=>editNode({config})}/>:node.type==='Switch / Router'||node.type==='Merge'?<RoutingBuilder kind={node.type} config={node.config} hints={inputHints} workflow={workflow} nodeId={node.id} nodeHints={id=>workflowInputHints(workflow,id,result,input,true)} onChange={config=>editNode({config})}/>:node.type==='Each / Loop'||node.type==='Execute Workflow'||node.type==='Execute Workflow Trigger' ? <InvocationBuilder node={node} workflow={workflow} hints={inputHints} onChange={config=>editNode({config})} /> : node.type === 'IF / Condition' ? <ConditionBuilder config={node.config} sample={inputHints.sample} schema={inputHints.schema} onChange={config => editNode({ config })} /> : node.type==='Filter'||node.type==='Sort'||node.type==='Split / Batch'||node.type==='Aggregate' ? <CollectionBuilder kind={node.type} config={node.config} hints={inputHints} onChange={config=>editNode({config})} /> : parameterKeys.map((key) => {
                       const meta = fields[node.type]?.find((f) => f.key === key)
                       const property = (

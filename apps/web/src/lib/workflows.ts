@@ -22,9 +22,11 @@ export function validateWorkflow(workflow: Workflow): string[] {
   if (!workflow.name.trim()) errors.push('Give your workflow a name.')
   if (!workflow.nodes.length) errors.push('Add a trigger to start the workflow.')
   const triggers = workflow.nodes.filter(n => ['Manual Trigger', 'Webhook', 'Schedule', 'Execute Workflow Trigger'].includes(n.type))
+  if(triggers.some(n=>Object.keys(n.inputBindings??{}).length))errors.push('Triggers cannot assemble input; remove their input bindings.')
   if (triggers.length !== 1) errors.push('Exactly one trigger is required; only the first step should be a trigger.')
   if (new Set(workflow.nodes.map(n => n.id)).size !== workflow.nodes.length) errors.push('Node IDs must be unique.')
   if (new Set(workflow.edges.map(e => e.id)).size !== workflow.edges.length) errors.push('Edge IDs must be unique.')
+  if(workflow.schemaVersion<2&&workflow.nodes.some(n=>Object.keys(n.inputBindings??{}).length))errors.push('Input bindings require workflow format 2.')
   const nodes = new Map(workflow.nodes.map(n => [n.id, n]))
   const counts = new Map(workflow.nodes.map(n => [n.id, 0]))
   const connections = new Set<string>()
@@ -62,8 +64,9 @@ export function validateWorkflow(workflow: Workflow): string[] {
 }
 export function parseWorkflow(text: string, validate = true, known:Workflow[]=[]): Workflow {
   const value = JSON.parse(text)
-  if (!value || value.schemaVersion !== 1 || typeof value.name !== 'string' || typeof value.description !== 'string' || !Array.isArray(value.nodes) || !Array.isArray(value.edges) || value.nodes.length > 100) throw new Error('Expected a version 1 workflow with up to 100 steps.')
+  if (!value || ![1,2].includes(value.schemaVersion) || typeof value.name !== 'string' || typeof value.description !== 'string' || !Array.isArray(value.nodes) || !Array.isArray(value.edges) || value.nodes.length > 100) throw new Error('Expected a version 1 or 2 workflow with up to 100 steps.')
   if (value.nodes.some((n: WorkflowNode) => !n || typeof n.id !== 'string' || typeof n.type !== 'string' || typeof n.label !== 'string' || !n.config || Array.isArray(n.config) || typeof n.config !== 'object')) throw new Error('Invalid node configuration.')
+  if(value.nodes.some((n:WorkflowNode)=>n.inputBindings!==undefined&&(!n.inputBindings||typeof n.inputBindings!=='object'||Array.isArray(n.inputBindings))))throw new Error('Input bindings must be an object.')
   if (value.nodes.some((n: WorkflowNode) => n.position !== undefined && (!n.position || !Number.isFinite(n.position.x) || !Number.isFinite(n.position.y)))) throw new Error('Invalid node position.')
   if (value.edges.some((e: Workflow['edges'][number]) => !e || typeof e.id !== 'string' || typeof e.source !== 'string' || typeof e.target !== 'string' || (e.sourcePort !== undefined && typeof e.sourcePort !== 'string'))) throw new Error('Invalid workflow edges.')
   const source=typeof value.id==='string'&&/^[A-Za-z0-9_-]{1,160}$/.test(value.id)?value.id:undefined

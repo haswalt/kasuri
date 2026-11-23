@@ -169,11 +169,11 @@ dependencies = [
 name = "connectors-core"
 version = "0.1.0"
 dependencies = [
- "chrono",
  "connector-sdk",
  "connectors-validation",
  "roxmltree",
  "serde_json",
+ "workflow-expressions",
  "workflow-schema",
 ]
 
@@ -1671,7 +1671,17 @@ dependencies = [
  "connectors-core",
  "serde",
  "serde_json",
+ "workflow-expressions",
  "workflow-schema",
+]
+
+[[package]]
+name = "workflow-expressions"
+version = "0.1.0"
+dependencies = [
+ "chrono",
+ "connector-sdk",
+ "serde_json",
 ]
 
 [[package]]

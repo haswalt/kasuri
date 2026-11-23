@@ -25,3 +25,23 @@ test('merge example keeps explicit deterministic source order on import',()=>{
  assert.deepEqual(validateWorkflow(workflow),[])
  assert.deepEqual(workflow.nodes.find(n=>n.id==='appended')!.config.sources,['stock','catalogue'])
 })
+
+test('format-two input assembly imports and guides configuration with assembled field names',()=>{
+ const workflow=parseWorkflow(readFileSync(new URL('../../../examples/workflows/29-order-response-bindings.json',import.meta.url),'utf8'))
+ assert.equal(workflow.schemaVersion,2)
+ assert.deepEqual(validateWorkflow(workflow),[])
+ const hints=workflowInputHints(workflow,'reply',null,'{}')
+ assert.ok(fieldChoices(hints).includes('/orderId'))
+ assert.ok(fieldChoices(hints).includes('/shipping'))
+ const original=workflowInputHints(workflow,'reply',null,'{}',false,true)
+ assert.ok(fieldChoices(original).includes('/output'))
+ const old={...workflow,schemaVersion:1 as const}
+ assert.ok(validateWorkflow(old).some(e=>e.includes('format 2')))
+})
+test('binding references and workflow scope defaults survive import without evaluating strings',()=>{
+ const workflow=parseWorkflow(readFileSync(new URL('../../../examples/workflows/31-bound-http-and-condition.json',import.meta.url),'utf8'))
+ assert.deepEqual(workflow.nodes.find(n=>n.id==='send')!.inputBindings!.orderId,{op:'node',nodeId:'order',path:'/orderId'})
+ assert.deepEqual(defaultExpression('workflow'),{op:'workflow',path:'/id'})
+ const raw=JSON.parse(readFileSync(new URL('../../../examples/workflows/31-bound-http-and-condition.json',import.meta.url),'utf8'));raw.nodes[0].inputBindings=[]
+ assert.throws(()=>parseWorkflow(JSON.stringify(raw)),/bindings must be an object/)
+})
