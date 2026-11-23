@@ -509,6 +509,32 @@ fn connector_inspection_describes_runtime_values_without_reading_workspace_data(
             );
         }
     }
+    let nested = data(
+        &mut ws,
+        &mut auth,
+        &token,
+        "connectors_get",
+        json!({"kind":"Map / Transform","config":{"mapping":"{\"auth\":{\"token\":\"nested-private-value\",\"retries\":[\"array-private-value\"]}}"}}),
+    );
+    assert_eq!(
+        nested["outputSchema"]["properties"]["auth"]["properties"]["token"]["type"],
+        "string"
+    );
+    let text = nested.to_string();
+    assert!(!text.contains("nested-private-value"));
+    assert!(!text.contains("array-private-value"));
+    let expression = data(
+        &mut ws,
+        &mut auth,
+        &token,
+        "connectors_get",
+        json!({"kind":"Expressions","config":{"fields":{"apiKey":{"op":"literal","value":"literal-private-value"}}}}),
+    );
+    assert_eq!(
+        expression["outputSchema"]["properties"]["apiKey"]["type"],
+        "string"
+    );
+    assert!(!expression.to_string().contains("literal-private-value"));
     assert!(ws.workflows.is_empty());
     assert!(ws.runs.is_empty());
 }
