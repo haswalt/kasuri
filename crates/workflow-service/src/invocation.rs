@@ -247,7 +247,12 @@ impl Workspace {
                     let terminal = r
                         .status()
                         .is_ok_and(|s| matches!(s, RunStatus::Failed | RunStatus::Cancelled));
-                    let run = r.restore().ok();
+                    // Only runs awaiting children need their state restored.
+                    let run = if r.children.iter().any(|c| c.awaited) {
+                        r.restore().ok()
+                    } else {
+                        None
+                    };
                     r.children
                         .iter()
                         .filter(move |c| {

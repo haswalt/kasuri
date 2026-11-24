@@ -7,7 +7,32 @@ use serde_json::{Value, json};
 use std::collections::BTreeMap;
 use workflow_schema::Workflow;
 
+pub mod compact;
 pub const CHECKPOINT_VERSION: u32 = 1;
+/// A checkpoint's full run state as JSON, whether it is stored compactly or not.
+/// Read checkpoints through this (or [`Run::restore`]), never as raw JSON.
+pub fn checkpoint_state(text: &str) -> Result<Value, EngineError> {
+    compact::decode(text, MAX_CHECKPOINT_BYTES).map_err(|e| error(&e))
+}
+/// Encoded JSON size without building the string.
+fn encoded_len(value: &Value) -> usize {
+    serialized_len(value)
+}
+fn serialized_len(value: &impl Serialize) -> usize {
+    struct Count(usize);
+    impl std::io::Write for Count {
+        fn write(&mut self, bytes: &[u8]) -> std::io::Result<usize> {
+            self.0 += bytes.len();
+            Ok(bytes.len())
+        }
+        fn flush(&mut self) -> std::io::Result<()> {
+            Ok(())
+        }
+    }
+    let mut count = Count(0);
+    let _ = serde_json::to_writer(&mut count, value);
+    count.0
+}
 const MAX_CHECKPOINT_BYTES: usize = 2_097_152;
 const MAX_VALUE_BYTES: usize = 65_536;
 /// Legacy graphs retain one in-flight slot. Explicit split markers opt into a bound.
@@ -260,7 +285,7 @@ impl Run {
             dispatches: 0,
             failure: None,
         };
-        run.checkpoint()?;
+        run.check_size()?;
         Ok(run)
     }
     /// The immutable original trigger input, separate from intermediate outputs.
@@ -286,12 +311,19 @@ impl Run {
         self.dispatches
     }
 
+    /// The run's state, with repeated large values stored once (see [`compact`]).
+    /// The 2 MiB budget applies to the full, expanded state.
     pub fn checkpoint(&self) -> Result<String, EngineError> {
-        let text = serde_json::to_string(self).map_err(|_| error("Cannot serialize checkpoint"))?;
-        if text.len() > MAX_CHECKPOINT_BYTES {
+        self.check_size()?;
+        let state = serde_json::to_value(self).map_err(|_| error("Cannot serialize checkpoint"))?;
+        Ok(compact::encode(state))
+    }
+    /// Enforce the 2 MiB budget on the full state without encoding a checkpoint.
+    fn check_size(&self) -> Result<(), EngineError> {
+        if serialized_len(self) > MAX_CHECKPOINT_BYTES {
             return Err(error("Checkpoint exceeds 2 MiB; reduce output sizes"));
         }
-        Ok(text)
+        Ok(())
     }
 
     /// Restore only host-owned checkpoints, never arbitrary user-provided run state.
@@ -299,7 +331,15 @@ impl Run {
         if text.len() > MAX_CHECKPOINT_BYTES {
             return Err(error("Checkpoint exceeds size limit"));
         }
-        let run: Self = serde_json::from_str(text).map_err(|_| error("Invalid checkpoint JSON"))?;
+        let run: Self = if compact::is_compact_text(text) {
+            let state = compact::decode(text, MAX_CHECKPOINT_BYTES).map_err(|e| error(&e))?;
+            if encoded_len(&state) > MAX_CHECKPOINT_BYTES {
+                return Err(error("Checkpoint exceeds size limit"));
+            }
+            serde_json::from_value(state).map_err(|_| error("Invalid checkpoint JSON"))?
+        } else {
+            serde_json::from_str(text).map_err(|_| error("Invalid checkpoint JSON"))?
+        };
         if run.checkpoint_version != CHECKPOINT_VERSION {
             return Err(error("Unsupported checkpoint version"));
         }
@@ -459,7 +499,7 @@ impl Run {
         // Apply each state transition atomically, including checkpoint budget enforcement.
         let mut candidate = self.clone();
         let dispatch = candidate.advance(now_ms, false)?;
-        candidate.checkpoint()?;
+        candidate.check_size()?;
         *self = candidate;
         Ok(dispatch)
     }
@@ -467,7 +507,7 @@ impl Run {
     pub fn next_parallel(&mut self, now_ms: u64) -> Result<Dispatch, EngineError> {
         let mut candidate = self.clone();
         let dispatch = candidate.advance(now_ms, true)?;
-        candidate.checkpoint()?;
+        candidate.check_size()?;
         *self = candidate;
         Ok(dispatch)
     }
@@ -691,7 +731,7 @@ impl Run {
     ) -> Result<(), EngineError> {
         let mut candidate = self.clone();
         candidate.apply(task_id, outcome, now_ms)?;
-        candidate.checkpoint()?;
+        candidate.check_size()?;
         *self = candidate;
         Ok(())
     }
