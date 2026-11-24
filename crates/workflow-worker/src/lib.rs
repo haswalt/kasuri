@@ -231,12 +231,11 @@ fn set_document_security_headers(headers: &mut Headers) -> Result<()> {
 pub struct WorkflowWorkspace {
     state: State,
     env: Env,
-    /// The last decoded workspace and the record generation it was decoded from.
-    /// Reused while that generation is still the committed one.
+    /// The last committed workspace this object read or wrote, reused while it is
+    /// still the committed one.
     cache: WorkspaceCache,
 }
-pub(crate) type WorkspaceCache =
-    std::rc::Rc<std::cell::RefCell<Option<(f64, workflow_service::Workspace)>>>;
+pub(crate) use storage::WorkspaceCache;
 impl DurableObject for WorkflowWorkspace {
     fn new(state: State, env: Env) -> Self {
         Self {

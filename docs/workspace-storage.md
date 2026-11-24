@@ -1,6 +1,6 @@
 # Scalable workspace storage and execution
 
-Status: **proposal, not implemented.** Until it is, the limits in [deployment](deployment.md) apply: a 1.5 MB budget per workspace, retention of up to 100 runs, and admission that stops new runs once state that retention cannot reclaim reaches 75% of that budget.
+Status: **stage 1 in progress.** Phases 1 to 3 are implemented: table storage is available behind `WORKSPACE_STORAGE=tables` (see [workspace storage layout](deployment.md#workspace-storage-layout)), and the default is still whole-workspace generations. Until later phases land, the limits in [deployment](deployment.md) apply: a 1.5 MB budget per workspace, retention of up to 100 runs, and admission that stops new runs once state that retention cannot reclaim reaches 75% of that budget.
 
 Priorities, in order: **scalability** (concurrent runs and history grow with demand, not with one object's limits), **performance** (an operation's latency and CPU don't grow with workspace size), then **cost** (no work or writes beyond what an operation changes).
 
@@ -63,16 +63,21 @@ Non-goals:
 
 All tables live in the workspace Durable Object's SQLite database, next to the existing Data Tables tables (`crates/workflow-worker/src/data.rs`), which already work this way.
 
+As implemented in phase 3 (`crates/workflow-service/src/store_sql.rs`):
+
 | Table | Key | Columns | Notes |
 | --- | --- | --- | --- |
-| `ws_meta` | `key` | `value` | Format version, `audit_sequence`, and the `management` value. Management stays one row: it is already bounded (64 credentials, 128 clients, 64 requests, 64 receipts). |
-| `ws_workflows` | `id` | `version`, `status`, `archived_at`, `updated_at`, `body` | One row per workflow document. |
-| `ws_revisions` | `(workflow_id, revision)` | `created_at`, `body` | Published graphs. |
-| `ws_runs` | `id` | `workflow_id`, `status`, `mode`, `created_at`, `wake_at`, `root_id`, `parent_id`, `webhook_open`, `body_bytes`, `summary`, `body` | One row per run. `body` is today's `RunRecord`. The other columns are derived from it on every write and indexed for queries. |
-| `ws_audit` | `seq` | `at`, `body` | Append-only. |
-| `ws_webhooks` | `endpoint_id` | `workflow_id`, `token_hash` | Absorbs the `webhook_auth` descriptor table from haswalt/kasuri#14. |
+| `ws_meta` | `key` | `value` | `format` (the layout version), `commit` (a token that changes with every commit, so the worker can tell whether its decoded copy is current) and `workspace` (everything that isn't a keyed collection, including `management`, which is already bounded: 64 credentials, 128 clients, 64 requests, 64 receipts). |
+| `ws_workflows` | `id` | `ord`, `body` | One row per workflow document. |
+| `ws_revisions` | `id` (`workflow/revision`) | `ord`, `body` | Published graphs. |
+| `ws_runs` | `id` | `ord`, `status`, `created_at`, `wake_at`, `response_open`, `response_deadline`, `parent_id`, `root_id`, `summary`, `body` | One row per run. `body` is the `RunRecord`. The other columns are derived from it on every write (`RunColumns`). |
+| `ws_run_awaits` | `(child_id, run_id)` | | Child runs each run awaits and hasn't collected, for retention protection. |
+| `ws_audit` | `id` | `ord`, `body` | Append-only. |
+| `ws_webhooks` | `id` (endpoint) | `ord`, `body` | Webhook registrations. The `webhook_auth` descriptor table from haswalt/kasuri#14 is still written alongside, whenever a workflow, revision or webhook changes. |
 
-Indexes: `ws_runs(status)`, `ws_runs(wake_at)`, `ws_runs(created_at)`, `ws_runs(root_id)` and `ws_runs(parent_id)`.
+`ord` keeps each collection's document order with sparse keys, so prepending a run or appending an audit entry never rewrites other rows.
+
+Indexes: `ws_runs(ord, id)`, `ws_runs(status)`, `ws_runs(wake_at)`, `ws_runs(response_open, response_deadline)`, `ws_runs(parent_id)`, `ws_runs(root_id)` and `ws_run_awaits(run_id)`. A native test checks each run query's SQLite plan: none visits every run, and run lists come out of the order index without sorting.
 
 `webhook_events` is dropped. Nothing writes it, and it has been empty since webhook deduplication moved into workflows.
 
@@ -133,15 +138,15 @@ Invocation rules that scan every run today, such as `invocation_protected` and c
 
 ### Migration
 
-On the first load after upgrading, when `ws_meta` has no format version:
+`WORKSPACE_STORAGE` chooses the layout. When a workspace is loaded in a layout other than the configured one, it migrates:
 
-1. Read the current state as today: the latest record generation, or the legacy single row.
-2. In **one transaction**, insert every entity into the new tables, derive the run columns, set the `ws_meta` format version, and delete `workspace_records`, `webhook_auth` and the legacy `workspace` table.
-3. If anything fails, the transaction rolls back and the workspace keeps running on the old layout until the next attempt.
+1. **To tables:** read the current state as today (the latest record generation, or the legacy single row). In **one transaction**, insert every entity into the tables, derive the run columns, rewrite `webhook_auth`, set the `ws_meta` format version, and drop `workspace_records` and the legacy `workspace` table.
+2. **Back to generations:** load the workspace from the tables and, in one transaction, write it as a record generation and drop the tables.
+3. If anything fails, the transaction rolls back, the workspace keeps its current layout, and the next load tries again.
 
 Notes:
 
-- **Downgrade:** going back to a release without the new layout would not be able to read migrated workspaces. Either ship the migration in a release that can still read and write the old layout (kept for one release), or document downgrade as unsupported after migration.
+- **Downgrade:** releases before phase 3 can't read the tables. Phase 3 can still read and write both layouts, so downgrading means setting `WORKSPACE_STORAGE=generations` first. Phase 4 makes tables the default and removes generations.
 - **Size:** the migration's own transaction rewrites at most the current 1.5 MB workspace, so it stays within today's limits.
 - **Backups:** backups remain whole-volume or whole-object, so the procedures in the self-hosting guide don't change.
 
@@ -264,7 +269,7 @@ Self-hosting implements `WorkBus` and `RunStore` with whatever it has: a small i
 
 1. **Store trait with an in-memory implementation** that reproduces today's behaviour, with no storage format change. All existing tests pass through it.
 2. **Run queries:** move run lookups, listing, due-run selection, `next_wake`, and invocation and Each queries onto the trait. Add the summary columns.
-3. **SQLite store and migration** in the worker. The old layout is still readable for rollback if that option is chosen.
+3. **SQLite store and migration** in the worker. The old layout is still readable for rollback if that option is chosen. *Implemented:* `SqlStore` over a minimal SQL interface (Durable Object SQLite in the worker, SQLite in native tests), opt-in with `WORKSPACE_STORAGE=tables`, migrating in both directions.
 4. **Incremental commits** become the default. Record generations, the decode cache and whole-document `checkpoint()` are removed.
 5. **Retention policies** replace `MAX_STATE_BYTES`, and the admission guard is removed or replaced with the indexed active-bytes check.
 6. **`WorkBus` and `RunStore`** (stage 2): define both, with Cloudflare Queues and per-run Durable Object implementations plus in-memory ones for tests. Move top-level runs onto queue-driven execution behind a flag.

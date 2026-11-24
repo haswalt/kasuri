@@ -3,13 +3,90 @@
 use serde_json::{Value, json};
 use std::{fs, path::PathBuf};
 use workflow_service::Workspace;
+use workflow_service::store::sql::{SqlExec, SqlStore, SqlValue};
 use workflow_service::store::{
-    ChangeSet, Collection, MemoryStore, RunQueries, StoreError, Tracked,
+    ChangeSet, Collection, MemoryStore, RunQueries, Store, StoreError, Tracked,
 };
+
+/// Every test runs against each store implementation.
+trait TestStore: Store + RunQueries<Error = StoreError> {
+    fn fresh() -> Self;
+}
+impl TestStore for MemoryStore {
+    fn fresh() -> Self {
+        MemoryStore::default()
+    }
+}
+/// A real SQLite database, standing in for Durable Object SQLite.
+/// When `plans` is set, every query's plan is recorded before it runs.
+struct Sqlite {
+    connection: rusqlite::Connection,
+    plans: std::cell::RefCell<Option<Vec<String>>>,
+}
+impl SqlExec for Sqlite {
+    fn query(&self, sql: &str, params: Vec<SqlValue>) -> Result<Vec<Vec<SqlValue>>, StoreError> {
+        use rusqlite::types::{Value as V, ValueRef};
+        let fail = |e: rusqlite::Error| StoreError::Invalid(format!("{sql}: {e}"));
+        let params: Vec<V> = params
+            .into_iter()
+            .map(|p| match p {
+                SqlValue::Null => V::Null,
+                SqlValue::Integer(i) => V::Integer(i),
+                SqlValue::Real(f) => V::Real(f),
+                SqlValue::Text(t) => V::Text(t),
+            })
+            .collect();
+        if let Some(plans) = self.plans.borrow_mut().as_mut() {
+            let mut explain = self
+                .connection
+                .prepare(&format!("EXPLAIN QUERY PLAN {sql}"))
+                .map_err(fail)?;
+            let steps: Vec<String> = explain
+                .query_map(rusqlite::params_from_iter(params.clone()), |row| row.get(3))
+                .map_err(fail)?
+                .collect::<Result<_, _>>()
+                .map_err(fail)?;
+            plans.push(steps.join("; "));
+        }
+        let mut statement = self.connection.prepare(sql).map_err(fail)?;
+        let columns = statement.column_count();
+        let mut rows = statement
+            .query(rusqlite::params_from_iter(params))
+            .map_err(fail)?;
+        let mut out = Vec::new();
+        while let Some(row) = rows.next().map_err(fail)? {
+            let mut values = Vec::with_capacity(columns);
+            for i in 0..columns {
+                values.push(match row.get_ref(i).map_err(fail)? {
+                    ValueRef::Null => SqlValue::Null,
+                    ValueRef::Integer(i) => SqlValue::Integer(i),
+                    ValueRef::Real(f) => SqlValue::Real(f),
+                    ValueRef::Text(t) => SqlValue::Text(String::from_utf8_lossy(t).into_owned()),
+                    ValueRef::Blob(_) => return Err(StoreError::Invalid("unexpected blob".into())),
+                });
+            }
+            out.push(values);
+        }
+        Ok(out)
+    }
+}
+fn sqlite() -> SqlStore<Sqlite> {
+    let store = SqlStore::new(Sqlite {
+        connection: rusqlite::Connection::open_in_memory().unwrap(),
+        plans: Default::default(),
+    });
+    store.create().unwrap();
+    store
+}
+impl TestStore for SqlStore<Sqlite> {
+    fn fresh() -> Self {
+        sqlite()
+    }
+}
 
 /// Commit, reload from the store, and require the reload to equal the workspace
 /// that was committed. Returns the reloaded workspace and what was written.
-fn cycle(store: &mut MemoryStore, tracked: &mut Tracked) -> (Tracked, ChangeSet) {
+fn cycle<S: TestStore>(store: &mut S, tracked: &mut Tracked) -> (Tracked, ChangeSet) {
     let written = tracked.commit(store).unwrap();
     let reloaded = Tracked::load(store).unwrap();
     assert_eq!(
@@ -22,7 +99,7 @@ fn cycle(store: &mut MemoryStore, tracked: &mut Tracked) -> (Tracked, ChangeSet)
 }
 /// The store answers every run query from its columns exactly as the workspace
 /// answers it from runs in memory.
-fn assert_queries_match(store: &MemoryStore, ws: &Workspace) {
+fn assert_queries_match<S: TestStore>(store: &S, ws: &Workspace) {
     assert_eq!(
         store.next_run_wake().unwrap(),
         ws.next_run_wake().unwrap(),
@@ -101,9 +178,8 @@ fn only(changes: &ChangeSet, collection: Collection) -> bool {
         && changes.deletes.iter().all(|k| k.collection == collection)
 }
 
-#[test]
-fn an_empty_store_is_an_empty_workspace() {
-    let mut store = MemoryStore::default();
+fn an_empty_store_is_an_empty_workspace<S: TestStore>() {
+    let mut store = S::fresh();
     let mut tracked = Tracked::load(&store).unwrap();
     assert!(tracked.workspace.workflows.is_empty());
     let (_, written) = cycle(&mut store, &mut tracked);
@@ -113,9 +189,8 @@ fn an_empty_store_is_an_empty_workspace() {
     assert!(tracked.commit(&mut store).unwrap().is_empty());
 }
 
-#[test]
-fn operations_write_only_the_entities_they_change() {
-    let mut store = MemoryStore::default();
+fn operations_write_only_the_entities_they_change<S: TestStore>() {
+    let mut store = S::fresh();
     let mut tracked = Tracked::load(&store).unwrap();
     for id in ["alpha", "beta", "gamma"] {
         handle(
@@ -187,9 +262,8 @@ fn operations_write_only_the_entities_they_change() {
     );
 }
 
-#[test]
-fn newest_first_runs_keep_their_order_and_existing_rows() {
-    let mut store = MemoryStore::default();
+fn newest_first_runs_keep_their_order_and_existing_rows<S: TestStore>() {
+    let mut store = S::fresh();
     let mut tracked = Tracked::load(&store).unwrap();
     handle(
         &mut tracked.workspace,
@@ -232,9 +306,8 @@ fn newest_first_runs_keep_their_order_and_existing_rows() {
     assert_eq!(ids, expected, "newest first, as before");
 }
 
-#[test]
-fn retention_and_audit_trimming_become_deletes() {
-    let mut store = MemoryStore::default();
+fn retention_and_audit_trimming_become_deletes<S: TestStore>() {
+    let mut store = S::fresh();
     let mut tracked = Tracked::load(&store).unwrap();
     // Terminal runs beyond the 100-run retention are pruned on commit.
     let doc = instant("flow");
@@ -294,9 +367,8 @@ fn retention_and_audit_trimming_become_deletes() {
     assert!(!written.deletes.is_empty());
 }
 
-#[test]
-fn webhook_rotation_replaces_the_registration_row() {
-    let mut store = MemoryStore::default();
+fn webhook_rotation_replaces_the_registration_row<S: TestStore>() {
+    let mut store = S::fresh();
     let mut tracked = Tracked::load(&store).unwrap();
     let mut doc = workflow("hook", 0);
     doc["nodes"][0] =
@@ -331,9 +403,8 @@ fn webhook_rotation_replaces_the_registration_row() {
     assert_eq!(tracked.workspace.webhooks.len(), 1);
 }
 
-#[test]
-fn reordered_collections_reload_in_the_new_order() {
-    let mut store = MemoryStore::default();
+fn reordered_collections_reload_in_the_new_order<S: TestStore>() {
+    let mut store = S::fresh();
     let mut tracked = Tracked::load(&store).unwrap();
     for id in ["a", "b", "c"] {
         handle(
@@ -357,9 +428,8 @@ fn reordered_collections_reload_in_the_new_order() {
     assert_eq!(ids, ["c", "b", "a"]);
 }
 
-#[test]
-fn duplicate_entity_keys_are_rejected() {
-    let store = MemoryStore::default();
+fn duplicate_entity_keys_are_rejected<S: TestStore>() {
+    let store = S::fresh();
     let mut tracked = Tracked::load(&store).unwrap();
     handle(
         &mut tracked.workspace,
@@ -384,13 +454,12 @@ fn examples() -> PathBuf {
 fn read(path: &str) -> Value {
     serde_json::from_str(&fs::read_to_string(examples().join(path)).unwrap()).unwrap()
 }
-fn step(store: &mut MemoryStore, tracked: Tracked) -> Tracked {
+fn step<S: TestStore>(store: &mut S, tracked: Tracked) -> Tracked {
     let mut tracked = tracked;
     cycle(store, &mut tracked).0
 }
 
-#[test]
-fn every_published_example_runs_through_the_store() {
+fn every_published_example_runs_through_the_store<S: TestStore>() {
     let cases: Vec<Value> = read("scenarios.json").as_array().unwrap().clone();
     assert!(!cases.is_empty());
     for case in cases {
@@ -405,7 +474,7 @@ fn every_published_example_runs_through_the_store() {
             if mode == "run" && has_http {
                 continue; // real HTTP is not available in native tests
             }
-            let mut store = MemoryStore::default();
+            let mut store = S::fresh();
             let loaded = Tracked::load(&store).unwrap();
             let mut tracked = step(&mut store, loaded);
             for file in case["dependencies"].as_array().into_iter().flatten() {
@@ -508,10 +577,9 @@ fn every_published_example_runs_through_the_store() {
     }
 }
 
-#[test]
-fn webhook_response_windows_are_indexed_until_they_close() {
+fn webhook_response_windows_are_indexed_until_they_close<S: TestStore>() {
     let graph = json!({"schemaVersion":1,"id":"response","name":"Response","status":"draft","updatedAt":"","nodes":[{"id":"start","type":"Webhook","label":"Webhook","config":{"authentication":"none"}},{"id":"wait","type":"Wait / Delay","label":"Wait","config":{"delayMs":6000}},{"id":"respond","type":"Respond to Webhook","label":"Respond","config":{"status":201,"body":{"$input":""}}}],"edges":[{"id":"a","source":"start","target":"wait"},{"id":"b","source":"wait","target":"respond"}]});
-    let mut store = MemoryStore::default();
+    let mut store = S::fresh();
     let mut tracked = Tracked::load(&store).unwrap();
     handle(
         &mut tracked.workspace,
@@ -565,11 +633,10 @@ fn webhook_response_windows_are_indexed_until_they_close() {
     );
 }
 
-#[test]
-fn awaited_children_and_their_parents_are_indexed_as_protected() {
+fn awaited_children_and_their_parents_are_indexed_as_protected<S: TestStore>() {
     let child = json!({"schemaVersion":1,"id":"child","name":"Child","status":"draft","updatedAt":"","nodes":[{"id":"trigger","type":"Execute Workflow Trigger","label":"Invoked","config":{"outputNodeId":"result"}},{"id":"wait","type":"Wait / Delay","label":"Wait","config":{"delayMs":100}},{"id":"result","type":"Map / Transform","label":"Result","config":{"mapping":{"answer":42}}}],"edges":[{"id":"a","source":"trigger","target":"wait"},{"id":"b","source":"wait","target":"result"}]});
     let parent = json!({"schemaVersion":1,"id":"parent","name":"Parent","status":"draft","updatedAt":"","nodes":[{"id":"start","type":"Manual Trigger","label":"Start","config":{}},{"id":"invoke","type":"Execute Workflow","label":"Call child","config":{"workflowId":"child","mode":"await"}}],"edges":[{"id":"a","source":"start","target":"invoke"}]});
-    let mut store = MemoryStore::default();
+    let mut store = S::fresh();
     let mut tracked = Tracked::load(&store).unwrap();
     handle(
         &mut tracked.workspace,
@@ -634,4 +701,162 @@ fn awaited_children_and_their_parents_are_indexed_as_protected() {
         !store.run_protected(&child_id).unwrap(),
         "released once collected"
     );
+}
+
+macro_rules! for_each_store {
+    ($($name:ident: $store:ty),*) => {$(
+        mod $name {
+            use super::*;
+            #[test]
+            fn an_empty_store_is_an_empty_workspace() {
+                super::super::an_empty_store_is_an_empty_workspace::<$store>();
+            }
+            #[test]
+            fn operations_write_only_the_entities_they_change() {
+                super::super::operations_write_only_the_entities_they_change::<$store>();
+            }
+            #[test]
+            fn newest_first_runs_keep_their_order_and_existing_rows() {
+                super::super::newest_first_runs_keep_their_order_and_existing_rows::<$store>();
+            }
+            #[test]
+            fn retention_and_audit_trimming_become_deletes() {
+                super::super::retention_and_audit_trimming_become_deletes::<$store>();
+            }
+            #[test]
+            fn webhook_rotation_replaces_the_registration_row() {
+                super::super::webhook_rotation_replaces_the_registration_row::<$store>();
+            }
+            #[test]
+            fn reordered_collections_reload_in_the_new_order() {
+                super::super::reordered_collections_reload_in_the_new_order::<$store>();
+            }
+            #[test]
+            fn duplicate_entity_keys_are_rejected() {
+                super::super::duplicate_entity_keys_are_rejected::<$store>();
+            }
+            #[test]
+            fn every_published_example_runs_through_the_store() {
+                super::super::every_published_example_runs_through_the_store::<$store>();
+            }
+            #[test]
+            fn webhook_response_windows_are_indexed_until_they_close() {
+                super::super::webhook_response_windows_are_indexed_until_they_close::<$store>();
+            }
+            #[test]
+            fn awaited_children_and_their_parents_are_indexed_as_protected() {
+                super::super::awaited_children_and_their_parents_are_indexed_as_protected::<$store>();
+            }
+        }
+    )*};
+}
+mod stores {
+    use super::*;
+    for_each_store!(memory: MemoryStore, sqlite: SqlStore<Sqlite>);
+}
+
+#[test]
+fn sqlite_tables_record_their_format_and_commit() {
+    let store = sqlite();
+    assert_eq!(
+        store.format().unwrap(),
+        None,
+        "created but not yet holding a workspace"
+    );
+    store.set_format().unwrap();
+    store.set_commit("first").unwrap();
+    assert_eq!(store.format().unwrap(), Some(1));
+    assert_eq!(store.commit().unwrap().as_deref(), Some("first"));
+    store.drop_tables().unwrap();
+    assert_eq!(store.format().unwrap(), None, "no tables at all");
+}
+
+#[test]
+fn a_rolled_back_sqlite_commit_leaves_the_previous_workspace() {
+    let mut store = sqlite();
+    let mut tracked = Tracked::load(&store).unwrap();
+    handle(
+        &mut tracked.workspace,
+        "PUT",
+        "/api/workflows/a",
+        workflow("a", 1),
+        0,
+        "",
+    );
+    let (before, _) = cycle(&mut store, &mut tracked);
+
+    let mut tracked = before.clone();
+    handle(
+        &mut tracked.workspace,
+        "PUT",
+        "/api/workflows/b",
+        workflow("b", 1),
+        1,
+        "",
+    );
+    store.sql().query("BEGIN", Vec::new()).unwrap();
+    tracked.commit(&mut store).unwrap();
+    // The host's transaction fails after the rows were written.
+    store.sql().query("ROLLBACK", Vec::new()).unwrap();
+
+    let reloaded = Tracked::load(&store).unwrap();
+    assert_eq!(
+        serde_json::to_value(&reloaded.workspace).unwrap(),
+        serde_json::to_value(&before.workspace).unwrap()
+    );
+    assert_queries_match(&store, &before.workspace);
+}
+
+#[test]
+fn sqlite_run_queries_use_indexes() {
+    let mut store = sqlite();
+    let mut tracked = Tracked::load(&store).unwrap();
+    handle(
+        &mut tracked.workspace,
+        "PUT",
+        "/api/workflows/flow",
+        workflow("flow", 50),
+        0,
+        "",
+    );
+    for i in 0..20 {
+        handle(
+            &mut tracked.workspace,
+            "POST",
+            "/api/runs",
+            json!({"workflowId":"flow","mode":"run","input":{}}),
+            i,
+            &format!("run-{i:02}"),
+        );
+    }
+    cycle(&mut store, &mut tracked);
+    *store.sql().plans.borrow_mut() = Some(Vec::new());
+    store.next_run_wake().unwrap();
+    store.due_runs(10).unwrap();
+    store.active_runs(false).unwrap();
+    store.active_runs(true).unwrap();
+    store.run_summaries(5).unwrap();
+    store.run_protected("run-03").unwrap();
+    let plans = store.sql().plans.borrow_mut().take().unwrap();
+    assert_eq!(plans.len(), 6);
+    for (index, plan) in plans.iter().enumerate() {
+        let steps: Vec<&str> = plan.split("; ").collect();
+        if index == 4 {
+            assert!(
+                !steps.iter().any(|s| s.starts_with("USE TEMP B-TREE")),
+                "run lists come out of the index already ordered: {plan}"
+            );
+            // Run lists walk the order index and stop at the limit.
+            assert!(
+                plan.contains("USING COVERING INDEX ws_runs_ord")
+                    || plan.contains("USING INDEX ws_runs_ord"),
+                "{plan}"
+            );
+        } else {
+            assert!(
+                !steps.iter().any(|s| s.starts_with("SCAN ws_runs")),
+                "no query visits every run: {plan}"
+            );
+        }
+    }
 }

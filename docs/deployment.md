@@ -44,6 +44,19 @@ The Rust service bounds JSON bodies to 128 KiB and persisted workspace checkpoin
 
 Runs are not limited by count by default. Active runs can never be pruned, so a workspace stops starting new runs, Execute Workflow children and Each items once the state that retention cannot reclaim reaches 75% of the 1.5 MB budget. The remaining budget keeps the workspace writable while active runs finish; refused starts return `429`, and Each items wait and retry. To cap concurrency as well, set `MAX_ACTIVE_RUNS` to a positive integer (as a Worker variable on Cloudflare, or in the environment when self-hosting). Empty, `0` or `unlimited` mean no count limit. Running and paused runs, and runs holding an open webhook response, count as active. An invalid value fails requests with a configuration error rather than silently using another limit. See Rust source for graph/engine budgets.
 
+### Workspace storage layout
+
+`WORKSPACE_STORAGE` selects how each workspace is stored in its Durable Object's SQLite database:
+
+| Value | Layout |
+| --- | --- |
+| empty or `generations` (default) | The whole workspace is rewritten as one record generation on every save. |
+| `tables` (preview) | One row per workflow, revision, run, audit entry and webhook, with indexed run columns. A save writes only the rows that changed. |
+
+Set it as a Worker variable on Cloudflare, or in the environment when self-hosting. Any other value fails requests with a configuration error.
+
+Changing the value migrates each workspace the next time it is loaded, in one transaction, in either direction. If a migration fails, the transaction rolls back, the workspace keeps its current layout, and the error is logged; the migration is retried on the next load. To downgrade to a release without table storage, first set `WORKSPACE_STORAGE` back to `generations` and load every workspace, so each one migrates back. The table layout is described in [workspace storage](workspace-storage.md). The 1.5 MB workspace budget applies to both layouts until retention policies replace it.
+
 Scheduling uses five-field cron expressions and IANA timezones. Missed occurrences coalesce to one run after downtime. Pausing a workflow removes its next cron occurrence; pausing a run removes its wait alarm until resumed. The current core connectors have no external side effects.
 
 ```sh
