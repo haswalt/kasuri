@@ -382,7 +382,12 @@ fn connector_inspection_describes_runtime_values_without_reading_workspace_data(
             "connectors_get",
             json!({"kind":manifest.kind}),
         );
-        assert!(detail["description"].as_str().unwrap().len() > 20);
+        assert_ne!(
+            detail["description"],
+            workflow_service::contracts::UNDESCRIBED,
+            "{} has no runtime contract",
+            manifest.kind
+        );
         assert!(detail.get("inputSchema").is_some());
         assert!(detail.get("outputSchema").is_some());
         jsonschema::validator_for(&detail["inputSchema"]).unwrap();
@@ -428,6 +433,42 @@ fn connector_inspection_describes_runtime_values_without_reading_workspace_data(
             .unwrap()
             .is_empty()
     );
+    let declared = json!({"type":"object","properties":{"id":{"type":"string"}},"required":["id"]});
+    let trigger = data(
+        &mut ws,
+        &mut auth,
+        &token,
+        "connectors_get",
+        json!({"kind":"Execute Workflow Trigger","config":{"outputNodeId":"done","inputSchema":declared,"outputSchema":{"type":"number"}}}),
+    );
+    assert_eq!(trigger["inputSchema"], declared);
+    assert_eq!(trigger["outputSchema"], declared);
+    assert_eq!(trigger["childContract"]["outputSchema"]["type"], "number");
+    assert_eq!(trigger["childContract"]["outputNodeId"], "done");
+    let encoded = workflow_service::contracts::describe(
+        "Execute Workflow Trigger",
+        json!({"outputNodeId":"done","inputSchema":declared.to_string()})
+            .as_object()
+            .unwrap(),
+    );
+    assert_eq!(encoded["inputSchema"], declared);
+    assert!(
+        encoded["childContract"]["outputSchema"]
+            .as_object()
+            .unwrap()
+            .is_empty()
+    );
+    for config in [json!({}), json!({"operation":"unknown"})] {
+        let detail =
+            workflow_service::contracts::describe("JSON Utilities", config.as_object().unwrap());
+        assert!(detail["inputSchema"].as_object().unwrap().is_empty());
+        assert!(detail["outputSchema"].as_object().unwrap().is_empty());
+    }
+    let parse = workflow_service::contracts::describe(
+        "JSON Utilities",
+        json!({"operation":"parse"}).as_object().unwrap(),
+    );
+    assert_eq!(parse["inputSchema"]["type"], "string");
     for example in workflow_mcp::discovery::examples() {
         for (id, expected) in example["expectedOutputs"].as_object().unwrap() {
             let node = example["workflow"]["nodes"]
