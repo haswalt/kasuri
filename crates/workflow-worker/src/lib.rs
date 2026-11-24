@@ -312,11 +312,7 @@ impl DurableObject for WorkflowWorkspace {
                     .as_str()
                     .filter(|_| value["workflowId"].is_string())
                 {
-                    if let Some(record) = workspace
-                        .runs
-                        .iter()
-                        .find(|r| r.view(true).is_ok_and(|v| v["id"] == id))
-                    {
+                    if let Some(record) = workspace.runs.iter().find(|r| r.matches_id(id)) {
                         value = record.view(false).map_err(internal)?;
                     }
                 }

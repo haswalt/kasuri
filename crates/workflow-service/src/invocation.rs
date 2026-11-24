@@ -171,12 +171,10 @@ impl Workspace {
         Ok(targets)
     }
     pub(crate) fn run_index(&self, id: &str) -> Option<usize> {
-        self.runs
-            .iter()
-            .position(|r| r.restore().is_ok_and(|r| r.id() == id))
+        self.runs.iter().position(|r| r.matches_id(id))
     }
     pub(crate) fn invocation_protected(&self, index: usize) -> bool {
-        let Ok(run) = self.runs[index].restore() else {
+        let Ok(id) = self.runs[index].id_string() else {
             return true;
         };
         self.runs.iter().any(|r| {
@@ -185,10 +183,10 @@ impl Workspace {
                 && (r
                     .parent
                     .as_ref()
-                    .is_some_and(|p| p.root_id == run.id() || p.run_id == run.id())
+                    .is_some_and(|p| p.root_id == id || p.run_id == id)
                     || r.children
                         .iter()
-                        .any(|c| c.awaited && !c.collected && c.run_id == run.id()))
+                        .any(|c| c.awaited && !c.collected && c.run_id == id))
         })
     }
     pub(crate) fn child_output(record: &RunRecord) -> Result<Value, ApiError> {
@@ -226,7 +224,7 @@ impl Workspace {
         }
         let mut run = record.restore()?;
         run.cancel().map_err(|e| error(500, e.to_string()))?;
-        record.checkpoint = run.checkpoint().map_err(|e| error(500, e.to_string()))?;
+        record.store(&run, 500)?;
         record.external = None;
         record.pending.clear();
         record.wake_at = None;
@@ -283,7 +281,7 @@ impl Workspace {
                 .iter()
                 .filter(|r| r.status().is_ok_and(|s| s == RunStatus::Running))
                 .flat_map(|r| {
-                    let id = r.restore().unwrap().id().to_string();
+                    let id = r.id_string().unwrap();
                     r.external
                         .iter()
                         .chain(r.pending.iter())
@@ -386,7 +384,7 @@ impl Workspace {
         let statuses: BTreeMap<String, RunStatus> = self
             .runs
             .iter()
-            .filter_map(|r| Some((r.restore().ok()?.id().into(), r.status().ok()?)))
+            .filter_map(|r| Some((r.id_string().ok()?, r.status().ok()?)))
             .collect();
         for record in &mut self.runs {
             for child in &mut record.children {
@@ -414,7 +412,7 @@ impl Workspace {
         let mut run = record.restore()?;
         run.complete(&task.id, outcome, now)
             .map_err(|e| error(500, e.to_string()))?;
-        record.checkpoint = run.checkpoint().map_err(|e| error(500, e.to_string()))?;
+        record.store(&run, 500)?;
         if record
             .external
             .as_ref()
@@ -535,6 +533,8 @@ impl Workspace {
             created_at: time,
             wake_at: None,
             host_error: None,
+            run_id: run.id().into(),
+            run_status: Some(run.status()),
         };
         child_record.advance(time)?;
         let child = Child {

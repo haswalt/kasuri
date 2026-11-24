@@ -315,7 +315,7 @@ impl WorkflowWorkspace {
                     r.webhook_response
                         .as_ref()
                         .is_some_and(|w| w.deadline_ms.is_some())
-                        && r.view(true).is_ok_and(|v| v["id"] == run_id)
+                        && r.matches_id(&run_id)
                 }) {
                     self.keep_webhook_response(&run_id, req.signal()).await
                 } else {

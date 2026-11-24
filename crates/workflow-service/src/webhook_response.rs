@@ -112,7 +112,7 @@ impl Workspace {
         let record = self
             .runs
             .iter_mut()
-            .find(|r| r.restore().is_ok_and(|run| run.id() == id))
+            .find(|r| r.matches_id(id))
             .ok_or_else(|| error(404, "Run not found"))?;
         record.settle_response(now)?;
         let Some(window) = &mut record.webhook_response else {
