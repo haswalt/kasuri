@@ -208,9 +208,12 @@ pub trait Store {
         workflows: &[String],
     ) -> Result<(), StoreError>;
     /// Update a remote run's index row from its run store's report, unless a report
-    /// at least as new was already applied. Returns whether it applied.
+    /// at least as new was already applied. Returns whether it applied. A run the
+    /// index doesn't have yet (a child created in the run store) is added if its
+    /// tree's `root` is a remote run, listed just above the root.
     fn apply_report(
         &mut self,
+        root: &str,
         id: &str,
         version: u64,
         body: &str,
@@ -342,6 +345,7 @@ impl Store for MemoryStore {
     }
     fn apply_report(
         &mut self,
+        root: &str,
         id: &str,
         version: u64,
         body: &str,
@@ -351,9 +355,38 @@ impl Store for MemoryStore {
             collection: Collection::Run,
             id: id.to_owned(),
         };
-        let Some(row) = self.records.get_mut(&key) else {
-            return Ok(false);
-        };
+        if !self.records.contains_key(&key) {
+            let root_key = EntityKey {
+                collection: Collection::Run,
+                id: root.to_owned(),
+            };
+            let Some(root_row) = self
+                .records
+                .get(&root_key)
+                .filter(|r| r.remote && id != root)
+            else {
+                return Ok(false);
+            };
+            let siblings = self
+                .records
+                .values()
+                .filter(|r| r.columns.as_ref().and_then(|c| c.root_id.as_deref()) == Some(root))
+                .count() as i64;
+            let order = root_row.order - 1 - siblings.min(ORDER_SPACING - 2);
+            self.records.insert(
+                key,
+                Stored {
+                    order,
+                    body: body.to_owned(),
+                    columns: Some(columns.clone()),
+                    archived: true,
+                    remote: true,
+                    report_version: version,
+                },
+            );
+            return Ok(true);
+        }
+        let row = self.records.get_mut(&key).unwrap();
         if !row.remote || row.report_version >= version {
             return Ok(false);
         }
@@ -641,17 +674,34 @@ impl Tracked {
             .chain(self.run_floor)
             .min()
             .unwrap_or(0);
+        // A tree's root comes first; its children are listed just above it, as
+        // children its run store creates later are (see `apply_report`).
+        let mut roots: HashMap<String, (i64, i64)> = HashMap::new();
         for record in &self.workspace.offloaded {
             let id = record
                 .id_string()
                 .map_err(|_| StoreError::MissingKey(Collection::Run))?;
-            lowest = lowest.saturating_sub(ORDER_SPACING);
+            let order = match record
+                .parent
+                .as_ref()
+                .and_then(|p| roots.get_mut(&p.root_id))
+            {
+                Some((root, children)) => {
+                    *children += 1;
+                    *root - (*children).min(ORDER_SPACING - 1)
+                }
+                None => {
+                    lowest = lowest.saturating_sub(ORDER_SPACING);
+                    roots.insert(id.clone(), (lowest, 0));
+                    lowest
+                }
+            };
             changes.upserts.push(Record {
                 key: EntityKey {
                     collection: Collection::Run,
                     id,
                 },
-                order: lowest,
+                order,
                 body: encode(record)?,
                 columns: Some(RunColumns::of(record).map_err(invalid)?),
                 archived: true,

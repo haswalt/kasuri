@@ -12,8 +12,8 @@
 //! [`SqlStore::create`], [`SqlStore::set_commit`] and [`SqlStore::drop_tables`]
 //! inside one of their own transactions.
 use super::{
-    ChangeSet, Collection, EntityKey, Record, RunArchive, RunColumns, RunQueries, RunRetention,
-    Store, StoreError, decode_run,
+    ChangeSet, Collection, EntityKey, ORDER_SPACING, Record, RunArchive, RunColumns, RunQueries,
+    RunRetention, Store, StoreError, decode_run,
 };
 use crate::RunRecord;
 use serde_json::Value;
@@ -368,11 +368,40 @@ impl<E: SqlExec> Store for SqlStore<E> {
     }
     fn apply_report(
         &mut self,
+        root: &str,
         id: &str,
         version: u64,
         body: &str,
         columns: &RunColumns,
     ) -> Result<bool, StoreError> {
+        if id != root {
+            // A child created in the run store: add it, just above its root in
+            // the list (newer than the root, older than runs started after it),
+            // without moving the order floor new runs are placed below.
+            let added = self.rows(
+                &format!("INSERT INTO ws_runs(id,ord,status,created_at,wake_at,response_open,response_deadline,parent_id,root_id,summary,body,workflow_id,archived,remote,report_version) SELECT ?,ord-1-min((SELECT count(*) FROM ws_runs WHERE root_id=?),{}),?,?,?,?,?,?,?,?,?,?,1,1,? FROM ws_runs WHERE id=? AND remote=1 AND NOT EXISTS(SELECT 1 FROM ws_runs WHERE id=?) RETURNING id", ORDER_SPACING - 2),
+                vec![
+                    text(id),
+                    text(root),
+                    text(&columns.status),
+                    unsigned(columns.created_at),
+                    optional(columns.wake_at),
+                    SqlValue::Integer(columns.response_open.into()),
+                    optional(columns.response_deadline),
+                    columns.parent_id.as_deref().map_or(SqlValue::Null, text),
+                    columns.root_id.as_deref().map_or(SqlValue::Null, text),
+                    text(&columns.summary),
+                    text(body),
+                    text(&columns.workflow_id),
+                    unsigned(version),
+                    text(root),
+                    text(id),
+                ],
+            )?;
+            if !added.is_empty() {
+                return Ok(true);
+            }
+        }
         let applied = self.rows(
             "UPDATE ws_runs SET status=?,wake_at=?,response_open=?,response_deadline=?,parent_id=?,root_id=?,summary=?,body=?,workflow_id=?,report_version=? WHERE id=? AND remote=1 AND report_version<? RETURNING id",
             vec![
@@ -434,23 +463,43 @@ impl<E: SqlExec> Store for SqlStore<E> {
 impl<E: SqlExec> SqlStore<E> {
     /// Whether `id` is a remote run that is still running or paused, as last
     /// reported. Hosts forward control requests for such runs to their run store.
-    pub fn remote_active_run(&self, id: &str) -> Result<bool, StoreError> {
-        Ok(self
-            .first(
-                &format!("SELECT count(*) FROM ws_runs WHERE id=? AND remote=1 AND {ACTIVE}"),
-                vec![text(id)],
-            )?
-            .map(|v| v.integer())
-            .transpose()?
-            .flatten()
-            == Some(1))
+    /// The root of the remote tree `id` belongs to, if `id` is an active remote
+    /// run: its run store is named after the root.
+    pub fn remote_active_root(&self, id: &str) -> Result<Option<String>, StoreError> {
+        self.first(
+            &format!(
+                "SELECT coalesce(root_id,id) FROM ws_runs WHERE id=? AND remote=1 AND {ACTIVE}"
+            ),
+            vec![text(id)],
+        )?
+        .map(|v| v.text())
+        .transpose()
     }
-    /// Remote runs whose run store has never reported, created before `before`:
-    /// their start may not have reached the run store, and is retried.
-    pub fn unstarted_remote_runs(&self, before: u64) -> Result<Vec<RunRecord>, StoreError> {
-        self.rows(
-            "SELECT body FROM ws_runs WHERE remote=1 AND report_version=0 AND created_at<?",
+    /// Remote run trees whose run store has never reported, created before
+    /// `before`: their start may not have reached the run store, and is retried.
+    /// Each tree is its root and the children started with it, in list order.
+    pub fn unstarted_remote_runs(&self, before: u64) -> Result<Vec<Vec<RunRecord>>, StoreError> {
+        let roots = self.rows(
+            "SELECT id FROM ws_runs WHERE remote=1 AND report_version=0 AND parent_id IS NULL AND created_at<?",
             vec![unsigned(before)],
+        )?;
+        roots
+            .into_iter()
+            .map(|row| {
+                let root = row
+                    .into_iter()
+                    .next()
+                    .ok_or_else(|| StoreError::Invalid("empty row".into()))?
+                    .text()?;
+                self.remote_tree(&root)
+            })
+            .collect()
+    }
+    /// A remote tree's runs as the index has them, in list order (newest first).
+    fn remote_tree(&self, root: &str) -> Result<Vec<RunRecord>, StoreError> {
+        self.rows(
+            "SELECT body FROM ws_runs WHERE remote=1 AND (id=? OR root_id=?) ORDER BY ord,id",
+            vec![text(root), text(root)],
         )?
         .into_iter()
         .map(|row| {
