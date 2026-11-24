@@ -84,29 +84,56 @@ fn resolve(
         }
     }
 }
-pub fn blocked_header(name: &str) -> bool {
+/// Webhook responses are served from the application's own origin, so a workflow
+/// must not be able to redirect, refresh or clear the site, prompt for credentials,
+/// pin transport policy or preload resources there.
+fn origin_controlling_header(name: &str) -> bool {
     matches!(
         name,
-        "set-cookie"
-            | "set-cookie2"
-            | "cookie"
-            | "connection"
-            | "transfer-encoding"
-            | "content-type"
-            | "content-length"
-            | "content-encoding"
-            | "host"
-            | "upgrade"
-            | "keep-alive"
-            | "te"
-            | "trailer"
-            | "proxy-connection"
-            | "proxy-authenticate"
-            | "proxy-authorization"
-            | "x-kasuri-run-id"
-            | "cache-control"
-            | "x-content-type-options"
-    )
+        "location"
+            | "content-location"
+            | "refresh"
+            | "clear-site-data"
+            | "link"
+            | "www-authenticate"
+            | "strict-transport-security"
+            | "alt-svc"
+            | "service-worker-allowed"
+            | "set-login"
+            | "speculation-rules"
+            | "supports-loading-mode"
+    ) || name.starts_with("x-kasuri-")
+        || name.starts_with("proxy-")
+}
+/// Statuses a workflow may send. Redirects (3xx other than 304) are refused because
+/// they would turn the application origin into an open redirect.
+pub fn allowed_status(status: u64) -> bool {
+    (200..=599).contains(&status) && (!(300..=399).contains(&status) || status == 304)
+}
+pub fn blocked_header(name: &str) -> bool {
+    origin_controlling_header(name)
+        || matches!(
+            name,
+            "set-cookie"
+                | "set-cookie2"
+                | "cookie"
+                | "connection"
+                | "transfer-encoding"
+                | "content-type"
+                | "content-length"
+                | "content-encoding"
+                | "host"
+                | "upgrade"
+                | "keep-alive"
+                | "te"
+                | "trailer"
+                | "proxy-connection"
+                | "proxy-authenticate"
+                | "proxy-authorization"
+                | "x-kasuri-run-id"
+                | "cache-control"
+                | "x-content-type-options"
+        )
 }
 fn valid_header(name: &str) -> bool {
     !name.is_empty()
@@ -146,7 +173,7 @@ pub fn validate(config: &Map<String, Value>) -> Result<(), ResponseError> {
             && !value
                 .as_u64()
                 .or_else(|| value.as_str()?.parse().ok())
-                .is_some_and(|s| (200..=599).contains(&s))
+                .is_some_and(allowed_status)
         {
             return Err(ResponseError::InvalidConfig);
         }
@@ -172,7 +199,7 @@ pub fn prepare(config: &Map<String, Value>, input: &Value) -> Result<ResponseSpe
     let status = status
         .as_u64()
         .or_else(|| status.as_str()?.parse().ok())
-        .filter(|s| (200..=599).contains(s))
+        .filter(|s| allowed_status(*s))
         .ok_or(ResponseError::InvalidConfig)? as u16;
     let response_type = config
         .get("responseType")
@@ -265,6 +292,17 @@ mod tests {
             json!({"status":101}),
             json!({"status":204,"body":{"unexpected":true}}),
             json!({"headers":{"X-Test":"a\r\nb"}}),
+            json!({"status":302,"headers":{"Location":"https://example.com"}}),
+            json!({"status":301}),
+            json!({"status":"307"}),
+            json!({"status":308}),
+            json!({"headers":{"Location":"https://example.com"}}),
+            json!({"headers":{"Clear-Site-Data":"\"cookies\""}}),
+            json!({"headers":{"Refresh":"0; url=https://example.com"}}),
+            json!({"headers":{"Link":"<https://example.com/x.js>; rel=preload"}}),
+            json!({"headers":{"WWW-Authenticate":"Basic realm=\"Kasuri\""}}),
+            json!({"headers":{"Strict-Transport-Security":"max-age=0"}}),
+            json!({"headers":{"X-Kasuri-Session":"forged"}}),
         ] {
             assert!(
                 prepare(config.as_object().unwrap(), &json!({})).is_err(),
@@ -316,6 +354,33 @@ mod dynamic_header_tests {
             prepare(
                 json!({"headers":{"$input":""}}).as_object().unwrap(),
                 &json!({"X-Safe":"ok"})
+            )
+            .is_ok()
+        );
+        for name in ["Location", "Clear-Site-Data", "Refresh"] {
+            assert!(
+                prepare(
+                    json!({"headers":{"$input":""}}).as_object().unwrap(),
+                    &json!({name:"injected"})
+                )
+                .is_err(),
+                "{name}"
+            );
+        }
+        let redirect = json!({"status":{"$input":"/status"}});
+        assert!(prepare(redirect.as_object().unwrap(), &json!({"status":302})).is_err());
+        assert_eq!(
+            prepare(json!({"status":304}).as_object().unwrap(), &json!({}))
+                .unwrap()
+                .status,
+            304
+        );
+        assert!(
+            prepare(
+                json!({"headers":{"Retry-After":"30","X-Request-Id":"abc"}})
+                    .as_object()
+                    .unwrap(),
+                &json!({})
             )
             .is_ok()
         );
