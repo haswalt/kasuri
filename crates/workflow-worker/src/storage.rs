@@ -72,7 +72,28 @@ fn write_encoded_records(sql: &SqlStorage, body: String) -> Result<()> {
 pub(crate) fn write_workspace_records(sql: &SqlStorage, workspace: &mut Workspace) -> Result<()> {
     let body = workspace.checkpoint().map_err(internal)?;
     crate::data::sync_run_data(sql, workspace, crate::now())?;
-    write_encoded_records(sql, body)
+    write_encoded_records(sql, body)?;
+    write_webhook_auth(sql, workspace)
+}
+pub(crate) const CREATE_WEBHOOK_AUTH: &str = "CREATE TABLE IF NOT EXISTS webhook_auth (endpoint_id TEXT NOT NULL, workflow_id TEXT NOT NULL, body TEXT NOT NULL, PRIMARY KEY(endpoint_id,workflow_id))";
+/// Rewritten in the same transaction as every workspace generation, so it always
+/// describes the committed workspace. Incoming webhooks reject bad credentials from
+/// it without loading the workspace.
+fn write_webhook_auth(sql: &SqlStorage, workspace: &Workspace) -> Result<()> {
+    sql.exec(CREATE_WEBHOOK_AUTH, None)?;
+    sql.exec("DELETE FROM webhook_auth", None)?;
+    for auth in workspace.webhook_auth() {
+        let body = serde_json::to_string(&auth).map_err(internal)?;
+        sql.exec(
+            "INSERT OR REPLACE INTO webhook_auth(endpoint_id,workflow_id,body) VALUES(?,?,?)",
+            Some(vec![
+                auth.endpoint_id.into(),
+                auth.workflow_id.into(),
+                body.into(),
+            ]),
+        )?;
+    }
+    Ok(())
 }
 impl WorkflowWorkspace {
     /// workers-rs 0.9 exposes SQL but not transactionSync. Bind the documented
