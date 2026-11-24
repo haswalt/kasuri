@@ -37,8 +37,8 @@
   "type": "module",
   "private": true,
   "devDependencies": {
-    "wrangler": "^4.164.0",
-    "workerd": "1.20261117.1"
+    "wrangler": "^4.166.0",
+    "workerd": "1.20261120.1"
   },
   "cloudflare": {
     "bindings": {
