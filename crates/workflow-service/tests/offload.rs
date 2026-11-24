@@ -70,7 +70,14 @@ fn start(ws: &mut Workspace, workflow: &str, id: &str) -> Result<Value, ApiError
 /// Commit, reload with an archive and the offload setting, as the host does.
 /// Returns the trees handed to the host to start, each newest run first.
 fn cycle(store: &mut MemoryStore, tracked: &mut Tracked) -> (Tracked, Vec<RunTree>) {
-    let written = tracked.commit(store).unwrap();
+    // As the host's save does: commit, perform due data tasks (none here), then
+    // move out runs now waiting, in a second commit.
+    let mut written = tracked.commit(store).unwrap();
+    if tracked.workspace.offload_waiting().unwrap() {
+        written
+            .upserts
+            .extend(tracked.commit(store).unwrap().upserts);
+    }
     let mut started: Vec<RunTree> = vec![];
     for record in written.upserts.iter().filter(|r| r.remote) {
         let record: RunRecord = serde_json::from_str(&record.body).unwrap();
@@ -160,12 +167,12 @@ fn offloaded_runs_are_indexed_not_held_in_memory() {
 
     let view = start(&mut tracked.workspace, "fetch", "remote-1").unwrap();
     assert_eq!(view["status"], "running");
-    assert!(
-        tracked.workspace.runs.is_empty(),
-        "never executed in the workspace"
-    );
     let (tracked, started) = cycle(&mut store, &mut tracked);
-    assert_eq!(started.len(), 1, "handed to the host to start");
+    assert_eq!(
+        started.len(),
+        1,
+        "handed to the host to start on the commit"
+    );
     assert!(tracked.workspace.runs.is_empty(), "never loaded");
     assert_eq!(status(&tracked.workspace, "remote-1"), "running", "indexed");
 
@@ -300,18 +307,19 @@ fn admission_counts_remote_runs_and_pruning_spares_active_ones() {
 }
 
 #[test]
-fn ineligible_workflows_still_run_in_the_workspace() {
+fn simulations_using_data_still_run_in_the_workspace() {
     let mut store = MemoryStore::default();
     let mut tracked = Tracked::load(&store).unwrap();
     tracked.workspace.offload = true;
     let respond = json!({"id":"x","type":"Context Store","label":"Read","config":{"command":{"operation":"get","tableId":"cache","key":"k"}}});
-    handle(
-        &mut tracked.workspace,
-        "PUT",
-        "/api/workflows/reply",
-        workflow("reply", respond),
-    )
-    .unwrap();
+    let mut doc = workflow("reply", respond);
+    // Wait first, so the run is waiting (not on its data task) when committed.
+    doc["nodes"].as_array_mut().unwrap().insert(
+        1,
+        json!({"id":"pause","type":"Wait / Delay","label":"Wait","config":{"delayMs":60000}}),
+    );
+    doc["edges"] = json!([{"id":"a","source":"start","target":"pause"},{"id":"b","source":"pause","target":"x"}]);
+    handle(&mut tracked.workspace, "PUT", "/api/workflows/reply", doc).unwrap();
     handle(
         &mut tracked.workspace,
         "POST",
@@ -319,9 +327,17 @@ fn ineligible_workflows_still_run_in_the_workspace() {
         Value::Null,
     )
     .unwrap();
-    start(&mut tracked.workspace, "reply", "local").unwrap();
+    // A live run using data moves out...
+    start(&mut tracked.workspace, "reply", "remote").unwrap();
+    // ...a simulation keeps its data snapshot, and stays.
+    let body = json!({"workflowId":"reply","mode":"simulation","input":{}}).to_string();
+    tracked
+        .workspace
+        .handle("POST", "/api/runs", body.as_bytes(), 1, "local")
+        .unwrap();
     let (_, started) = cycle(&mut store, &mut tracked);
-    assert!(started.is_empty());
+    assert_eq!(started.len(), 1);
+    assert_eq!(started[0].root_id().unwrap(), "remote");
     assert!(
         store
             .record(&workflow_service::store::EntityKey {
@@ -366,11 +382,11 @@ fn run_trees_move_out_together_and_report_new_children() {
     }
     let (mut tracked, _) = cycle(&mut store, &mut tracked);
     start(&mut tracked.workspace, "each", "tree").unwrap();
+    let (mut tracked, started) = cycle(&mut store, &mut tracked);
     assert!(
         tracked.workspace.runs.is_empty(),
         "the root and its children left"
     );
-    let (mut tracked, started) = cycle(&mut store, &mut tracked);
     assert_eq!(started.len(), 1, "one tree");
     let tree = started.into_iter().next().unwrap();
     assert_eq!(
@@ -420,4 +436,192 @@ fn run_trees_move_out_together_and_report_new_children() {
         1,
         "only the later run is active"
     );
+}
+
+#[test]
+fn webhook_responses_are_answered_by_the_run_store() {
+    let mut store = MemoryStore::default();
+    let mut tracked = Tracked::load(&store).unwrap();
+    tracked.workspace.offload = true;
+    let doc = json!({"schemaVersion":1,"id":"hook","name":"hook","status":"draft","updatedAt":"",
+        "nodes":[{"id":"start","type":"Webhook","label":"In","config":{}},
+                 {"id":"x","type":"HTTP Request","label":"Fetch","config":{"url":"https://fixture.example/a"}},
+                 {"id":"reply","type":"Respond to Webhook","label":"Reply","config":{"status":201,"body":{"$input":"/body"}}}],
+        "edges":[{"id":"a","source":"start","target":"x"},{"id":"b","source":"x","target":"reply"}]});
+    handle(&mut tracked.workspace, "PUT", "/api/workflows/hook", doc).unwrap();
+    tracked
+        .workspace
+        .configure_webhook("hook", "endpoint".into(), "hash".into())
+        .unwrap();
+    handle(
+        &mut tracked.workspace,
+        "POST",
+        "/api/workflows/hook/publish",
+        Value::Null,
+    )
+    .unwrap();
+    let (mut tracked, _) = cycle(&mut store, &mut tracked);
+    tracked
+        .workspace
+        .receive_webhook_context(
+            "hook",
+            "endpoint",
+            json!({}),
+            1,
+            "delivery",
+            json!({"trigger":"webhook","request":{}}),
+        )
+        .unwrap();
+    let (tracked, started) = cycle(&mut store, &mut tracked);
+    assert!(
+        tracked.workspace.runs.is_empty(),
+        "the run waits for HTTP outside the workspace"
+    );
+    let runs = Runs::default();
+    let bus = Alarm::default();
+    execution::start(&runs, &bus, started.into_iter().next().unwrap(), 1).unwrap();
+    // The handler holding the request polls; nothing is decided yet.
+    assert_eq!(
+        execution::reply(&runs, &bus, "delivery", "delivery", 2, false).unwrap(),
+        Some(workflow_service::WebhookReply::Pending)
+    );
+    let message = bus.0.borrow().as_ref().unwrap().1.clone();
+    let Step::Perform { run, task } = execution::begin(&runs, &bus, &message, 2).unwrap() else {
+        panic!("claims the request");
+    };
+    // Copy the tree as it is now, for a delivery whose handler went away.
+    let abandoned = Runs::default();
+    abandoned
+        .0
+        .borrow_mut()
+        .extend(runs.0.borrow().iter().map(|(k, v)| (k.clone(), v.clone())));
+    execution::finish(&runs, &bus, "delivery", &run, &task.id, perform(&task), 3).unwrap();
+    // The run finishes on the step after its response is prepared.
+    let message = bus.0.borrow_mut().take().unwrap().1;
+    execution::begin(&runs, &bus, &message, 10).unwrap();
+    // The run has finished, but its response hasn't reached the request: the
+    // run store must keep it.
+    let (tree, _) = runs.load("delivery").unwrap().unwrap();
+    assert_eq!(
+        tree.root().unwrap().view(false).unwrap()["status"],
+        "succeeded"
+    );
+    assert!(
+        tree.active().unwrap(),
+        "kept until the response is handed over"
+    );
+    // The response is ready: the reply submits it, once.
+    let Some(workflow_service::WebhookReply::Response(response)) =
+        execution::reply(&runs, &bus, "delivery", "delivery", 4, false).unwrap()
+    else {
+        panic!("a response");
+    };
+    assert_eq!(response.status, 201);
+    assert_eq!(response.body, json!({"ok": true}));
+    assert_eq!(
+        execution::reply(&runs, &bus, "delivery", "delivery", 5, false).unwrap(),
+        Some(workflow_service::WebhookReply::Unavailable),
+        "already submitted"
+    );
+    let (tree, _) = runs.load("delivery").unwrap().unwrap();
+    assert_eq!(
+        tree.root().unwrap().view(false).unwrap()["webhookResponse"]["delivery"],
+        "submitted"
+    );
+    assert!(!tree.active().unwrap(), "now it can go");
+
+    // Nobody asks for the abandoned delivery's response: the tree's next message
+    // comes at the window's deadline, which closes it as timed out.
+    let alarm = Alarm::default();
+    execution::finish(
+        &abandoned,
+        &alarm,
+        "delivery",
+        &run,
+        &task.id,
+        perform(&task),
+        3,
+    )
+    .unwrap();
+    let deadline = 1 + 5_000;
+    let mut steps = 0;
+    while let Some((at, message)) = alarm.0.borrow_mut().take() {
+        assert!(at <= deadline, "woken by the deadline at the latest");
+        execution::begin(&abandoned, &alarm, &message, deadline).unwrap();
+        steps += 1;
+        assert!(steps < 10);
+    }
+    let (tree, _) = abandoned.load("delivery").unwrap().unwrap();
+    assert_eq!(
+        tree.root().unwrap().view(false).unwrap()["webhookResponse"]["delivery"],
+        "timed_out"
+    );
+    assert!(!tree.active().unwrap());
+}
+
+#[test]
+fn runs_move_out_after_their_data_steps_and_keep_their_place() {
+    let mut store = MemoryStore::default();
+    let mut tracked = Tracked::load(&store).unwrap();
+    tracked.workspace.offload = true;
+    let mut doc = workflow(
+        "data-first",
+        json!({"id":"x","type":"Context Store","label":"Read","config":{"command":{"operation":"get","tableId":"cache","key":"k"}}}),
+    );
+    doc["nodes"].as_array_mut().unwrap().push(
+        json!({"id":"pause","type":"Wait / Delay","label":"Wait","config":{"delayMs":60000}}),
+    );
+    doc["edges"]
+        .as_array_mut()
+        .unwrap()
+        .push(json!({"id":"b","source":"x","target":"pause"}));
+    let wait = json!({"id":"x","type":"Wait / Delay","label":"Wait","config":{"delayMs":60000}});
+    for (id, doc) in [("data-first", doc), ("wait", workflow("wait", wait))] {
+        handle(
+            &mut tracked.workspace,
+            "PUT",
+            &format!("/api/workflows/{id}"),
+            doc,
+        )
+        .unwrap();
+        handle(
+            &mut tracked.workspace,
+            "POST",
+            &format!("/api/workflows/{id}/publish"),
+            Value::Null,
+        )
+        .unwrap();
+    }
+    let (mut tracked, _) = cycle(&mut store, &mut tracked);
+    start(&mut tracked.workspace, "wait", "older").unwrap();
+    start(&mut tracked.workspace, "data-first", "data").unwrap();
+    // Its data task is the host's to perform first, in the workspace.
+    let (mut tracked, started) = cycle(&mut store, &mut tracked);
+    assert_eq!(started.len(), 1, "only the waiting run moved");
+    assert_eq!(started[0].root_id().unwrap(), "older");
+    assert!(tracked.workspace.runs.iter().any(|r| r.matches_id("data")));
+    start(&mut tracked.workspace, "wait", "newer").unwrap();
+    let (mut tracked, _) = cycle(&mut store, &mut tracked);
+    let (_, task, _, time) = tracked.workspace.pending_data(2).unwrap().unwrap();
+    let outcome = Outcome::success(json!({"status":"not_found","row":null}));
+    assert!(
+        tracked
+            .workspace
+            .complete_data("data", &task.id, outcome, time)
+            .unwrap()
+    );
+    // Now waiting on its timer, it moves out on the next commit, where it was.
+    let (tracked, started) = cycle(&mut store, &mut tracked);
+    assert_eq!(started.len(), 1);
+    assert_eq!(started[0].root_id().unwrap(), "data");
+    assert!(tracked.workspace.runs.is_empty());
+    let ids: Vec<String> = store
+        .list_runs(10, None, None)
+        .unwrap()
+        .iter()
+        .map(|r| r["id"].as_str().unwrap().to_owned())
+        .collect();
+    assert_eq!(ids, ["newer", "data", "older"]);
+    assert!(store.is_remote("data").unwrap());
+    assert_eq!(store.remote_active().unwrap(), 3);
 }

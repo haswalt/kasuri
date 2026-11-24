@@ -131,5 +131,33 @@ export async function checkRunObjects(origin, credentials, data, mode, restart) 
   for (const id of items) assert.ok(listed.includes(id), 'children created in the run object are listed')
   assert.ok(items.slice(2).every(id => indexed(id)?.remote === 1), 'and indexed from reports')
   assert.equal((await api('runs/' + firstChildren[0])).status, 'cancelled')
-  console.log(`Passed (${mode}): waiting runs execute in run objects with the children they invoke, survive restarts, accept control requests (children's through their root) and are deleted once finished; instant runs answer from the workspace.`)
+
+  // Data operations: a run object's data task is applied to the workspace's
+  // data, once, across a restart mid-wait.
+  await api('data', 'POST', { command: { operation: 'create_table', definition: { id: 'object-counts', name: 'Object counts', kind: 'context' } }, idempotencyKey: 'create-object-counts' })
+  const counter = { ...wait, id: 'object-counter', name: 'Object counter', nodes: [wait.nodes[0], wait.nodes[1], { id: 'count', type: 'Context Store', label: 'Count', config: { command: { operation: 'increment', tableId: 'object-counts', key: 'hits', field: 'count', amount: 1 } } }], edges: [wait.edges[0], { id: 'b', source: 'wait', target: 'count' }] }
+  await api('workflows/' + counter.id, 'PUT', counter)
+  const counted = await api('runs', 'POST', { workflowId: counter.id, mode: 'run', input: {} })
+  assert.equal(indexed(counted.id)?.remote, 1, 'a run using data leaves the workspace')
+  await restart()
+  const countedDone = await settled(counted.id)
+  assert.equal(countedDone.status, 'succeeded', JSON.stringify(countedDone))
+  const hits = await api('data', 'POST', { command: { operation: 'get', tableId: 'object-counts', key: 'hits' } })
+  assert.equal(hits.result.row.value.count, 1, 'applied to the workspace\'s data once')
+
+  // Webhook responses: the request is answered from the run object.
+  const hook = { ...wait, id: 'object-hook', name: 'Object hook', nodes: [{ id: 'start', type: 'Webhook', label: 'In', config: {} }, { ...wait.nodes[1], config: { delayMs: 300 } }, { id: 'reply', type: 'Respond to Webhook', label: 'Reply', config: { status: 201, body: { answered: 'by its run object' } } }], edges: [wait.edges[0], { id: 'b', source: 'wait', target: 'reply' }] }
+  await api('workflows/' + hook.id, 'PUT', hook)
+  const endpoint = await api('workflows/' + hook.id + '/webhook/rotate', 'POST')
+  await api('workflows/' + hook.id + '/publish', 'POST')
+  const delivered = await fetch(origin + endpoint.path, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}' })
+  assert.equal(delivered.status, 201)
+  assert.deepEqual(await delivered.json(), { answered: 'by its run object' })
+  const hookRun = delivered.headers.get('X-Kasuri-Run-Id')
+  assert.equal(indexed(hookRun)?.remote, 1, 'the webhook run executed in a run object')
+  const hookDone = await settled(hookRun)
+  assert.equal(hookDone.webhookResponse.delivery, 'submitted')
+  for (let i = 0; i < 50 && inObject(hookRun); i++) await sleep(100)
+  assert.ok(!inObject(hookRun), 'deleted once the response was handed over')
+  console.log(`Passed (${mode}): waiting runs execute in run objects with the children they invoke, perform data operations on the workspace's data once, answer webhook requests, survive restarts, accept control requests (children's through their root) and are deleted once finished; instant runs answer from the workspace.`)
 }

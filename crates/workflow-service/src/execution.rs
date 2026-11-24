@@ -20,8 +20,8 @@
 //!
 //! Network I/O happens between [`begin`] and [`finish`], in the host, so this
 //! module stays synchronous and host-independent.
-use crate::{ApiError, RunRecord, Workspace, error};
-use connector_sdk::{Outcome, Task};
+use crate::{ApiError, Mode, RunRecord, WebhookReply, Workspace, error};
+use connector_sdk::{FailureCode, Outcome, Task};
 use serde::{Deserialize, Serialize};
 pub use workflow_engine::RunStatus;
 
@@ -50,10 +50,13 @@ impl RunTree {
     pub fn root_id(&self) -> Result<String, ApiError> {
         self.root()?.id_string()
     }
-    /// Whether any run in the tree is still running or paused.
+    /// Whether any run in the tree is still running or paused, or holds an open
+    /// webhook response window (its response not yet handed to the request).
     pub fn active(&self) -> Result<bool, ApiError> {
         for run in &self.runs {
-            if matches!(run.status()?, RunStatus::Running | RunStatus::Paused) {
+            if matches!(run.status()?, RunStatus::Running | RunStatus::Paused)
+                || run.webhook_response.as_ref().is_some_and(|w| w.open())
+            {
                 return Ok(true);
             }
         }
@@ -117,6 +120,38 @@ pub enum Step {
     /// Perform this task's network I/O (with its idempotency key), then call
     /// [`finish`] with the outcome. `run` is the run in the tree that owns it.
     Perform { run: String, task: Task },
+    /// Apply this data task (Data Tables or Context Store) to the workspace's
+    /// data with [`perform_data`] at `time`, then call [`finish_data`]. It isn't
+    /// claimed: the effect is keyed by the task's idempotency key, so performing
+    /// it again (after a lost outcome) replays the same result.
+    Data { run: String, task: Task, time: u64 },
+}
+
+/// If a data task's outcome doesn't arrive (the host failed after `begin`), the
+/// tree is stepped again after this long and the task performed again.
+pub const DATA_RETRY_MS: u64 = 10_000;
+
+/// Apply a data task's effect to `store`, as the workspace does. `Err` is a
+/// storage failure: the host must roll back and try again later. Any other
+/// failure is the task's outcome; the host must roll back the effect (its
+/// transaction) before recording it.
+pub fn perform_data(
+    store: &mut impl workflow_data::Store,
+    task: &Task,
+    time: u64,
+) -> Result<Outcome, workflow_data::DataError> {
+    if time >= task.deadline_ms {
+        return Ok(connectors_http::failure(FailureCode::Timeout, false));
+    }
+    let prepared = match connectors_data::prepare(&task.node, &task.input) {
+        Ok(prepared) => prepared,
+        Err(code) => return Ok(connectors_http::failure(code, false)),
+    };
+    match connectors_data::apply(store, prepared, &task.idempotency_key, time) {
+        Ok(value) => Ok(Outcome::success(value)),
+        Err(error) if error.code == workflow_data::ErrorCode::Storage => Err(error),
+        Err(_) => Ok(connectors_http::failure(FailureCode::InvalidConfig, false)),
+    }
 }
 
 /// Status changes for the workspace's run index.
@@ -128,10 +163,14 @@ pub enum Progress {
     Saved { version: u64, status: RunStatus },
 }
 
-/// Whether a run can execute outside the workspace yet: neither it nor any
-/// workflow it may invoke uses data operations or responds to a webhook, which
-/// need the workspace.
+/// Whether a run can execute outside the workspace. Everything can, except
+/// simulations that use data operations (directly or in a workflow they may
+/// invoke): those run against a snapshot of the workspace's data taken when they
+/// start, which stays with the workspace.
 pub fn eligible(record: &RunRecord) -> Result<bool, ApiError> {
+    if record.mode != Mode::Simulation {
+        return Ok(true);
+    }
     let run = record.restore()?;
     Ok(std::iter::once(run.workflow())
         .chain(record.invocation_targets.values())
@@ -139,7 +178,7 @@ pub fn eligible(record: &RunRecord) -> Result<bool, ApiError> {
             !graph
                 .nodes
                 .iter()
-                .any(|n| n.kind == "Respond to Webhook" || connectors_data::handles(&n.kind))
+                .any(|n| connectors_data::handles(&n.kind))
         }))
 }
 
@@ -194,6 +233,26 @@ pub fn begin(
     }
     let mut workspace = tree.workspace();
     workspace.alarm(now)?;
+    // Data tasks first, as the workspace performs them after every save.
+    if let Some((run, task, _, time)) = workspace.pending_data(now)? {
+        let tree = RunTree::from_workspace(workspace);
+        return match store.save(&message.run, &tree, Some(version)) {
+            Ok(saved) => {
+                // The live message, in case the outcome never arrives. The
+                // outcome's save supersedes it.
+                bus.send(
+                    WorkMessage {
+                        run: message.run.clone(),
+                        version: saved,
+                    },
+                    Some(DATA_RETRY_MS),
+                )?;
+                Ok(Step::Data { run, task, time })
+            }
+            Err(SaveError::Conflict) => Ok(Step::Done(Progress::Unchanged)),
+            Err(SaveError::Failed(message)) => Err(error(500, message)),
+        };
+    }
     if let Some((run, task)) = workspace.claim_external(now)? {
         let tree = RunTree::from_workspace(workspace);
         // Persist the claim before any network I/O: if this fails, another
@@ -250,34 +309,116 @@ pub fn finish(
         now,
     )? {
         Step::Done(progress) => Ok(progress),
-        Step::Perform { .. } => unreachable!("save_and_schedule never claims"),
+        _ => unreachable!("save_and_schedule never claims"),
     }
 }
 
-/// Whether any run in the tree is running (paused runs wait for a control
-/// request, not a message).
+/// Apply a data task's outcome (from [`perform_data`] at `time`) to the run in
+/// tree `root`, step the tree, save it and send its next message. An outcome for
+/// a task that is no longer pending (applied already) is dropped.
+#[allow(clippy::too_many_arguments)]
+pub fn finish_data(
+    store: &dyn RunStore,
+    bus: &dyn WorkBus,
+    root: &str,
+    run: &str,
+    task_id: &str,
+    outcome: Outcome,
+    time: u64,
+    now: u64,
+) -> Result<Progress, ApiError> {
+    let Some((tree, version)) = store.load(root)? else {
+        return Ok(Progress::Unchanged);
+    };
+    let mut workspace = tree.workspace();
+    if !workspace.complete_data(run, task_id, outcome, time)? {
+        return Ok(Progress::Unchanged);
+    }
+    match save_and_schedule(
+        store,
+        bus,
+        root,
+        &RunTree::from_workspace(workspace),
+        version,
+        now,
+    )? {
+        Step::Done(progress) => Ok(progress),
+        _ => unreachable!("save_and_schedule never claims"),
+    }
+}
+
+/// Answer the handler holding run `run`'s webhook request, as the workspace
+/// does ([`Workspace::webhook_reply`]): mark a ready response submitted (or the
+/// window closed, if the client disconnected) and save that before it is sent.
+/// `None` if the tree isn't stored here.
+pub fn reply(
+    store: &dyn RunStore,
+    bus: &dyn WorkBus,
+    root: &str,
+    run: &str,
+    now: u64,
+    disconnected: bool,
+) -> Result<Option<WebhookReply>, ApiError> {
+    for _ in 0..8 {
+        let Some((tree, version)) = store.load(root)? else {
+            return Ok(None);
+        };
+        let mut workspace = tree.workspace();
+        let reply = workspace.webhook_reply(run, now, disconnected)?;
+        if reply == WebhookReply::Pending {
+            // Nothing changed: the window is still waiting for its response.
+            return Ok(Some(reply));
+        }
+        let tree = RunTree::from_workspace(workspace);
+        match store.save(root, &tree, Some(version)) {
+            Ok(saved) => {
+                schedule(bus, &tree, root, saved, now)?;
+                return Ok(Some(reply));
+            }
+            Err(SaveError::Conflict) => continue,
+            Err(SaveError::Failed(message)) => return Err(error(500, message)),
+        }
+    }
+    Err(error(409, "The run is changing too quickly; try again"))
+}
+
+/// Whether the tree needs messages: a run is running (paused runs wait for a
+/// control request), or holds an open response window, which expires at its
+/// deadline as in the workspace.
 fn running(tree: &RunTree) -> Result<bool, ApiError> {
     for run in &tree.runs {
-        if run.status()? == RunStatus::Running {
+        if run.status()? == RunStatus::Running || open_window(run).is_some() {
             return Ok(true);
         }
     }
     Ok(false)
 }
-/// The earliest time a running run in the tree needs the engine.
+/// An open response window's deadline (`u64::MAX` if it has none).
+fn open_window(run: &RunRecord) -> Option<u64> {
+    run.webhook_response
+        .as_ref()
+        .filter(|w| w.open())
+        .map(|w| w.deadline_ms.unwrap_or(u64::MAX))
+}
+/// The earliest time the tree needs the engine: a running run's wake, or an open
+/// window's deadline.
 fn next_wake(tree: &RunTree) -> Result<Option<u64>, ApiError> {
     let mut next = None;
     for run in &tree.runs {
-        if run.status()? == RunStatus::Running
-            && let Some(at) = run.wake_at
-        {
+        let wake = if run.status()? == RunStatus::Running {
+            run.wake_at
+        } else {
+            None
+        };
+        for at in wake.into_iter().chain(open_window(run)) {
             next = Some(next.map_or(at, |n: u64| n.min(at)));
         }
     }
     Ok(next)
 }
-/// Whether a running run has an HTTP task ready to claim (as `claim_external`
-/// would).
+/// Whether a running run has work to hand the host now: an HTTP task ready to
+/// claim (as `claim_external` would), or a data task (performed straight after
+/// the save that created it, as the workspace does).
 fn claimable(tree: &RunTree, now: u64) -> Result<bool, ApiError> {
     for run in &tree.runs {
         if run.status()? == RunStatus::Running
@@ -285,7 +426,7 @@ fn claimable(tree: &RunTree, now: u64) -> Result<bool, ApiError> {
                 .external
                 .iter()
                 .chain(run.pending.iter())
-                .any(|e| e.performable(now))
+                .any(|e| e.performable(now) || connectors_data::handles(&e.task.node.kind))
         {
             return Ok(true);
         }

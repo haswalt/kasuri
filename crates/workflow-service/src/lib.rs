@@ -1078,29 +1078,68 @@ impl Workspace {
     pub fn start_record(&mut self, mut record: RunRecord, now: u64) -> Result<Value, ApiError> {
         let id = record.id_string()?;
         record.advance(now)?;
-        // The first advance (and the children it invokes) happen here, as they
-        // always have, so runs that finish at once answer with their result. A
-        // run still waiting (on HTTP, a timer or a child) is handed to a run store
-        // with every run it invoked, if it is eligible.
-        let top_level = record.parent.is_none();
         self.runs.insert(0, record);
         self.settle_invocations(now)?;
-        let index = self.run_index(&id).unwrap();
-        let view = self.runs[index].view(false)?;
-        if self.offload
-            && top_level
-            && self.runs[index].status()? == RunStatus::Running
-            && execution::eligible(&self.runs[index])?
-        {
-            let (tree, rest): (Vec<RunRecord>, Vec<RunRecord>) =
-                std::mem::take(&mut self.runs).into_iter().partition(|r| {
-                    r.matches_id(&id) || r.parent.as_ref().is_some_and(|p| p.root_id == id)
-                });
+        self.runs
+            .iter()
+            .find(|r| r.matches_id(&id))
+            .unwrap()
+            .view(false)
+    }
+    /// Hand waiting run trees to run stores (when the host executes runs outside
+    /// the workspace): top-level, eligible runs still running, with every run
+    /// they invoked. The host calls this after a save has performed the data
+    /// tasks due, so runs that finish at once (or on their data operations) still
+    /// answer with their result, and moves them out on its next commit. A tree is
+    /// left here while it has a data task to perform, an HTTP request in flight
+    /// from this workspace, or a child that isn't held in memory. Returns whether
+    /// any tree moved.
+    pub fn offload_waiting(&mut self) -> Result<bool, ApiError> {
+        if !self.offload {
+            return Ok(false);
+        }
+        let mut roots = Vec::new();
+        for record in &self.runs {
+            if record.parent.is_none()
+                && record.status()? == RunStatus::Running
+                && execution::eligible(record)?
+            {
+                roots.push(record.id_string()?);
+            }
+        }
+        let mut moved = false;
+        for root in roots {
+            let in_tree = |r: &RunRecord| {
+                r.matches_id(&root) || r.parent.as_ref().is_some_and(|p| p.root_id == root)
+            };
+            let tree: Vec<&RunRecord> = self.runs.iter().filter(|r| in_tree(r)).collect();
+            let busy = tree.iter().any(|r| {
+                r.external.iter().chain(r.pending.iter()).any(|e| {
+                    connectors_data::handles(&e.task.node.kind)
+                        || (e.dispatched
+                            && !matches!(
+                                e.task.node.kind.as_str(),
+                                "Execute Workflow" | "Each / Loop"
+                            ))
+                })
+            });
+            let complete = tree.iter().all(|r| {
+                r.children
+                    .iter()
+                    .all(|c| tree.iter().any(|t| t.matches_id(&c.run_id)))
+            });
+            if busy || !complete {
+                continue;
+            }
+            let (tree, rest): (Vec<RunRecord>, Vec<RunRecord>) = std::mem::take(&mut self.runs)
+                .into_iter()
+                .partition(in_tree);
             self.runs = rest;
             // Oldest first, root first: the commit lists them in this order.
             self.offloaded.extend(tree.into_iter().rev());
+            moved = true;
         }
-        Ok(view)
+        Ok(moved)
     }
     /// A new run of `doc`, not yet started or admitted. Hosts that execute runs
     /// on queues admit it, then hand it to `execution::start`.

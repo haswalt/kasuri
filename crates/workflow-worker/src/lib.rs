@@ -298,6 +298,17 @@ impl DurableObject for WorkflowWorkspace {
             )?;
             return Response::from_json(&json!({"ok": true}));
         }
+        if path == "/internal/runs/data" && req.method() == Method::Post {
+            #[derive(serde::Deserialize)]
+            struct DataTask {
+                run: String,
+                task: connector_sdk::Task,
+                time: u64,
+            }
+            let data: DataTask = req.json().await?;
+            let outcome = self.perform_run_data(data.run, data.task, data.time)?;
+            return Response::from_json(&outcome);
+        }
         if mcp::public_workspace(&path).is_some() {
             return self.mcp_public(req).await;
         }

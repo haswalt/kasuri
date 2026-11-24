@@ -20,9 +20,9 @@ connectors-webhook = { path = "../connectors-webhook" }
 sha2 = "0.11"
 
 connectors-data = { path = "../connectors-data" }
+workflow-data = { path = "../workflow-data" }
 
 jsonschema = { version = "=0.61.2", default-features = false }
 
 [dev-dependencies]
-workflow-data = { path = "../workflow-data" }
 rusqlite = { version = "0.41", features = ["bundled"] }

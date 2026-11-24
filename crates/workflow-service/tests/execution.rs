@@ -53,6 +53,18 @@ impl WorkBus for MemoryBus {
     }
 }
 
+/// The workspace's data, in memory: a data task's effect, rolled back unless it
+/// succeeded, as the host's transaction does.
+fn perform_data(data: &RefCell<workflow_data::MemoryStore>, task: &Task, time: u64) -> Outcome {
+    let mut store = data.borrow_mut();
+    let before = store.clone();
+    let outcome = execution::perform_data(&mut *store, task, time).unwrap();
+    if !matches!(&outcome, Outcome::Complete { port, .. } if port == "success") {
+        *store = before;
+    }
+    outcome
+}
+
 /// The same deterministic outcome for an HTTP task, whoever performs it.
 fn perform(task: &Task) -> Outcome {
     Outcome::success(
@@ -83,6 +95,15 @@ fn tree(record: RunRecord) -> RunTree {
 }
 
 fn queue_run(ws: &Workspace, workflow: &str, mode: Mode, chaos: Chaos) -> Vec<Value> {
+    queue_run_with(ws, workflow, mode, chaos, &RefCell::default())
+}
+fn queue_run_with(
+    ws: &Workspace,
+    workflow: &str,
+    mode: Mode,
+    chaos: Chaos,
+    data: &RefCell<workflow_data::MemoryStore>,
+) -> Vec<Value> {
     let store = MemoryRuns::default();
     let bus = MemoryBus::default();
     let doc = ws.live_document(workflow).unwrap();
@@ -133,6 +154,26 @@ fn queue_run(ws: &Workspace, workflow: &str, mode: Mode, chaos: Chaos) -> Vec<Va
             let now = bus.now.get();
             match execution::begin(&store, &bus, &message, now).unwrap() {
                 Step::Done(_) => {}
+                Step::Data { run, task, time } => {
+                    // A crashed consumer may have applied the effect: its retry
+                    // must replay it, not apply it twice.
+                    let outcome = perform_data(data, &task, time);
+                    if matches!(chaos, Chaos::Crash) && !crashed {
+                        crashed = true;
+                        continue;
+                    }
+                    execution::finish_data(
+                        &store,
+                        &bus,
+                        &message.run,
+                        &run,
+                        &task.id,
+                        outcome,
+                        time,
+                        now,
+                    )
+                    .unwrap();
+                }
                 Step::Perform { run, task } => {
                     if matches!(chaos, Chaos::Crash) && !crashed {
                         crashed = true;
@@ -159,6 +200,15 @@ fn queue_run(ws: &Workspace, workflow: &str, mode: Mode, chaos: Chaos) -> Vec<Va
 
 /// The reference: the same run executed by the workspace.
 fn workspace_run(ws: &mut Workspace, workflow: &str, mode: Mode, crash: bool) -> Vec<Value> {
+    workspace_run_with(ws, workflow, mode, crash, &RefCell::default())
+}
+fn workspace_run_with(
+    ws: &mut Workspace,
+    workflow: &str,
+    mode: Mode,
+    crash: bool,
+    data: &RefCell<workflow_data::MemoryStore>,
+) -> Vec<Value> {
     let doc = ws.live_document(workflow).unwrap();
     let record = ws
         .new_run_record(
@@ -174,13 +224,27 @@ fn workspace_run(ws: &mut Workspace, workflow: &str, mode: Mode, crash: bool) ->
     let mut now = 0;
     let mut crashed = false;
     for _ in 0..10_000 {
-        while let Some((run, task)) = ws.claim_external(now).unwrap() {
-            if crash && !crashed {
-                crashed = true;
-                continue;
+        // As the host does after every save: data tasks, then HTTP claims, until
+        // neither has work.
+        loop {
+            let mut progressed = false;
+            while let Some((run, task, _, time)) = ws.pending_data(now).unwrap() {
+                let outcome = perform_data(data, &task, time);
+                ws.complete_data(&run, &task.id, outcome, time).unwrap();
+                progressed = true;
             }
-            ws.complete_external(&run, &task.id, perform(&task), now)
-                .unwrap();
+            while let Some((run, task)) = ws.claim_external(now).unwrap() {
+                progressed = true;
+                if crash && !crashed {
+                    crashed = true;
+                    continue;
+                }
+                ws.complete_external(&run, &task.id, perform(&task), now)
+                    .unwrap();
+            }
+            if !progressed {
+                break;
+            }
         }
         // Until every run of the tree, background children included, settles.
         if !ws
@@ -496,27 +560,39 @@ fn stale_and_duplicate_messages_do_nothing() {
 }
 
 #[test]
-fn workflows_with_data_or_responses_stay_in_the_workspace() {
+fn only_simulations_with_data_stay_in_the_workspace() {
     let ws = published();
-    let record = |id: &str| {
+    let record = |id: &str, mode: Mode| {
         ws.new_run_record(
             "e",
             &ws.live_document(id).unwrap(),
             json!({}),
-            Mode::Run,
+            mode,
             0,
             json!({}),
         )
         .unwrap()
     };
-    // Children and Each run in run stores, with their parents...
-    for id in ["fan-out", "invoke-http", "each-http"] {
-        assert!(execution::eligible(&record(id)).unwrap(), "{id}");
+    // Children, Each, data operations and webhook responses run in run stores...
+    for id in [
+        "fan-out",
+        "invoke-http",
+        "each-http",
+        "read-context",
+        "invoke-context",
+        "reply",
+    ] {
+        assert!(execution::eligible(&record(id, Mode::Run)).unwrap(), "{id}");
     }
-    // ...unless the run, or a workflow it invokes, needs the workspace.
-    for id in ["read-context", "invoke-context", "reply"] {
-        assert!(!execution::eligible(&record(id)).unwrap(), "{id}");
+    // ...except simulations using data, directly or in a child: their data
+    // snapshot stays with the workspace.
+    for id in ["read-context", "invoke-context"] {
+        assert!(
+            !execution::eligible(&record(id, Mode::Simulation)).unwrap(),
+            "{id}"
+        );
     }
+    assert!(execution::eligible(&record("invoke-http", Mode::Simulation)).unwrap());
 }
 
 /// A consumer that read the run before another consumer saved it: its loads see
@@ -669,4 +745,53 @@ fn parallel_requests_are_claimed_together() {
     assert_eq!(claimed, ["left", "right"]);
     // With nothing left to claim, the next message waits for a deadline.
     assert!(bus.queue.borrow()[0].0 > 0);
+}
+
+#[test]
+fn a_data_effect_is_applied_once_when_its_consumer_crashes() {
+    let mut ws = Workspace::default();
+    let node = |id: &str, command: Value| json!({"id": id, "type": "Context Store", "label": id, "config": {"command": command}});
+    let doc = json!({"schemaVersion":1,"id":"count","name":"count","status":"draft","updatedAt":"",
+        "nodes":[{"id":"start","type":"Manual Trigger","label":"start","config":{}},
+                 node("increment", json!({"operation":"increment","tableId":"counters","key":"hits","field":"count","amount":1}))],
+        "edges":[{"id":"a","source":"start","target":"increment"}]});
+    publish(&mut ws, &doc);
+    let seeded = || {
+        let data = RefCell::new(workflow_data::MemoryStore::default());
+        data.borrow_mut()
+            .execute(
+                serde_json::from_value(json!({"operation":"create_table","definition":{"id":"counters","name":"Counters","kind":"context"}})).unwrap(),
+                Some("seed"),
+                0,
+            )
+            .unwrap();
+        data
+    };
+    let count = |data: &RefCell<workflow_data::MemoryStore>| {
+        data.borrow_mut()
+            .execute(
+                serde_json::from_value(
+                    json!({"operation":"get","tableId":"counters","key":"hits"}),
+                )
+                .unwrap(),
+                None,
+                0,
+            )
+            .unwrap()["row"]["value"]["count"]
+            .clone()
+    };
+    let reference = seeded();
+    let expected = workspace_run_with(&mut ws.clone(), "count", Mode::Run, false, &reference);
+    assert_eq!(expected[0]["status"], "succeeded", "{expected:?}");
+    assert_eq!(count(&reference), 1);
+    // The first consumer applies the increment and dies before reporting it; the
+    // retry message performs it again, which replays the receipt.
+    let data = seeded();
+    let crashed = queue_run_with(&ws, "count", Mode::Run, Chaos::Crash, &data);
+    assert_eq!(count(&data), 1, "applied once");
+    assert_eq!(
+        crashed[0]["nodes"][1]["output"], expected[0]["nodes"][1]["output"],
+        "the retry's outcome is the original effect's"
+    );
+    assert_eq!(crashed[0]["status"], "succeeded");
 }
