@@ -70,7 +70,7 @@ For direct loopback development, leave `PUBLIC_ORIGIN` empty. The provided shell
 
 ## Scaling and availability
 
-The shipped package is a **single stateful workerd process**, not a distributed worker pool. `deploy/workerd/workerd.capnp` binds Durable Object persistence to local disk; Kubernetes uses one replica and a Recreate rollout. HTTP connector calls and explicit workflow branches can overlap inside that process, subject to existing workspace/run concurrency budgets. This is execution concurrency, not horizontal worker scaling.
+The shipped package is a **single stateful workerd process**, not a distributed worker pool. All workspaces share that process. On Cloudflare, by contrast, each workspace is its own Durable Object, so workspaces spread across machines. A single workspace is limited to 5 active runs on both platforms. `deploy/workerd/workerd.capnp` binds Durable Object persistence to local disk; Kubernetes uses one replica and a Recreate rollout. HTTP connector calls and explicit workflow branches can overlap inside that process, subject to existing workspace/run concurrency budgets. This is execution concurrency, not horizontal worker scaling.
 
 | Deployment change | Supported today |
 | --- | --- |
