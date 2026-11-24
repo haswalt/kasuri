@@ -750,36 +750,8 @@ fn parallel_requests_are_claimed_together() {
 #[test]
 fn a_data_effect_is_applied_once_when_its_consumer_crashes() {
     let mut ws = Workspace::default();
-    let node = |id: &str, command: Value| json!({"id": id, "type": "Context Store", "label": id, "config": {"command": command}});
-    let doc = json!({"schemaVersion":1,"id":"count","name":"count","status":"draft","updatedAt":"",
-        "nodes":[{"id":"start","type":"Manual Trigger","label":"start","config":{}},
-                 node("increment", json!({"operation":"increment","tableId":"counters","key":"hits","field":"count","amount":1}))],
-        "edges":[{"id":"a","source":"start","target":"increment"}]});
-    publish(&mut ws, &doc);
-    let seeded = || {
-        let data = RefCell::new(workflow_data::MemoryStore::default());
-        data.borrow_mut()
-            .execute(
-                serde_json::from_value(json!({"operation":"create_table","definition":{"id":"counters","name":"Counters","kind":"context"}})).unwrap(),
-                Some("seed"),
-                0,
-            )
-            .unwrap();
-        data
-    };
-    let count = |data: &RefCell<workflow_data::MemoryStore>| {
-        data.borrow_mut()
-            .execute(
-                serde_json::from_value(
-                    json!({"operation":"get","tableId":"counters","key":"hits"}),
-                )
-                .unwrap(),
-                None,
-                0,
-            )
-            .unwrap()["row"]["value"]["count"]
-            .clone()
-    };
+    publish(&mut ws, &counter_workflow());
+    let seeded = counters;
     let reference = seeded();
     let expected = workspace_run_with(&mut ws.clone(), "count", Mode::Run, false, &reference);
     assert_eq!(expected[0]["status"], "succeeded", "{expected:?}");
@@ -794,4 +766,229 @@ fn a_data_effect_is_applied_once_when_its_consumer_crashes() {
         "the retry's outcome is the original effect's"
     );
     assert_eq!(crashed[0]["status"], "succeeded");
+}
+
+/// A SQLite connection behind the portable SQL interface, standing in for
+/// Postgres or any other database a host outside Cloudflare uses.
+struct Sqlite(rusqlite::Connection);
+impl workflow_service::store::sql::SqlExec for Sqlite {
+    fn query(
+        &self,
+        sql: &str,
+        params: Vec<workflow_service::store::sql::SqlValue>,
+    ) -> Result<Vec<Vec<workflow_service::store::sql::SqlValue>>, workflow_service::store::StoreError>
+    {
+        use rusqlite::types::{Value as V, ValueRef};
+        use workflow_service::store::sql::SqlValue;
+        let fail = |e: rusqlite::Error| {
+            workflow_service::store::StoreError::Invalid(format!("{sql}: {e}"))
+        };
+        let params: Vec<V> = params
+            .into_iter()
+            .map(|p| match p {
+                SqlValue::Null => V::Null,
+                SqlValue::Integer(i) => V::Integer(i),
+                SqlValue::Real(f) => V::Real(f),
+                SqlValue::Text(t) => V::Text(t),
+            })
+            .collect();
+        let mut statement = self.0.prepare(sql).map_err(fail)?;
+        let columns = statement.column_count();
+        let mut rows = statement
+            .query(rusqlite::params_from_iter(params))
+            .map_err(fail)?;
+        let mut out = Vec::new();
+        while let Some(row) = rows.next().map_err(fail)? {
+            out.push(
+                (0..columns)
+                    .map(|i| {
+                        Ok(match row.get_ref(i).map_err(fail)? {
+                            ValueRef::Null => SqlValue::Null,
+                            ValueRef::Integer(i) => SqlValue::Integer(i),
+                            ValueRef::Real(f) => SqlValue::Real(f),
+                            ValueRef::Text(t) => SqlValue::Text(String::from_utf8_lossy(t).into()),
+                            ValueRef::Blob(_) => SqlValue::Null,
+                        })
+                    })
+                    .collect::<Result<_, workflow_service::store::StoreError>>()?,
+            );
+        }
+        Ok(out)
+    }
+}
+
+/// A minimal host outside Cloudflare: the SQL run store and outbox bus, with
+/// `consumers` receiving batches and handling them in a scrambled order. With
+/// `crash`, the first consumer to perform a data task dies before reporting it
+/// and acknowledging its message, whose lease then expires.
+fn sql_run(
+    ws: &Workspace,
+    workflow: &str,
+    mode: Mode,
+    seed: u64,
+    crash: bool,
+    data: &RefCell<workflow_data::MemoryStore>,
+) -> Vec<Value> {
+    use workflow_service::execution::sql::{SqlRunStore, SqlWorkBus};
+    const LEASE_MS: u64 = 30_000;
+    let connection = Sqlite(rusqlite::Connection::open_in_memory().unwrap());
+    let store = SqlRunStore::new(&connection).unwrap();
+    let bus = SqlWorkBus::new(&connection, 0).unwrap();
+    let doc = ws.live_document(workflow).unwrap();
+    let record = ws
+        .new_run_record(
+            "queued",
+            &doc,
+            json!({"from": "test"}),
+            mode,
+            0,
+            json!({"trigger": "manual"}),
+        )
+        .unwrap();
+    execution::start(&store, &bus, tree(record), 0).unwrap();
+    let (mut now, mut seed, mut crashed) = (0, seed, false);
+    for _ in 0..10_000 {
+        let mut batch = bus.receive(now, LEASE_MS, 3).unwrap();
+        if batch.is_empty() {
+            match bus.next_due().unwrap() {
+                Some(at) => {
+                    now = now.max(at);
+                    continue;
+                }
+                None => break,
+            }
+        }
+        // Consumers finish in any order.
+        for i in (1..batch.len()).rev() {
+            seed = seed
+                .wrapping_mul(6364136223846793005)
+                .wrapping_add(1442695040888963407);
+            batch.swap(i, (seed >> 33) as usize % (i + 1));
+        }
+        for delivery in batch {
+            bus.set_now(now);
+            let message = &delivery.message;
+            match execution::begin(&store, &bus, message, now).unwrap() {
+                Step::Done(_) => {}
+                Step::Perform { run, task } => {
+                    execution::finish(
+                        &store,
+                        &bus,
+                        &message.run,
+                        &run,
+                        &task.id,
+                        perform(&task),
+                        now,
+                    )
+                    .unwrap();
+                }
+                Step::Data { run, task, time } => {
+                    let outcome = perform_data(data, &task, time);
+                    if crash && !crashed {
+                        crashed = true;
+                        continue; // no outcome, no ack
+                    }
+                    execution::finish_data(
+                        &store,
+                        &bus,
+                        &message.run,
+                        &run,
+                        &task.id,
+                        outcome,
+                        time,
+                        now,
+                    )
+                    .unwrap();
+                }
+            }
+            bus.ack(delivery.id).unwrap();
+        }
+    }
+    assert!(
+        bus.next_due().unwrap().is_none(),
+        "every message was handled"
+    );
+    assert_eq!(crash, crashed, "the crash happened");
+    let (tree, _) = workflow_service::execution::RunStore::load(&store, "queued")
+        .unwrap()
+        .unwrap();
+    views(tree.runs.iter())
+}
+
+#[test]
+fn a_sql_store_and_outbox_bus_run_like_the_workspace() {
+    let ws = published();
+    let mut checked = 0;
+    for doc in cases() {
+        let id = doc["id"].as_str().unwrap();
+        let Ok(live) = ws.live_document(id) else {
+            continue;
+        };
+        let Ok(record) = ws.new_run_record("probe", &live, json!({}), Mode::Run, 0, json!({}))
+        else {
+            continue;
+        };
+        for mode in [Mode::Run, Mode::Simulation] {
+            let mut probe = record.clone();
+            probe.mode = mode;
+            if !execution::eligible(&probe).unwrap() {
+                continue;
+            }
+            let expected =
+                workspace_run_with(&mut ws.clone(), id, mode, false, &RefCell::default());
+            for seed in [1, 42] {
+                assert_eq!(
+                    sql_run(&ws, id, mode, seed, false, &RefCell::default()),
+                    expected,
+                    "{id} {mode:?} seed {seed}"
+                );
+            }
+            checked += 1;
+        }
+    }
+    assert!(checked >= 40, "only {checked} cases ran");
+}
+
+#[test]
+fn an_outbox_lease_redelivers_a_crashed_consumers_data_task_once() {
+    let mut ws = published();
+    publish(&mut ws, &counter_workflow());
+    let reference = counters();
+    let expected = workspace_run_with(&mut ws.clone(), "count", Mode::Run, false, &reference);
+    let data = counters();
+    // The consumer applies the increment and dies; its lease expires and the
+    // message is delivered again, replaying the receipt.
+    assert_eq!(sql_run(&ws, "count", Mode::Run, 7, true, &data), expected);
+    assert_eq!(count(&data), 1);
+}
+
+/// A run that increments a counter, and a data store holding the counter table.
+fn counter_workflow() -> Value {
+    json!({"schemaVersion":1,"id":"count","name":"count","status":"draft","updatedAt":"",
+        "nodes":[{"id":"start","type":"Manual Trigger","label":"start","config":{}},
+                 {"id":"increment","type":"Context Store","label":"increment","config":{"command":
+                    {"operation":"increment","tableId":"counters","key":"hits","field":"count","amount":1}}}],
+        "edges":[{"id":"a","source":"start","target":"increment"}]})
+}
+fn counters() -> RefCell<workflow_data::MemoryStore> {
+    let data = RefCell::new(workflow_data::MemoryStore::default());
+    data.borrow_mut()
+        .execute(
+            serde_json::from_value(json!({"operation":"create_table","definition":{"id":"counters","name":"Counters","kind":"context"}})).unwrap(),
+            Some("seed"),
+            0,
+        )
+        .unwrap();
+    data
+}
+fn count(data: &RefCell<workflow_data::MemoryStore>) -> Value {
+    data.borrow_mut()
+        .execute(
+            serde_json::from_value(json!({"operation":"get","tableId":"counters","key":"hits"}))
+                .unwrap(),
+            None,
+            0,
+        )
+        .unwrap()["row"]["value"]["count"]
+        .clone()
 }
