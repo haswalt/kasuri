@@ -7,7 +7,8 @@ use workflow_service::Archive;
 use workflow_service::Workspace;
 use workflow_service::store::sql::{FORMAT_VERSION, SqlExec, SqlStore, SqlValue, legacy};
 use workflow_service::store::{
-    ChangeSet, Collection, MemoryStore, RunArchive, RunQueries, Store, StoreError, Tracked,
+    ChangeSet, Collection, MemoryStore, RetentionPolicy, RunArchive, RunQueries, RunRetention,
+    Store, StoreError, Tracked,
 };
 
 /// Every test runs against each store implementation.
@@ -829,7 +830,7 @@ fn byte_retention_matches_whole_document_retention<S: TestStore>() {
         tracked.workspace.record_audit(
             "browser",
             "workflow.saved",
-            &"z".repeat(4_000),
+            &"z".repeat(16_000),
             "succeeded",
             100 + i,
             "",
@@ -907,6 +908,14 @@ macro_rules! for_each_store {
             #[test]
             fn pruning_never_removes_runs_in_memory() {
                 super::super::pruning_never_removes_runs_in_memory::<$store>();
+            }
+            #[test]
+            fn history_is_kept_per_workflow() {
+                super::super::history_is_kept_per_workflow::<$store>();
+            }
+            #[test]
+            fn old_runs_expire_and_failed_runs_are_kept_longer() {
+                super::super::old_runs_expire_and_failed_runs_are_kept_longer::<$store>();
             }
             #[test]
             fn byte_retention_matches_whole_document_retention() {
@@ -1476,4 +1485,236 @@ fn pruning_never_removes_runs_in_memory<S: TestStore>() {
     assert_eq!(kept.len(), 103);
     assert_eq!(&kept[100..], ["old-2", "old-1", "old-0"]);
     assert_eq!(tracked.workspace.runs.len(), 3);
+}
+
+#[test]
+fn retention_settings_parse_strictly() {
+    let day = 24 * 60 * 60 * 1000;
+    assert_eq!(
+        RetentionPolicy::parse("", "", "").unwrap(),
+        RetentionPolicy::default()
+    );
+    assert_eq!(RetentionPolicy::default().per_workflow, Some(100));
+    let policy = RetentionPolicy::parse("25", "7", "").unwrap();
+    assert_eq!(
+        (
+            policy.per_workflow,
+            policy.max_age_ms,
+            policy.failed_max_age_ms
+        ),
+        (Some(25), Some(7 * day), Some(7 * day))
+    );
+    let policy = RetentionPolicy::parse("unlimited", "0", "30").unwrap();
+    assert_eq!(
+        (
+            policy.per_workflow,
+            policy.max_age_ms,
+            policy.failed_max_age_ms
+        ),
+        (None, None, Some(30 * day))
+    );
+    for (history, days, failed) in [
+        ("-1", "", ""),
+        ("ten", "", ""),
+        ("", "1.5", ""),
+        ("", "", "soon"),
+    ] {
+        assert!(
+            RetentionPolicy::parse(history, days, failed).is_err(),
+            "{history} {days} {failed}"
+        );
+    }
+    let cutoffs = RetentionPolicy::parse("", "1", "3").unwrap().at(10 * day);
+    assert_eq!(
+        (cutoffs.created_before, cutoffs.failed_created_before),
+        (Some(9 * day), Some(7 * day))
+    );
+    assert!(cutoffs.expired("succeeded", 9 * day - 1) && !cutoffs.expired("succeeded", 9 * day));
+    assert!(!cutoffs.expired("failed", 9 * day - 1) && cutoffs.expired("failed", 7 * day - 1));
+}
+
+/// A workflow whose runs fail immediately.
+fn failing(id: &str) -> Value {
+    let mut doc = instant(id);
+    doc["nodes"].as_array_mut().unwrap().push(json!({"id":"parse","type":"JSON Utilities","label":"Parse","config":{"operation":"parse"}}));
+    doc["edges"] = json!([{"id":"e","source":"start","target":"parse"}]);
+    doc
+}
+
+fn history_is_kept_per_workflow<S: TestStore>() {
+    let mut store = S::fresh();
+    let mut tracked = Tracked::load(&store).unwrap();
+    tracked.workspace.retention = RunRetention {
+        per_workflow: Some(3),
+        ..RunRetention::default()
+    };
+    for id in ["a", "b"] {
+        handle(
+            &mut tracked.workspace,
+            "PUT",
+            &format!("/api/workflows/{id}"),
+            instant(id),
+            0,
+            "",
+        );
+    }
+    let (mut tracked, _) = cycle(&mut store, &mut tracked);
+    tracked.workspace.retention = RunRetention {
+        per_workflow: Some(3),
+        ..RunRetention::default()
+    };
+    for i in 0..5 {
+        for id in ["a", "b"] {
+            handle(
+                &mut tracked.workspace,
+                "POST",
+                "/api/runs",
+                json!({"workflowId":id,"mode":"run","input":{}}),
+                i,
+                &format!("{id}-{i}"),
+            );
+        }
+    }
+    cycle(&mut store, &mut tracked);
+    assert_eq!(
+        listed(&store, 100),
+        ["b-4", "a-4", "b-3", "a-3", "b-2", "a-2"],
+        "three of each workflow"
+    );
+}
+
+fn old_runs_expire_and_failed_runs_are_kept_longer<S: TestStore>() {
+    let mut store = S::fresh();
+    let mut tracked = Tracked::load(&store).unwrap();
+    handle(
+        &mut tracked.workspace,
+        "PUT",
+        "/api/workflows/ok",
+        instant("ok"),
+        0,
+        "",
+    );
+    handle(
+        &mut tracked.workspace,
+        "PUT",
+        "/api/workflows/bad",
+        failing("bad"),
+        0,
+        "",
+    );
+    handle(
+        &mut tracked.workspace,
+        "PUT",
+        "/api/workflows/wait",
+        workflow("wait", 1_000_000),
+        0,
+        "",
+    );
+    for (at, id) in [
+        (100, "ok"),
+        (100, "bad"),
+        (100, "wait"),
+        (200, "ok"),
+        (200, "bad"),
+        (300, "ok"),
+        (300, "bad"),
+    ] {
+        handle(
+            &mut tracked.workspace,
+            "POST",
+            "/api/runs",
+            json!({"workflowId":id,"mode":"run","input":{}}),
+            at,
+            &format!("{id}-{at}"),
+        );
+    }
+    let (mut tracked, _) = cycle(&mut store, &mut tracked);
+    assert_eq!(
+        store
+            .stored_run("bad-100")
+            .unwrap()
+            .unwrap()
+            .status()
+            .unwrap(),
+        workflow_engine::RunStatus::Failed
+    );
+    assert_eq!(listed(&store, 100).len(), 7);
+    // Finished runs created before 250 expire; failed ones only before 150. The
+    // waiting run is in memory and is never deleted, however old.
+    tracked.workspace.retention = RunRetention {
+        per_workflow: None,
+        created_before: Some(250),
+        failed_created_before: Some(150),
+    };
+    handle(
+        &mut tracked.workspace,
+        "PUT",
+        "/api/workflows/other",
+        instant("other"),
+        400,
+        "",
+    );
+    cycle(&mut store, &mut tracked);
+    assert_eq!(
+        listed(&store, 100),
+        ["bad-300", "ok-300", "bad-200", "wait-100"]
+    );
+}
+
+#[test]
+fn format_2_tables_upgrade_to_add_the_age_index() {
+    let store = sqlite();
+    exec(&store, "DROP INDEX ws_runs_age", Vec::new());
+    exec(
+        &store,
+        "INSERT OR REPLACE INTO ws_meta VALUES('format','2')",
+        Vec::new(),
+    );
+    assert!(!store.current().unwrap());
+    assert!(store.upgrade().unwrap());
+    assert!(store.current().unwrap());
+    assert!(
+        !store
+            .sql()
+            .query(
+                "SELECT 1 FROM sqlite_master WHERE type='index' AND name='ws_runs_age'",
+                Vec::new()
+            )
+            .unwrap()
+            .is_empty()
+    );
+    exec(
+        &store,
+        "INSERT OR REPLACE INTO ws_meta VALUES('format','99')",
+        Vec::new(),
+    );
+    assert!(
+        store.upgrade().is_err(),
+        "a newer format is refused, not downgraded"
+    );
+}
+
+#[test]
+fn age_pruning_uses_its_index() {
+    let mut store = sqlite();
+    *store.sql().plans.borrow_mut() = Some(Vec::new());
+    store
+        .prune_runs(
+            &RunRetention {
+                per_workflow: Some(5),
+                created_before: Some(10),
+                failed_created_before: Some(5),
+            },
+            &["flow".into()],
+        )
+        .unwrap();
+    let plans = store.sql().plans.borrow_mut().take().unwrap();
+    assert_eq!(plans.len(), 3);
+    assert!(plans[0].contains("ws_runs_workflow"), "{}", plans[0]);
+    for plan in &plans[1..] {
+        assert!(
+            plan.contains("ws_runs_age") && !plan.contains("SCAN ws_runs"),
+            "{plan}"
+        );
+    }
 }

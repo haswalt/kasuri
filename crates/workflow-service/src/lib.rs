@@ -41,8 +41,16 @@ impl std::fmt::Debug for Archive {
     }
 }
 
-pub const MAX_STATE_BYTES: usize = 1_500_000;
-/// New runs start only while stored state is below this share of
+/// The encoded size of what a workspace holds in memory: workflows, revisions,
+/// active runs (and finished runs something still depends on) and audit entries.
+/// Finished runs are archived to storage and don't count.
+///
+/// It protects the Durable Object's memory (128 MB per isolate), not storage.
+/// Measured on workerd, a request's memory grows about ten times this state
+/// (decoded copies, the committed copy and per-entity encodings), so 6 MB keeps
+/// a full workspace well inside the limit.
+pub const MAX_STATE_BYTES: usize = 6_000_000;
+/// New runs start only while in-memory state is below this share of
 /// `MAX_STATE_BYTES`, leaving the rest for active runs to finish.
 pub const ADMISSION_STATE_BYTES: usize = MAX_STATE_BYTES / 4 * 3;
 /// Parses the host's `MAX_ACTIVE_RUNS` setting: empty, `0` or `unlimited` mean no
@@ -502,6 +510,10 @@ pub struct Workspace {
     /// workspace's runs are all there is.
     #[serde(skip)]
     pub archive: Archive,
+    /// How long finished runs stay in stored history, resolved by the host at
+    /// load. Applied when the workspace is committed through a store.
+    #[serde(skip)]
+    pub retention: store::RunRetention,
     /// Internal management credentials and receipts. Never included in API snapshots.
     #[serde(default)]
     pub management: Value,
@@ -569,7 +581,7 @@ impl Workspace {
         if encoded_len(self).saturating_sub(reclaimable) > ADMISSION_STATE_BYTES {
             return Err(error(
                 429,
-                "Workspace storage is nearly full; wait for active runs to finish before starting another",
+                "Too much active run state in this workspace; wait for active runs to finish before starting another",
             ));
         }
         Ok(())

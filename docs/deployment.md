@@ -38,11 +38,23 @@ Enter `username:password`. The health endpoint is unauthenticated for probes. Do
 | GET | `/api/runs/:id` | Inspect a run and node outputs |
 | POST | `/api/runs/:id/pause`, `/resume`, `/cancel` | Control a run |
 
-The Rust service bounds JSON bodies to 128 KiB and persisted workspace checkpoints to 1.5 MB. It retains up to 100 runs, pruning older terminal runs when needed. These are application safeguards independent of Cloudflare account quotas. The 1.5 MB workspace budget comes from storing each workspace as one document; [scalable workspace storage and execution](workspace-storage.md) is the proposed replacement.
+The Rust service bounds JSON bodies to 128 KiB and what a workspace holds in memory to 6 MB (see [concurrent runs](#concurrent-runs)). Finished runs are stored as history outside that budget (see [run history](#run-history)). These are application safeguards independent of Cloudflare account quotas. [Scalable workspace storage and execution](workspace-storage.md) describes the storage design and what comes next.
+
+### Run history
+
+Finished runs are kept in storage and listed with active runs, newest first. By default each workflow keeps its 100 newest finished runs. Configure history as Worker variables on Cloudflare, or in the environment when self-hosting:
+
+| Setting | Default | Meaning |
+| --- | --- | --- |
+| `RUN_HISTORY` | `100` | Finished runs kept per workflow. `0` or `unlimited` keeps any number. |
+| `RUN_HISTORY_DAYS` | none | Delete finished runs created more than this many days ago. |
+| `FAILED_RUN_HISTORY_DAYS` | `RUN_HISTORY_DAYS` | The same for failed runs, so they can be kept longer. |
+
+Older runs are deleted when a commit archives runs of that workflow, and the age limits are checked on every commit, using indexes. Runs that are still active, or that an active run depends on, are never deleted. An invalid value fails requests with a configuration error rather than keeping a different amount of history. Without any limit, history is bounded only by the Durable Object's 10 GB storage.
 
 ### Concurrent runs
 
-Runs are not limited by count by default. Finished runs are kept as history (the newest 100) but leave memory when they finish, so they don't count toward the 1.5 MB budget, which bounds what a workspace holds in memory: workflows, active runs and audit entries. Active runs can never be pruned, so a workspace stops starting new runs, Execute Workflow children and Each items once that state reaches 75% of the budget. The remaining budget keeps the workspace writable while active runs finish; refused starts return `429`, and Each items wait and retry. To cap concurrency as well, set `MAX_ACTIVE_RUNS` to a positive integer (as a Worker variable on Cloudflare, or in the environment when self-hosting). Empty, `0` or `unlimited` mean no count limit. Running and paused runs, and runs holding an open webhook response, count as active. An invalid value fails requests with a configuration error rather than silently using another limit. See Rust source for graph/engine budgets.
+Runs are not limited by count by default. A workspace holds its workflows, revisions, active runs and audit entries in memory, within a 6 MB budget; finished runs leave memory and don't count. The budget protects the Durable Object's 128 MB memory limit: measured on workerd, a request uses about ten times the workspace's in-memory state. Active runs can never be pruned, so a workspace stops starting new runs, Execute Workflow children and Each items once that state reaches 75% of the budget. A run's stored state is roughly three times its input, so that is about 28 concurrent runs with 50 KB inputs, or many more with small ones. The remaining budget keeps the workspace writable while active runs finish; refused starts return `429`, and Each items wait and retry. To cap concurrency as well, set `MAX_ACTIVE_RUNS` to a positive integer (as a Worker variable on Cloudflare, or in the environment when self-hosting). Empty, `0` or `unlimited` mean no count limit. Running and paused runs, and runs holding an open webhook response, count as active. An invalid value fails requests with a configuration error rather than silently using another limit. See Rust source for graph/engine budgets.
 
 ### Workspace storage
 
