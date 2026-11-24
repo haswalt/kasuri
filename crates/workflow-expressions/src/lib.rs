@@ -93,17 +93,29 @@ fn inspect(
     Ok(())
 }
 pub fn validate(config: &Map<String, Value>) -> Result<BTreeSet<String>, FailureCode> {
-    if serde_json::to_vec(config).map_or(true, |v| v.len() > MAX_BYTES) {
-        return Err(FailureCode::BudgetExceeded);
-    }
-    if config.len() != 1 {
-        return bad();
-    }
     let fields = config
         .get("fields")
         .and_then(Value::as_object)
-        .filter(|m| !m.is_empty() && m.len() <= 32)
-        .ok_or(FailureCode::InvalidConfig)?;
+        .filter(|_| config.len() == 1);
+    let Some(fields) = fields else {
+        // Oversized configs report a budget failure whatever their shape.
+        if serde_json::to_vec(config).map_or(true, |v| v.len() > MAX_BYTES) {
+            return Err(FailureCode::BudgetExceeded);
+        }
+        return bad();
+    };
+    validate_fields(fields)
+}
+/// Validate named expressions as if wrapped in an Expressions `{"fields":…}` config.
+pub fn validate_fields(fields: &Map<String, Value>) -> Result<BTreeSet<String>, FailureCode> {
+    // `{"fields":` plus the closing brace keeps the budget identical to validate().
+    const WRAPPER_BYTES: usize = 11;
+    if serde_json::to_vec(fields).map_or(true, |v| v.len() + WRAPPER_BYTES > MAX_BYTES) {
+        return Err(FailureCode::BudgetExceeded);
+    }
+    if fields.is_empty() || fields.len() > 32 {
+        return bad();
+    }
     let mut count = 0;
     let mut refs = BTreeSet::new();
     for (key, v) in fields {
@@ -315,7 +327,11 @@ fn eval(v: &Value, task: &Task) -> Result<Option<Value>, FailureCode> {
 }
 /// Assemble a node input using the same evaluator as the Expressions connector.
 pub fn assemble(fields: &Map<String, Value>, task: &Task) -> Result<Value, FailureCode> {
-    validate(&serde_json::from_value(json!({"fields":fields})).unwrap())?;
+    validate_fields(fields)?;
+    evaluate(fields, task)
+}
+/// Evaluate fields that have already passed `validate_fields`; eval relies on that shape.
+fn evaluate(fields: &Map<String, Value>, task: &Task) -> Result<Value, FailureCode> {
     let mut output = Map::new();
     for (name, expr) in fields {
         output.insert(name.clone(), required(eval(expr, task)?)?);
@@ -324,7 +340,7 @@ pub fn assemble(fields: &Map<String, Value>, task: &Task) -> Result<Value, Failu
 }
 pub fn execute(task: &Task) -> Outcome {
     let result = validate(&task.node.config)
-        .and_then(|_| assemble(task.node.config["fields"].as_object().unwrap(), task));
+        .and_then(|_| evaluate(task.node.config["fields"].as_object().unwrap(), task));
     match result {
         Ok(value) => Outcome::success(value),
         Err(code) => Outcome::Failed {

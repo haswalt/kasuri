@@ -629,7 +629,16 @@ impl Run {
                 self.dispatches += 1;
                 if !node.input_bindings.is_empty() {
                     match workflow_expressions::assemble(&node.input_bindings, &task) {
-                        Ok(input) => task.input = input,
+                        Ok(input) => {
+                            task.input = input;
+                            // Bindings are fully resolved here. Only the Expressions
+                            // connector evaluates its own config against the context, so
+                            // other connectors must not receive or persist ancestor
+                            // outputs or the trigger payload.
+                            if node.kind != "Expressions" {
+                                task.context = Value::Null;
+                            }
+                        }
                         Err(code) => {
                             self.nodes
                                 .insert(node.id.clone(), NodeState::Running { task: task.clone() });
