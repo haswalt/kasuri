@@ -22,7 +22,7 @@ sha2 = "0.11"
 connectors-data = { path = "../connectors-data" }
 workflow-data = { path = "../workflow-data" }
 
-jsonschema = { version = "=0.61.2", default-features = false }
+jsonschema = { version = "=0.62.0", default-features = false }
 
 [dev-dependencies]
 rusqlite = { version = "0.41", features = ["bundled"] }
