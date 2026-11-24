@@ -70,7 +70,7 @@ impl Workspace {
             .iter()
             .filter(|r| r.status().is_ok_and(|s| s == RunStatus::Running))
             .flat_map(|r| {
-                let id = r.restore().unwrap().id().to_string();
+                let id = r.id_string().unwrap();
                 r.external
                     .iter()
                     .chain(r.pending.iter())

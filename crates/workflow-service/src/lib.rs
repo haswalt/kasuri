@@ -121,14 +121,53 @@ pub struct RunRecord {
     pub created_at: u64,
     pub wake_at: Option<u64>,
     pub host_error: Option<String>,
+    /// The run's ID and engine status, cached from the checkpoint by `store` so
+    /// lookups and retention do not deserialize every run. Records stored before
+    /// these fields existed are backfilled on load.
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub run_id: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub run_status: Option<RunStatus>,
 }
 impl RunRecord {
     fn restore(&self) -> Result<Run, ApiError> {
         Run::restore(&self.checkpoint).map_err(|_| error(500, "Invalid stored run checkpoint"))
     }
+    /// Persist the engine state and refresh the cached ID and status together.
+    fn store(&mut self, run: &Run, status: u16) -> Result<(), ApiError> {
+        self.checkpoint = run.checkpoint().map_err(|e| error(status, e.to_string()))?;
+        self.run_id = run.id().into();
+        self.run_status = Some(run.status());
+        Ok(())
+    }
+    fn backfill(&mut self) {
+        if self.run_id.is_empty() || self.run_status.is_none() {
+            if let Ok(run) = self.restore() {
+                self.run_id = run.id().into();
+                self.run_status = Some(run.status());
+            }
+        }
+    }
+    /// Whether this record holds the run with `id`, without restoring it.
+    pub fn matches_id(&self, id: &str) -> bool {
+        if self.run_id.is_empty() {
+            self.matches_id(id)
+        } else {
+            self.run_id == id
+        }
+    }
+    pub fn id_string(&self) -> Result<String, ApiError> {
+        if self.run_id.is_empty() {
+            Ok(self.id_string()?)
+        } else {
+            Ok(self.run_id.clone())
+        }
+    }
     pub fn status(&self) -> Result<RunStatus, ApiError> {
         Ok(if self.host_error.is_some() {
             RunStatus::Failed
+        } else if let Some(status) = self.run_status {
+            status
         } else {
             self.restore()?.status()
         })
@@ -365,7 +404,7 @@ impl RunRecord {
             self.external = None;
         }
         self.logical_clock = clock;
-        self.checkpoint = run.checkpoint().map_err(|e| error(400, e.to_string()))?;
+        self.store(&run, 400)?;
         self.settle_response(clock)?;
         Ok(())
     }
@@ -413,6 +452,9 @@ impl Workspace {
         let mut ws: Self =
             serde_json::from_str(text).map_err(|_| error(500, "Invalid stored workspace"))?;
         ws.migrate_publications();
+        for record in &mut ws.runs {
+            record.backfill();
+        }
         Ok(ws)
     }
     pub fn checkpoint(&mut self) -> Result<String, ApiError> {
@@ -422,31 +464,57 @@ impl Workspace {
             if text.len() <= MAX_STATE_BYTES && self.runs.len() <= 100 {
                 return Ok(text);
             }
-            let removable = (1..self.runs.len()).rev().find(|i| {
-                !self.invocation_protected(*i)
-                    && !self.runs[*i]
-                        .webhook_response
-                        .as_ref()
-                        .is_some_and(|w| w.open())
-                    && self.runs[*i].status().is_ok_and(|s| {
-                        matches!(
-                            s,
-                            RunStatus::Succeeded | RunStatus::Failed | RunStatus::Cancelled
-                        )
-                    })
-            });
-            if let Some(index) = removable {
-                self.runs.remove(index);
-            } else if text.len() > MAX_STATE_BYTES && self.audit.len() > 1 {
-                // Audit retention is bounded by both count and available storage.
-                self.audit.remove(0);
-            } else {
-                return Err(error(
-                    413,
-                    "Workspace checkpoint budget exceeded; reduce stored inputs/outputs",
-                ));
+            // Plan this pass's removals from each element's encoded size (plus its
+            // separating comma), so the workspace is re-encoded once per pass rather
+            // than once per removed run. Runs are taken oldest first, as before.
+            let mut excess = text.len().saturating_sub(MAX_STATE_BYTES);
+            let mut surplus = self.runs.len().saturating_sub(100);
+            let mut removed = false;
+            let mut index = self.runs.len();
+            while index > 1 && (excess > 0 || surplus > 0) {
+                index -= 1;
+                if self.retention_removable(index) {
+                    let size = serde_json::to_string(&self.runs[index]).map_or(0, |t| t.len() + 1);
+                    self.runs.remove(index);
+                    excess = excess.saturating_sub(size);
+                    surplus = surplus.saturating_sub(1);
+                    removed = true;
+                }
             }
+            if removed {
+                continue;
+            }
+            if text.len() > MAX_STATE_BYTES && self.audit.len() > 1 {
+                // Audit retention is bounded by both count and available storage.
+                let mut drop = 0;
+                while drop < self.audit.len() - 1 && excess > 0 {
+                    excess = excess.saturating_sub(
+                        serde_json::to_string(&self.audit[drop]).map_or(0, |t| t.len() + 1),
+                    );
+                    drop += 1;
+                }
+                self.audit.drain(..drop.max(1));
+                continue;
+            }
+            return Err(error(
+                413,
+                "Workspace checkpoint budget exceeded; reduce stored inputs/outputs",
+            ));
         }
+    }
+    /// A terminal run that no active parent or awaiting caller depends on.
+    fn retention_removable(&self, index: usize) -> bool {
+        !self.invocation_protected(index)
+            && !self.runs[index]
+                .webhook_response
+                .as_ref()
+                .is_some_and(|w| w.open())
+            && self.runs[index].status().is_ok_and(|s| {
+                matches!(
+                    s,
+                    RunStatus::Succeeded | RunStatus::Failed | RunStatus::Cancelled
+                )
+            })
     }
     pub fn next_alarm(&self) -> Option<u64> {
         self.workflows
@@ -813,13 +881,15 @@ impl Workspace {
             created_at: now,
             wake_at: None,
             host_error: None,
+            run_id: run.id().into(),
+            run_status: Some(run.status()),
         };
         record.advance(now)?;
         self.runs.insert(0, record);
         self.settle_invocations(now)?;
         self.runs
             .iter()
-            .find(|r| r.restore().is_ok_and(|run| run.id() == id))
+            .find(|r| r.matches_id(id))
             .unwrap()
             .view(false)
     }
@@ -1268,7 +1338,7 @@ impl Workspace {
             let index = self
                 .runs
                 .iter()
-                .position(|r| r.restore().is_ok_and(|r| r.id() == id))
+                .position(|r| r.matches_id(id))
                 .ok_or_else(|| error(404, "Run not found"))?;
             if method == "GET" && parts.len() == 3 {
                 return Ok((200, self.runs[index].view(false)?));
@@ -1283,7 +1353,7 @@ impl Workspace {
                     _ => return Err(error(404, "Unknown run action")),
                 }
                 .map_err(|e| error(409, e.to_string()))?;
-                record.checkpoint = run.checkpoint().map_err(|e| error(400, e.to_string()))?;
+                record.store(&run, 400)?;
                 record.wake_at = None;
                 if parts[3] == "cancel" {
                     record.external = None;
@@ -1299,7 +1369,7 @@ impl Workspace {
                     200,
                     self.runs
                         .iter()
-                        .find(|r| r.restore().is_ok_and(|r| r.id() == id))
+                        .find(|r| r.matches_id(&id))
                         .unwrap()
                         .view(false)?,
                 ));
@@ -1436,7 +1506,7 @@ impl Workspace {
                         now
                     };
                     return Ok(Some((
-                        record.restore()?.id().into(),
+                        record.id_string()?,
                         external.task.clone(),
                         record.mode,
                         time,
@@ -1453,11 +1523,7 @@ impl Workspace {
         outcome: Outcome,
         time: u64,
     ) -> Result<bool, ApiError> {
-        let Some(record) = self
-            .runs
-            .iter_mut()
-            .find(|r| r.restore().is_ok_and(|run| run.id() == id))
-        else {
+        let Some(record) = self.runs.iter_mut().find(|r| r.matches_id(id)) else {
             return Ok(false);
         };
         if record.status()? != RunStatus::Running {
@@ -1483,7 +1549,7 @@ impl Workspace {
             if record.status()? != RunStatus::Running {
                 continue;
             }
-            let run_id = record.restore()?.id().to_string();
+            let run_id = record.id_string()?;
             for external in record.external.iter_mut().chain(record.pending.iter_mut()) {
                 if !matches!(
                     external.task.node.kind.as_str(),
@@ -1513,11 +1579,7 @@ impl Workspace {
         outcome: Outcome,
         now: u64,
     ) -> Result<bool, ApiError> {
-        let Some(record) = self
-            .runs
-            .iter_mut()
-            .find(|r| r.restore().is_ok_and(|run| run.id() == id))
-        else {
+        let Some(record) = self.runs.iter_mut().find(|r| r.matches_id(id)) else {
             return Ok(false);
         };
         if !record
@@ -1548,7 +1610,7 @@ impl Workspace {
             record.external = None;
         }
         record.pending.retain(|e| e.task.id != task_id);
-        record.checkpoint = run.checkpoint().map_err(|e| error(500, e.to_string()))?;
+        record.store(&run, 500)?;
         record.advance(now)?;
         let simulation = record.mode == Mode::Simulation;
         let host_now = if simulation {
@@ -1576,7 +1638,7 @@ impl Workspace {
         let before: Vec<_> = self
             .runs
             .iter()
-            .map(|r| Ok((r.restore()?.id().to_string(), r.status()?)))
+            .map(|r| Ok((r.id_string()?, r.status()?)))
             .collect::<Result<_, ApiError>>()?;
         for record in &mut self.runs {
             record.settle_response(now)?;
@@ -1590,11 +1652,7 @@ impl Workspace {
             }
         }
         for (id, status) in before {
-            if let Some(record) = self
-                .runs
-                .iter()
-                .find(|r| r.restore().is_ok_and(|r| r.id() == id))
-            {
+            if let Some(record) = self.runs.iter().find(|r| r.matches_id(&id)) {
                 if record.status()? != status {
                     self.record_audit("engine", "runs.state_changed", &id, "recorded", now, "");
                 }
@@ -1614,11 +1672,7 @@ impl Workspace {
             let due_at = draft.next_scheduled_at.unwrap();
             let doc = self.live_document(&draft.graph.id)?;
             let id = format!("cron-{}-{}-{due_at}", doc.graph.id, doc.graph.revision);
-            if !self
-                .runs
-                .iter()
-                .any(|r| r.restore().is_ok_and(|run| run.id() == id))
-            {
+            if !self.runs.iter().any(|r| r.matches_id(&id)) {
                 let trigger = doc
                     .graph
                     .nodes

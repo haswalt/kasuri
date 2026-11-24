@@ -253,3 +253,38 @@ fn import_provenance_persists_without_changing_published_execution() {
     assert_eq!(current["importedFrom"], "original-export");
     assert_eq!(current["hasUnpublishedChanges"], false);
 }
+
+/// Cached run IDs and statuses must always match the stored engine checkpoint.
+fn assert_run_cache_consistent(ws: &Workspace) {
+    for record in &ws.runs {
+        let run = workflow_engine::Run::restore(&record.checkpoint).unwrap();
+        assert_eq!(record.run_id, run.id());
+        assert_eq!(record.run_status, Some(run.status()));
+        assert!(record.matches_id(run.id()));
+    }
+}
+#[test]
+fn cached_run_identity_tracks_checkpoints_and_backfills_legacy_records() {
+    let mut ws = Workspace::default();
+    save(&mut ws, &child(100));
+    publish(&mut ws, "child");
+    save(&mut ws, &parent("await"));
+    start(&mut ws, "run");
+    assert!(ws.runs.len() >= 2, "parent and child runs exist");
+    assert_run_cache_consistent(&ws);
+    ws.alarm(100).unwrap();
+    assert_run_cache_consistent(&ws);
+    ws.alarm(101).unwrap();
+    assert_run_cache_consistent(&ws);
+    assert_eq!(get(&mut ws, "parent-run")["status"], "succeeded");
+    // Records written before the cache existed have no cached fields.
+    let mut legacy: Value = serde_json::from_str(&ws.checkpoint().unwrap()).unwrap();
+    for run in legacy["runs"].as_array_mut().unwrap() {
+        let run = run.as_object_mut().unwrap();
+        assert!(run.remove("runId").is_some());
+        assert!(run.remove("runStatus").is_some());
+    }
+    let ws = Workspace::from_json(&legacy.to_string()).unwrap();
+    assert_run_cache_consistent(&ws);
+    assert!(ws.runs.iter().any(|r| r.matches_id("parent-run")));
+}
