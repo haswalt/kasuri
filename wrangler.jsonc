@@ -21,6 +21,10 @@
       {
         "name": "WORKSPACES",
         "class_name": "WorkflowWorkspace"
+      },
+      {
+        "name": "RUNS",
+        "class_name": "WorkflowRun"
       }
     ]
   },
@@ -29,6 +33,12 @@
       "tag": "v1",
       "new_sqlite_classes": [
         "WorkflowWorkspace"
+      ]
+    },
+    {
+      "tag": "v2",
+      "new_sqlite_classes": [
+        "WorkflowRun"
       ]
     }
   ],

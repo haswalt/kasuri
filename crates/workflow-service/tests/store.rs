@@ -1662,36 +1662,57 @@ fn old_runs_expire_and_failed_runs_are_kept_longer<S: TestStore>() {
 }
 
 #[test]
-fn format_2_tables_upgrade_to_add_the_age_index() {
-    let store = sqlite();
-    exec(&store, "DROP INDEX ws_runs_age", Vec::new());
-    exec(
-        &store,
-        "INSERT OR REPLACE INTO ws_meta VALUES('format','2')",
-        Vec::new(),
-    );
-    assert!(!store.current().unwrap());
-    assert!(store.upgrade().unwrap());
-    assert!(store.current().unwrap());
-    assert!(
-        !store
+fn format_2_and_3_tables_upgrade_in_place() {
+    for format in ["2", "3"] {
+        let store = sqlite();
+        // Tables as those formats wrote them: no remote-run columns, and before
+        // format 3 no age index.
+        for statement in [
+            "DROP INDEX ws_runs_remote",
+            "ALTER TABLE ws_runs DROP COLUMN remote",
+            "ALTER TABLE ws_runs DROP COLUMN report_version",
+        ] {
+            exec(&store, statement, Vec::new());
+        }
+        if format == "2" {
+            exec(&store, "DROP INDEX ws_runs_age", Vec::new());
+        }
+        exec(
+            &store,
+            &format!("INSERT OR REPLACE INTO ws_meta VALUES('format','{format}')"),
+            Vec::new(),
+        );
+        assert!(!store.current().unwrap());
+        assert!(store.upgrade().unwrap());
+        assert!(store.current().unwrap());
+        assert!(!store.upgrade().unwrap(), "upgrading twice changes nothing");
+        for index in ["ws_runs_age", "ws_runs_remote"] {
+            assert!(
+                !store
+                    .sql()
+                    .query(
+                        "SELECT 1 FROM sqlite_master WHERE type='index' AND name=?",
+                        vec![SqlValue::Text(index.into())]
+                    )
+                    .unwrap()
+                    .is_empty(),
+                "{index} after upgrading format {format}"
+            );
+        }
+        store
             .sql()
-            .query(
-                "SELECT 1 FROM sqlite_master WHERE type='index' AND name='ws_runs_age'",
-                Vec::new()
-            )
-            .unwrap()
-            .is_empty()
-    );
-    exec(
-        &store,
-        "INSERT OR REPLACE INTO ws_meta VALUES('format','99')",
-        Vec::new(),
-    );
-    assert!(
-        store.upgrade().is_err(),
-        "a newer format is refused, not downgraded"
-    );
+            .query("SELECT remote, report_version FROM ws_runs", Vec::new())
+            .unwrap();
+        exec(
+            &store,
+            "INSERT OR REPLACE INTO ws_meta VALUES('format','99')",
+            Vec::new(),
+        );
+        assert!(
+            store.upgrade().is_err(),
+            "a newer format is refused, not downgraded"
+        );
+    }
 }
 
 #[test]

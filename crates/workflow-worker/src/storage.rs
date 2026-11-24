@@ -10,10 +10,28 @@ use crate::{WorkflowWorkspace, internal};
 use std::{cell::RefCell, rc::Rc};
 use worker::wasm_bindgen::{JsCast, JsValue, closure::Closure};
 use worker::*;
-use workflow_service::Workspace;
 use workflow_service::store::sql::{SqlExec, SqlStore, SqlValue, legacy};
 use workflow_service::store::{Collection, StoreError, Tracked};
+use workflow_service::{RunRecord, Workspace};
 
+/// Where runs execute (`RUN_EXECUTION`).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum RunExecution {
+    Workspace,
+    Objects,
+}
+pub(crate) fn parse_run_execution(value: &str) -> std::result::Result<RunExecution, String> {
+    match value.trim() {
+        "" | "workspace" => Ok(RunExecution::Workspace),
+        "objects" => Ok(RunExecution::Objects),
+        other => Err(format!(
+            "RUN_EXECUTION must be 'workspace' or 'objects', not '{other}'"
+        )),
+    }
+}
+/// How long a run object has to report after its start before the start is
+/// retried.
+const REMOTE_START_RETRY_MS: u64 = 10_000;
 /// The committed workspace this object last read or wrote, with the commit token
 /// it came from. Reused while that token is still the stored one, so most
 /// requests don't decode the workspace.
@@ -78,11 +96,19 @@ fn commit_token() -> String {
 }
 /// Commit `workspace`, writing only the rows that changed. Must run inside
 /// `sql_transaction`. Retention is applied to `workspace` first.
+/// Work for run objects that a commit produced: runs to start and control
+/// requests to forward, once the transaction has committed.
+#[derive(Default)]
+pub(crate) struct Handoff {
+    pub(crate) start: Vec<RunRecord>,
+    pub(crate) control: Vec<(String, String)>,
+}
+/// Returns what the caller must hand to run objects after the commit.
 pub(crate) fn write_workspace(
     sql: &SqlStorage,
     cache: &WorkspaceCache,
     workspace: &mut Workspace,
-) -> Result<()> {
+) -> Result<Handoff> {
     let mut store = tables(sql);
     prepare(&mut store, cache)?;
     let mut tracked = take_committed(&store, cache)?;
@@ -90,6 +116,12 @@ pub(crate) fn write_workspace(
     // rolls back and the caller discards its candidate.
     tracked.workspace = std::mem::take(workspace);
     let written = tracked.commit(&mut store).map_err(store_error)?;
+    let offloaded = written
+        .upserts
+        .iter()
+        .filter(|record| record.remote)
+        .map(|record| serde_json::from_str(&record.body).map_err(internal))
+        .collect::<Result<Vec<RunRecord>>>()?;
     // Hand back the workspace with retention applied: the one copy a save makes,
     // since the cache keeps the committed state as well.
     *workspace = tracked.workspace.clone();
@@ -108,7 +140,14 @@ pub(crate) fn write_workspace(
     if affects_webhooks {
         write_webhook_auth(sql, workspace)?;
     }
-    remember(&store, cache, tracked)
+    // Never cached or handed back: forwarded exactly once, by this caller.
+    let control = std::mem::take(&mut tracked.workspace.remote_controls);
+    workspace.remote_controls.clear();
+    remember(&store, cache, tracked)?;
+    Ok(Handoff {
+        start: offloaded,
+        control,
+    })
 }
 /// Record a new commit token and cache the committed workspace under it. If the
 /// surrounding transaction rolls back, the stored token stays the old one, so the
@@ -221,6 +260,7 @@ impl WorkflowWorkspace {
         let mut workspace = self.load_stored()?;
         workspace.max_active_runs = self.max_active_runs()?;
         workspace.retention = self.retention()?.at(crate::now());
+        workspace.offload = self.run_execution()? == RunExecution::Objects;
         // Finished runs are read from storage on demand.
         workspace.archive =
             workflow_service::Archive::new(Rc::new(tables(&self.state.storage().sql())));
@@ -242,6 +282,16 @@ impl WorkflowWorkspace {
             &var("FAILED_RUN_HISTORY_DAYS"),
         )
         .map_err(internal)
+    }
+    /// `RUN_EXECUTION`: unset, empty or `workspace` runs everything in the
+    /// workspace; `objects` runs eligible top-level runs in run objects.
+    pub(crate) fn run_execution(&self) -> Result<RunExecution> {
+        let value = self
+            .env
+            .var("RUN_EXECUTION")
+            .map(|v| v.to_string())
+            .unwrap_or_default();
+        parse_run_execution(&value).map_err(internal)
     }
     /// `MAX_ACTIVE_RUNS` from the environment: unset, empty, `0` or `unlimited`
     /// set no count limit. An invalid value fails requests rather than silently
@@ -282,19 +332,118 @@ impl WorkflowWorkspace {
         // before lifecycle cleanup, so pruned runs cannot retain data scopes.
         let mut candidate = workspace.clone();
         let cache = self.cache.clone();
-        *workspace = self.sql_transaction(move |sql| {
+        let handoff;
+        (*workspace, handoff) = self.sql_transaction(move |sql| {
             stage(&sql)?;
-            write_workspace(&sql, &cache, &mut candidate)?;
-            Ok(candidate)
+            let handoff = write_workspace(&sql, &cache, &mut candidate)?;
+            Ok((candidate, handoff))
         })?;
+        // Their index rows are committed; now hand them to their run objects. A
+        // failed start is retried from the index (see `restart_remote_runs`).
+        for record in handoff.start {
+            if let Err(error) = self.start_remote(record).await {
+                console_error!("Starting a run object failed; it will be retried: {error}");
+            }
+        }
+        for (run, action) in handoff.control {
+            if let Err(error) = self.control_remote(&run, &action).await {
+                console_error!("Forwarding {action} to run {run} failed: {error}");
+            }
+        }
         // Arm recovery before any effect is attempted. A failed transaction must
         // leave a durable wake-up, including when this save runs in an alarm.
         self.arm_workspace_alarm(workspace).await?;
         self.flush_data_tasks(workspace)?;
         self.arm_workspace_alarm(workspace).await
     }
+    /// Hand a run to its run object, which creates it if it isn't there yet.
+    pub(crate) async fn start_remote(&self, record: RunRecord) -> Result<()> {
+        let id = record.id_string().map_err(internal)?;
+        let workspace = self.state.id().to_string();
+        let namespace = self.env.durable_object("RUNS")?;
+        let stub = namespace
+            .id_from_name(&format!("{workspace}/{id}"))?
+            .get_stub()?;
+        let mut init = RequestInit::new();
+        init.with_method(Method::Post).with_body(Some(
+            serde_json::to_string(&serde_json::json!({"workspace": workspace, "record": record}))?
+                .into(),
+        ));
+        let response = stub
+            .fetch_with_request(Request::new_with_init("https://run/start", &init)?)
+            .await?;
+        if response.status_code() != 200 {
+            return Err(internal(format!(
+                "run object refused start: {}",
+                response.status_code()
+            )));
+        }
+        Ok(())
+    }
+    /// Retry starting runs whose run object never reported: the start after their
+    /// commit may not have arrived. Starting is idempotent.
+    pub(crate) async fn restart_remote_runs(&self) -> Result<()> {
+        let before = crate::now().saturating_sub(REMOTE_START_RETRY_MS);
+        let unstarted = tables(&self.state.storage().sql())
+            .unstarted_remote_runs(before)
+            .map_err(store_error)?;
+        for record in unstarted {
+            if let Err(error) = self.start_remote(record).await {
+                console_error!("Retrying a run object start failed: {error}");
+            }
+        }
+        Ok(())
+    }
+    /// Forward a control request for a remote run to its run object, if `id` is a
+    /// remote run that is still active. Returns its response.
+    pub(crate) async fn control_remote(&self, id: &str, action: &str) -> Result<Option<Response>> {
+        if !tables(&self.state.storage().sql())
+            .remote_active_run(id)
+            .map_err(store_error)?
+        {
+            return Ok(None);
+        }
+        let workspace = self.state.id().to_string();
+        let stub = self
+            .env
+            .durable_object("RUNS")?
+            .id_from_name(&format!("{workspace}/{id}"))?
+            .get_stub()?;
+        let mut init = RequestInit::new();
+        init.with_method(Method::Post).with_body(Some(
+            serde_json::json!({"action": action}).to_string().into(),
+        ));
+        Ok(Some(
+            stub.fetch_with_request(Request::new_with_init("https://run/control", &init)?)
+                .await?,
+        ))
+    }
+    /// Apply a run object's report to the run's index row. Older reports are
+    /// ignored, so reports may arrive late or twice.
+    pub(crate) fn apply_run_report(&self, run: &str, version: u64, body: &str) -> Result<()> {
+        let record: RunRecord = serde_json::from_str(body).map_err(internal)?;
+        let columns = workflow_service::store::RunColumns::of(&record).map_err(internal)?;
+        let (run, body) = (run.to_owned(), body.to_owned());
+        self.sql_transaction(move |sql| {
+            let mut store = tables(&sql);
+            workflow_service::store::Store::apply_report(
+                &mut store, &run, version, &body, &columns,
+            )
+            .map_err(store_error)?;
+            Ok(())
+        })
+    }
     async fn arm_workspace_alarm(&self, workspace: &Workspace) -> Result<()> {
-        if let Some(at) = workspace.next_alarm() {
+        // Runs whose run object hasn't reported yet are checked again shortly.
+        let unstarted = tables(&self.state.storage().sql())
+            .unstarted_remote_runs(crate::now().saturating_add(1))
+            .map_err(store_error)?;
+        let retry = (!unstarted.is_empty()).then(|| crate::now() + REMOTE_START_RETRY_MS);
+        let next = match (workspace.next_alarm(), retry) {
+            (Some(a), Some(b)) => Some(a.min(b)),
+            (a, b) => a.or(b),
+        };
+        if let Some(at) = next {
             self.state
                 .storage()
                 .set_alarm(std::time::Duration::from_millis(

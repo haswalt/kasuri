@@ -64,8 +64,9 @@ pub trait SqlExec {
 
 /// The table layout version written to `ws_meta` once a workspace is stored here.
 /// Version 2 added `ws_runs.workflow_id` and `ws_runs.archived`; version 3 the
-/// `ws_runs_age` index for age-based retention.
-pub const FORMAT_VERSION: i64 = 3;
+/// `ws_runs_age` index for age-based retention; version 4 `ws_runs.remote` and
+/// `ws_runs.report_version` for runs executed outside the workspace.
+pub const FORMAT_VERSION: i64 = 4;
 
 const SCHEMA: &[&str] = &[
     "CREATE TABLE IF NOT EXISTS ws_meta (key TEXT PRIMARY KEY, value TEXT NOT NULL)",
@@ -73,7 +74,7 @@ const SCHEMA: &[&str] = &[
     "CREATE TABLE IF NOT EXISTS ws_revisions (id TEXT PRIMARY KEY, ord INTEGER NOT NULL, body TEXT NOT NULL)",
     "CREATE TABLE IF NOT EXISTS ws_audit (id TEXT PRIMARY KEY, ord INTEGER NOT NULL, body TEXT NOT NULL)",
     "CREATE TABLE IF NOT EXISTS ws_webhooks (id TEXT PRIMARY KEY, ord INTEGER NOT NULL, body TEXT NOT NULL)",
-    "CREATE TABLE IF NOT EXISTS ws_runs (id TEXT PRIMARY KEY, ord INTEGER NOT NULL, status TEXT NOT NULL, created_at INTEGER NOT NULL, wake_at INTEGER, response_open INTEGER NOT NULL, response_deadline INTEGER, parent_id TEXT, root_id TEXT, summary TEXT NOT NULL, body TEXT NOT NULL, workflow_id TEXT NOT NULL DEFAULT '', archived INTEGER NOT NULL DEFAULT 0)",
+    "CREATE TABLE IF NOT EXISTS ws_runs (id TEXT PRIMARY KEY, ord INTEGER NOT NULL, status TEXT NOT NULL, created_at INTEGER NOT NULL, wake_at INTEGER, response_open INTEGER NOT NULL, response_deadline INTEGER, parent_id TEXT, root_id TEXT, summary TEXT NOT NULL, body TEXT NOT NULL, workflow_id TEXT NOT NULL DEFAULT '', archived INTEGER NOT NULL DEFAULT 0, remote INTEGER NOT NULL DEFAULT 0, report_version INTEGER NOT NULL DEFAULT 0)",
     "CREATE TABLE IF NOT EXISTS ws_run_awaits (child_id TEXT NOT NULL, run_id TEXT NOT NULL, PRIMARY KEY(child_id, run_id))",
     "CREATE INDEX IF NOT EXISTS ws_runs_ord ON ws_runs(ord, id)",
     "CREATE INDEX IF NOT EXISTS ws_runs_status ON ws_runs(status)",
@@ -85,6 +86,7 @@ const SCHEMA: &[&str] = &[
     "CREATE INDEX IF NOT EXISTS ws_runs_resident ON ws_runs(archived, ord, id)",
     "CREATE INDEX IF NOT EXISTS ws_runs_workflow ON ws_runs(workflow_id, ord, id)",
     "CREATE INDEX IF NOT EXISTS ws_runs_age ON ws_runs(archived, created_at)",
+    "CREATE INDEX IF NOT EXISTS ws_runs_remote ON ws_runs(remote, status)",
 ];
 const TABLES: &[&str] = &[
     "ws_meta",
@@ -199,8 +201,17 @@ impl<E: SqlExec> SqlStore<E> {
             }
             format = 2;
         }
-        // Format 3 only adds indexes, which `create` makes for every version.
-        debug_assert!(format == 2);
+        if format < 4 {
+            for statement in [
+                "ALTER TABLE ws_runs ADD COLUMN remote INTEGER NOT NULL DEFAULT 0",
+                "ALTER TABLE ws_runs ADD COLUMN report_version INTEGER NOT NULL DEFAULT 0",
+            ] {
+                self.rows(statement, Vec::new())?;
+            }
+            format = 4;
+        }
+        // Format 3 only added indexes, which `create` makes for every version.
+        debug_assert!(format == FORMAT_VERSION);
         self.create()?;
         self.set_format()?;
         Ok(true)
@@ -243,6 +254,7 @@ impl<E: SqlExec> SqlStore<E> {
             // Columns are derived from the body for queries; loading doesn't need them.
             columns: None,
             archived: false,
+            remote: false,
         })
     }
     fn write_run(&self, record: &Record) -> Result<(), StoreError> {
@@ -250,7 +262,7 @@ impl<E: SqlExec> SqlStore<E> {
             StoreError::Invalid(format!("run {} has no indexed columns", record.key.id))
         })?;
         self.rows(
-            "INSERT OR REPLACE INTO ws_runs(id,ord,status,created_at,wake_at,response_open,response_deadline,parent_id,root_id,summary,body,workflow_id,archived) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?)",
+            "INSERT OR REPLACE INTO ws_runs(id,ord,status,created_at,wake_at,response_open,response_deadline,parent_id,root_id,summary,body,workflow_id,archived,remote) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
             vec![
                 text(&record.key.id),
                 SqlValue::Integer(record.order),
@@ -265,6 +277,7 @@ impl<E: SqlExec> SqlStore<E> {
                 text(&record.body),
                 text(&columns.workflow_id),
                 SqlValue::Integer(record.archived.into()),
+                SqlValue::Integer(record.remote.into()),
             ],
         )?;
         self.rows(
@@ -334,24 +347,50 @@ impl<E: SqlExec> Store for SqlStore<E> {
             for workflow in workflows {
                 // Rows past the newest `keep` of this workflow, through its index.
                 self.rows(
-                    "DELETE FROM ws_runs WHERE archived=1 AND id IN (SELECT id FROM ws_runs WHERE workflow_id=? ORDER BY ord,id LIMIT -1 OFFSET ?)",
+                    "DELETE FROM ws_runs WHERE archived=1 AND status NOT IN ('running','paused') AND id IN (SELECT id FROM ws_runs WHERE workflow_id=? ORDER BY ord,id LIMIT -1 OFFSET ?)",
                     vec![text(workflow), unsigned(keep as u64)],
                 )?;
             }
         }
         if let Some(before) = retention.created_before {
             self.rows(
-                "DELETE FROM ws_runs WHERE archived=1 AND created_at<? AND status<>'failed'",
+                "DELETE FROM ws_runs WHERE archived=1 AND status NOT IN ('running','paused') AND created_at<? AND status<>'failed'",
                 vec![unsigned(before)],
             )?;
         }
         if let Some(before) = retention.failed_created_before {
             self.rows(
-                "DELETE FROM ws_runs WHERE archived=1 AND created_at<? AND status='failed'",
+                "DELETE FROM ws_runs WHERE archived=1 AND status NOT IN ('running','paused') AND created_at<? AND status='failed'",
                 vec![unsigned(before)],
             )?;
         }
         Ok(())
+    }
+    fn apply_report(
+        &mut self,
+        id: &str,
+        version: u64,
+        body: &str,
+        columns: &RunColumns,
+    ) -> Result<bool, StoreError> {
+        let applied = self.rows(
+            "UPDATE ws_runs SET status=?,wake_at=?,response_open=?,response_deadline=?,parent_id=?,root_id=?,summary=?,body=?,workflow_id=?,report_version=? WHERE id=? AND remote=1 AND report_version<? RETURNING id",
+            vec![
+                text(&columns.status),
+                optional(columns.wake_at),
+                SqlValue::Integer(columns.response_open.into()),
+                optional(columns.response_deadline),
+                columns.parent_id.as_deref().map_or(SqlValue::Null, text),
+                columns.root_id.as_deref().map_or(SqlValue::Null, text),
+                text(&columns.summary),
+                text(body),
+                text(&columns.workflow_id),
+                unsigned(version),
+                text(id),
+                unsigned(version),
+            ],
+        )?;
+        Ok(!applied.is_empty())
     }
     /// Atomic only inside the host's transaction; see the module documentation.
     fn apply(&mut self, changes: &ChangeSet) -> Result<(), StoreError> {
@@ -392,7 +431,61 @@ impl<E: SqlExec> Store for SqlStore<E> {
     }
 }
 
+impl<E: SqlExec> SqlStore<E> {
+    /// Whether `id` is a remote run that is still running or paused, as last
+    /// reported. Hosts forward control requests for such runs to their run store.
+    pub fn remote_active_run(&self, id: &str) -> Result<bool, StoreError> {
+        Ok(self
+            .first(
+                &format!("SELECT count(*) FROM ws_runs WHERE id=? AND remote=1 AND {ACTIVE}"),
+                vec![text(id)],
+            )?
+            .map(|v| v.integer())
+            .transpose()?
+            .flatten()
+            == Some(1))
+    }
+    /// Remote runs whose run store has never reported, created before `before`:
+    /// their start may not have reached the run store, and is retried.
+    pub fn unstarted_remote_runs(&self, before: u64) -> Result<Vec<RunRecord>, StoreError> {
+        self.rows(
+            "SELECT body FROM ws_runs WHERE remote=1 AND report_version=0 AND created_at<?",
+            vec![unsigned(before)],
+        )?
+        .into_iter()
+        .map(|row| {
+            decode_run(
+                &row.into_iter()
+                    .next()
+                    .ok_or_else(|| StoreError::Invalid("empty row".into()))?
+                    .text()?,
+            )
+        })
+        .collect()
+    }
+}
+
 impl<E: SqlExec> RunArchive for SqlStore<E> {
+    fn is_remote(&self, id: &str) -> Result<bool, StoreError> {
+        Ok(self
+            .first("SELECT remote FROM ws_runs WHERE id=?", vec![text(id)])?
+            .map(|v| v.integer())
+            .transpose()?
+            .flatten()
+            == Some(1))
+    }
+    fn remote_active(&self) -> Result<usize, StoreError> {
+        Ok(self
+            .first(
+                &format!("SELECT count(*) FROM ws_runs WHERE remote=1 AND {ACTIVE}"),
+                Vec::new(),
+            )?
+            .map(|v| v.integer())
+            .transpose()?
+            .flatten()
+            .unwrap_or(0)
+            .max(0) as usize)
+    }
     fn stored_run(&self, id: &str) -> Result<Option<RunRecord>, StoreError> {
         self.first("SELECT body FROM ws_runs WHERE id=?", vec![text(id)])?
             .map(|body| decode_run(&body.text()?))

@@ -67,6 +67,9 @@ pub struct Record {
     /// A finished run that nothing in memory depends on any more. It stays stored
     /// (for run lists, details and history) but is not loaded with the workspace.
     pub archived: bool,
+    /// A run executed outside the workspace (by a run store). Its row is the
+    /// workspace's index entry, kept current by the run's reports.
+    pub remote: bool,
 }
 
 /// Indexed facts about a run, derived from its [`RunRecord`] whenever the run is
@@ -117,7 +120,7 @@ impl RunColumns {
             summary: summary.to_string(),
         })
     }
-    fn active(&self) -> bool {
+    pub fn active(&self) -> bool {
         matches!(self.status.as_str(), "running" | "paused")
     }
 }
@@ -204,6 +207,15 @@ pub trait Store {
         retention: &RunRetention,
         workflows: &[String],
     ) -> Result<(), StoreError>;
+    /// Update a remote run's index row from its run store's report, unless a report
+    /// at least as new was already applied. Returns whether it applied.
+    fn apply_report(
+        &mut self,
+        id: &str,
+        version: u64,
+        body: &str,
+        columns: &RunColumns,
+    ) -> Result<bool, StoreError>;
 }
 
 /// Read access to every stored run, including archived ones the workspace no
@@ -219,6 +231,10 @@ pub trait RunArchive {
         workflow_id: Option<&str>,
         status: Option<&str>,
     ) -> Result<Vec<Value>, StoreError>;
+    /// Remote runs that are running or paused, as last reported.
+    fn remote_active(&self) -> Result<usize, StoreError>;
+    /// Whether `id` is a run executed outside the workspace.
+    fn is_remote(&self, id: &str) -> Result<bool, StoreError>;
 }
 
 /// An in-memory [`Store`] for tests and hosts without durable storage.
@@ -233,6 +249,8 @@ struct Stored {
     body: String,
     columns: Option<RunColumns>,
     archived: bool,
+    remote: bool,
+    report_version: u64,
 }
 impl Stored {
     fn record(&self, key: &EntityKey) -> Record {
@@ -242,6 +260,7 @@ impl Stored {
             body: self.body.clone(),
             columns: self.columns.clone(),
             archived: self.archived,
+            remote: self.remote,
         }
     }
 }
@@ -311,11 +330,37 @@ impl Store for MemoryStore {
                 .map(|(key, _, _)| key.clone()),
         );
         for key in doomed {
-            if self.records.get(&key).is_some_and(|row| row.archived) {
+            // Archived or remote, never active: active remote runs are archived
+            // (not loaded) but must not be deleted.
+            if self.records.get(&key).is_some_and(|row| {
+                row.archived && !row.columns.as_ref().is_some_and(RunColumns::active)
+            }) {
                 self.records.remove(&key);
             }
         }
         Ok(())
+    }
+    fn apply_report(
+        &mut self,
+        id: &str,
+        version: u64,
+        body: &str,
+        columns: &RunColumns,
+    ) -> Result<bool, StoreError> {
+        let key = EntityKey {
+            collection: Collection::Run,
+            id: id.to_owned(),
+        };
+        let Some(row) = self.records.get_mut(&key) else {
+            return Ok(false);
+        };
+        if !row.remote || row.report_version >= version {
+            return Ok(false);
+        }
+        row.body = body.to_owned();
+        row.columns = Some(columns.clone());
+        row.report_version = version;
+        Ok(true)
     }
     fn apply(&mut self, changes: &ChangeSet) -> Result<(), StoreError> {
         // Nothing here can fail part-way, so applying in place is atomic.
@@ -333,6 +378,8 @@ impl Store for MemoryStore {
                     body: record.body.clone(),
                     columns: record.columns.clone(),
                     archived: record.archived,
+                    remote: record.remote,
+                    report_version: 0,
                 },
             );
         }
@@ -340,6 +387,22 @@ impl Store for MemoryStore {
     }
 }
 impl RunArchive for MemoryStore {
+    fn is_remote(&self, id: &str) -> Result<bool, StoreError> {
+        Ok(self
+            .records
+            .get(&EntityKey {
+                collection: Collection::Run,
+                id: id.to_owned(),
+            })
+            .is_some_and(|row| row.remote))
+    }
+    fn remote_active(&self) -> Result<usize, StoreError> {
+        Ok(self
+            .records
+            .values()
+            .filter(|row| row.remote && row.columns.as_ref().is_some_and(RunColumns::active))
+            .count())
+    }
     fn stored_run(&self, id: &str) -> Result<Option<RunRecord>, StoreError> {
         let key = EntityKey {
             collection: Collection::Run,
@@ -553,6 +616,7 @@ impl Tracked {
                         body,
                         columns: Some(columns),
                         archived: true,
+                        remote: false,
                     });
                 } else {
                     run_orders.insert(key.clone(), order);
@@ -564,6 +628,34 @@ impl Tracked {
             self.workspace.runs.retain(|_| {
                 index += 1;
                 !archive[index - 1]
+            });
+        }
+
+        // Runs started for execution elsewhere: written once, as index rows that
+        // are never loaded, below every other run (they are the newest).
+        let mut lowest = changes
+            .upserts
+            .iter()
+            .map(|r| r.order)
+            .chain(run_orders.values().copied())
+            .chain(self.run_floor)
+            .min()
+            .unwrap_or(0);
+        for record in &self.workspace.offloaded {
+            let id = record
+                .id_string()
+                .map_err(|_| StoreError::MissingKey(Collection::Run))?;
+            lowest = lowest.saturating_sub(ORDER_SPACING);
+            changes.upserts.push(Record {
+                key: EntityKey {
+                    collection: Collection::Run,
+                    id,
+                },
+                order: lowest,
+                body: encode(record)?,
+                columns: Some(RunColumns::of(record).map_err(invalid)?),
+                archived: true,
+                remote: true,
             });
         }
 
@@ -642,6 +734,7 @@ impl Tracked {
                         body,
                         columns,
                         archived: false,
+                        remote: false,
                     });
                 }
             }
@@ -666,6 +759,8 @@ impl Tracked {
             return Ok(changes);
         }
         store.apply(&changes)?;
+        // Handed to the host through the change set; never written twice.
+        self.workspace.offloaded.clear();
         // Count limits can only be newly exceeded in workflows whose runs were just
         // archived; age limits are checked on every commit (an indexed lookup).
         let mut workflows: Vec<String> = changes

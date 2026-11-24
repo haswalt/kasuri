@@ -2,6 +2,7 @@
 mod data;
 mod http;
 mod mcp;
+mod runs;
 mod storage;
 mod webhook;
 mod workspaces;
@@ -246,6 +247,19 @@ impl DurableObject for WorkflowWorkspace {
     }
     async fn fetch(&self, mut req: Request) -> Result<Response> {
         let path = req.url()?.path().to_string();
+        // Only run objects call this: the entry Worker never forwards `/internal/`
+        // paths to a workspace.
+        if path == "/internal/runs/report" && req.method() == Method::Post {
+            #[derive(serde::Deserialize)]
+            struct Report {
+                run: String,
+                version: u64,
+                body: String,
+            }
+            let report: Report = req.json().await?;
+            self.apply_run_report(&report.run, report.version, &report.body)?;
+            return Response::from_json(&json!({"ok": true}));
+        }
         if mcp::public_workspace(&path).is_some() {
             return self.mcp_public(req).await;
         }
@@ -354,6 +368,7 @@ impl DurableObject for WorkflowWorkspace {
             }
         };
         let mut in_flight = FuturesUnordered::new();
+        self.restart_remote_runs().await?;
         loop {
             let mut workspace = self.load()?;
             workspace.alarm(now()).map_err(internal)?;

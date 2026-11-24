@@ -454,3 +454,53 @@ fn racing_consumers_cannot_both_claim_or_complete() {
         Progress::Unchanged
     );
 }
+
+#[test]
+fn control_requests_apply_to_stored_runs() {
+    let mut ws = Workspace::default();
+    let doc = cases()
+        .into_iter()
+        .find(|d| d["id"] == "http-chain")
+        .unwrap();
+    publish(&mut ws, &doc);
+    let store = MemoryRuns::default();
+    let bus = MemoryBus::default();
+    let record = ws
+        .new_run_record(
+            "r",
+            &ws.live_document("http-chain").unwrap(),
+            json!({}),
+            Mode::Run,
+            0,
+            json!({}),
+        )
+        .unwrap();
+    execution::start(&store, &bus, record, 0).unwrap();
+    let (paused, _) = execution::control(&store, &bus, "r", "pause", 1).unwrap();
+    assert_eq!(paused.view(false).unwrap()["status"], "paused");
+    // A paused run's messages do nothing until it resumes.
+    let message = WorkMessage {
+        run: "r".into(),
+        version: store.load("r").unwrap().unwrap().1,
+    };
+    assert_eq!(
+        execution::begin(&store, &bus, &message, 2).unwrap(),
+        Step::Done(Progress::Unchanged)
+    );
+    let (resumed, _) = execution::control(&store, &bus, "r", "resume", 3).unwrap();
+    assert_eq!(resumed.view(false).unwrap()["status"], "running");
+    let (cancelled, _) = execution::control(&store, &bus, "r", "cancel", 4).unwrap();
+    assert_eq!(cancelled.view(false).unwrap()["status"], "cancelled");
+    assert_eq!(
+        execution::control(&store, &bus, "r", "resume", 5)
+            .unwrap_err()
+            .status,
+        409
+    );
+    assert_eq!(
+        execution::control(&store, &bus, "missing", "cancel", 5)
+            .unwrap_err()
+            .status,
+        404
+    );
+}
