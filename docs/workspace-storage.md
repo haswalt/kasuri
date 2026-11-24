@@ -1,6 +1,6 @@
 # Scalable workspace storage and execution
 
-Status: **proposal, not implemented.** Until it is, the limits in [deployment](deployment.md) apply: a 1.5 MB budget per workspace and retention of up to 100 runs.
+Status: **proposal, not implemented.** Until it is, the limits in [deployment](deployment.md) apply: a 1.5 MB budget per workspace, retention of up to 100 runs, and admission that stops new runs once state that retention cannot reclaim reaches 75% of that budget.
 
 Priorities, in order: **scalability** (concurrent runs and history grow with demand, not with one object's limits), **performance** (an operation's latency and CPU don't grow with workspace size), then **cost** (no work or writes beyond what an operation changes).
 
