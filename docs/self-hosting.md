@@ -84,6 +84,8 @@ Do not enable an HPA on the supplied stateful Deployment. A ReadWriteOnce PVC is
 
 ### Future multi-worker deployment
 
+A proposed first step, placing workspaces on several independent single-node shards behind a stateless router, is described in the [workspace sharding design](self-host-sharding.md). It is not implemented; the guidance on this page still applies.
+
 Horizontal execution is a separate implementation feature. Before supporting replicas, choose and implement a tested coordination/storage backend: workspace/object ownership with fencing, durable work claiming or queues, transactional checkpoint/effect receipts, alarm ownership and due-work recovery, cancellation/pause propagation, shared authentication/authorization state and consistent artifact access. Handle abandoned leases and duplicate delivery without repeating completed effects. Preserve the Rust execution core and deployable Wasm backend; a TypeScript bridge is not required.
 
 Evaluate runtime-managed Durable Object clustering against the pinned workerd version and its recovery guarantees, or implement a compatible distributed host/storage adapter. The upstream runtime's [configuration schema](https://github.com/cloudflare/workerd/blob/main/src/workerd/server/workerd.capnp) evolves; upstream clustering options do not imply Kasuri's current package configures or supports them. Sharing SQLite or merely adding a queue is insufficient.
