@@ -1,8 +1,15 @@
-# Workspace storage: per-entity rows instead of one document
+# Scalable workspace storage and execution
 
 Status: **proposal, not implemented.** Until it is, the limits in [deployment](deployment.md) apply: a 1.5 MB budget per workspace and retention of up to 100 runs.
 
-This design replaces the whole-workspace document with per-entity rows that are loaded on demand and written only when they change. It removes the 1.5 MB workspace budget as a limit on concurrency and history, and makes the cost of an operation proportional to what it touches rather than to the size of the workspace.
+Priorities, in order: **scalability** (concurrent runs and history grow with demand, not with one object's limits), **performance** (an operation's latency and CPU don't grow with workspace size), then **cost** (no work or writes beyond what an operation changes).
+
+The design has two stages:
+
+1. **Per-entity storage.** Replace the whole-workspace document with per-entity rows that are loaded on demand and written only when they change. This removes the 1.5 MB workspace budget and makes each operation's cost proportional to what it touches.
+2. **Distributed execution.** Run each workflow run in its own Durable Object, so a workspace's concurrent runs spread across machines instead of sharing one thread. The workspace object becomes a control plane: definitions, publication, credentials and the run index.
+
+Stage 1 is a prerequisite for stage 2 and is useful on its own. Stage 2 is what makes a single busy workspace scale.
 
 ## The problem
 
@@ -35,6 +42,8 @@ Consequences:
 
 Goals:
 
+- **Scale:** a workspace sustains thousands of concurrently active runs (stage 2), limited by configured policy (`MAX_ACTIVE_RUNS`) rather than by one object's thread, storage or memory.
+- **Latency:** webhook acceptance, run steps and API reads take time independent of how many runs a workspace has, active or retained.
 - **Writes:** an operation writes only the rows it changed, in one transaction.
 - **Reads:** an operation loads only the entities it needs, and listing runs reads summary columns, not checkpoints.
 - **Budgets:** per-item limits (run checkpoint, value, request) replace the per-workspace byte budget. Total size is bounded by retention policy and the Durable Object's storage quota.
@@ -44,11 +53,11 @@ Goals:
 
 Non-goals:
 
-- **Spreading one workspace:** a workspace is still one Durable Object, so one thread on one machine. Splitting it, for example one Durable Object per run, is a later step that this design makes possible.
+- **Spreading one run:** a single run stays on one object. Parallel branches inside a run still share that run's thread, bounded by the run's own concurrency settings.
 - **Engine and checkpoint changes:** no change to engine semantics or to the run checkpoint format.
 - **Sharding:** no change to [self-hosted sharding](self-host-sharding.md). Each shard simply gets the new layout.
 
-## Design
+## Stage 1: per-entity storage
 
 ### Tables
 
@@ -136,6 +145,53 @@ Notes:
 - **Size:** the migration's own transaction rewrites at most the current 1.5 MB workspace, so it stays within today's limits.
 - **Backups:** backups remain whole-volume or whole-object, so the procedures in the self-hosting guide don't change.
 
+## Stage 2: distributed execution
+
+Stage 1 makes each operation cheap, but every run of a workspace still executes on the workspace's one Durable Object: one thread, one machine and one storage database. A workspace with many concurrent runs is still limited by that object's CPU. Stage 2 removes that ceiling.
+
+### Shape
+
+| Object | Owns | Scales by |
+| --- | --- | --- |
+| **Workspace** Durable Object (control plane) | Workflows, revisions, publication, webhook registrations, MCP and OAuth state, audit, the run index, admission (`MAX_ACTIVE_RUNS`) | One per workspace. It handles management operations and the start and finish of runs, not run steps. |
+| **Run** Durable Objects (data plane) | One run: its checkpoint, alarms (waits, retries), outbound HTTP, pinned graphs, child correlation, webhook response window | One per run, so concurrent runs land on different machines. |
+| **Data** Durable Objects | Data Tables and Context Store, sharded by table or dataset | Per table, so data-heavy workflows don't funnel through the workspace. |
+
+Runs are already nearly self-contained, which makes this split realistic:
+
+- A run pins its graph and every child target at start (`invocation_targets`).
+- The engine needs only the run's own checkpoint (`workflow_engine::Run`).
+- HTTP execution only needs the environment.
+
+Three things tie a run to the workspace today, and each gets an explicit protocol.
+
+### Protocols
+
+- **Start:** the workspace admits the run (`MAX_ACTIVE_RUNS`, policy), records an index row, then creates the run object with the pinned graph and input. Webhook acceptance returns once the run object has durably stored the run, as today.
+- **Progress:** the run object advances itself on its own alarms and writes only its own state. It reports status changes (running, paused, succeeded, failed, cancelled) to the workspace index asynchronously and idempotently, keyed by run ID and a sequence number. The index is therefore eventually consistent for lists. Run details are always read from the run object.
+- **Control:** pause, resume and cancel go to the run object directly. The workspace forwards them and updates the index from the run's report.
+- **Children (Execute Workflow, Each):** the parent run object asks the workspace to admit a child, then creates the child run object. The child reports completion to its parent with an idempotent callback keyed by the parent task's idempotency key. Each fan-out becomes parallel across machines, bounded by the node's concurrency setting.
+- **Webhook response windows:** the delivery request is held by the run object that decides the response, replacing `keep_webhook_response` in the workspace. The entry Worker routes the waiting request to that object.
+- **Data:** data connectors call the dataset's object over RPC. Its operations are already explicit, transactional commands with receipts (`crates/workflow-worker/src/data.rs`), which map directly onto RPC calls.
+
+### Guarantees to keep
+
+- **No lost runs:** a run is either durably created in its object or refused at start, never half-created. Index rows without an object are reconciled by a workspace alarm.
+- **Exactly-once effects:** effect recovery stays exactly as idempotent as today. Child and data calls carry idempotency keys, and retries after an object restart never repeat a completed effect.
+- **Live publication:** pinned graphs mean in-flight runs are unaffected by publishing.
+
+### Cost
+
+Splitting execution doesn't have to cost more:
+
+- **Requests:** the number of operations is about the same. One alarm per run step happens in the run's object instead of the workspace's, and status reports add one small message per status change, not per step.
+- **Writes:** writes go down compared with today, because each step writes one run's rows.
+- **Idle runs:** runs that are waiting hold no CPU. Durations and alarms are per object, and waiting runs can rely on alarms rather than staying in memory.
+
+### Self-hosting
+
+workerd hosts many Durable Objects in one process, so stage 2 works self-hosted unchanged. Within one process it adds concurrency between runs, but not more cores. Spreading runs across machines self-hosted requires the [sharding](self-host-sharding.md) router, extended to route run objects as well as workspaces.
+
 ## Risks
 
 - **Change tracking:** a mutation that forgets to mark its entity as changed would be lost silently. Mitigations:
@@ -144,6 +200,8 @@ Notes:
   - run the existing suites against both stores.
 - **Invariants spanning runs:** parent and child relations, Each iteration state and webhook response windows currently rely on scanning one in-memory list. Each one needs an explicit query and a test.
 - **Ordering:** audit order, run list order and pagination are API-visible. They need explicit `ORDER BY` clauses and keys.
+- **Eventual consistency (stage 2):** run lists and `MAX_ACTIVE_RUNS` admission read the workspace's index, which lags run objects by one status report. Admission must count runs it has admitted but not yet heard from, so the cap is never exceeded. Lists need a documented staleness bound.
+- **Cross-object latency (stage 2):** child completion, data access and status reports become RPCs. Each adds a network hop, so a single run's step latency may rise slightly while total throughput rises a lot. Measure both.
 - **Scope:** `workflow-service` accesses `self.runs` in about 67 places and `self.workflows` in about 29. They move behind the store in phases rather than in one change.
 
 ## Phases and acceptance
@@ -153,12 +211,17 @@ Notes:
 3. **SQLite store and migration** in the worker. The old layout is still readable for rollback if that option is chosen.
 4. **Incremental commits** become the default. Record generations, the decode cache and whole-document `checkpoint()` are removed.
 5. **Retention policies** replace `MAX_STATE_BYTES`, and the admission guard is removed or replaced with the indexed active-bytes check.
+6. **Run objects** (stage 2): runs execute in their own Durable Objects behind the protocols above, starting with top-level runs and then children and Each fan-out.
+7. **Data objects:** Data Tables and Context Store move behind RPC to their own objects.
+8. **Webhook response windows** move to run objects.
 
 Acceptance:
 
 - **Constant cost:** an alarm tick or webhook delivery writes a constant number of rows regardless of workspace size, and its duration doesn't grow with the number of retained runs. Measure at 100, 1,000 and 10,000 retained runs.
 - **Concurrency:** 200 concurrently active runs with 50 KB outputs each succeed, which is impossible today, and remain cancellable.
 - **Migration:** workspaces from every existing format (legacy row, record generations, with and without `webhook_auth`) migrate. A failure injected mid-migration leaves the old layout intact.
+- **Scale (stage 2):** 1,000 concurrently active runs in one workspace with median step latency within 2× of a single isolated run, and webhook acceptance latency independent of active-run count.
+- **Recovery (stage 2):** killing run objects mid-step, losing status reports and restarting the workspace object never loses a run or repeats a completed effect.
 - **Regression:** the full `pnpm test:runtime` suite passes unchanged, including storage atomicity, restart persistence and webhook response windows.
 - **Change tracking:** every operation in the native suites matches a fresh reload after commit.
 
@@ -166,4 +229,5 @@ Acceptance:
 
 - **Raise `MAX_STATE_BYTES`:** quick, but it keeps whole-document cost per operation and makes every request slower as the budget fills. It can't go far past the per-row limit for a single run anyway. Not a fix.
 - **Keep the document but write only the records that changed:** this removes the write amplification but not the load cost or the budget. Useful as an interim step (phase 4 without phases 1–3) if the full change is too large at once.
-- **One Durable Object per run:** spreads execution across machines, but adds cross-object coordination for invocation, Each and webhook response windows. It is a later step, and much easier once runs are separate rows with explicit relations.
+- **Run shards instead of one object per run** (for example, N execution objects per workspace, each taking a share of runs): fewer objects, but a shard is still one thread shared by its runs, and rebalancing is needed as load changes. One object per run scales without tuning. Shards remain an option if per-object overhead turns out to matter.
+- **External queues for dispatch** (Cloudflare Queues or similar): useful for buffering bursts, but they add a separate delivery path for something Durable Object alarms already handle per run, and a second system to self-host. They aren't needed for the core design.

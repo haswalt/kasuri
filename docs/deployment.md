@@ -38,7 +38,7 @@ Enter `username:password`. The health endpoint is unauthenticated for probes. Do
 | GET | `/api/runs/:id` | Inspect a run and node outputs |
 | POST | `/api/runs/:id/pause`, `/resume`, `/cancel` | Control a run |
 
-The Rust service bounds JSON bodies to 128 KiB and persisted workspace checkpoints to 1.5 MB. It retains up to 100 runs, pruning older terminal runs when needed. These are application safeguards independent of Cloudflare account quotas. The 1.5 MB workspace budget comes from storing each workspace as one document; [per-entity workspace storage](workspace-storage.md) is the proposed replacement.
+The Rust service bounds JSON bodies to 128 KiB and persisted workspace checkpoints to 1.5 MB. It retains up to 100 runs, pruning older terminal runs when needed. These are application safeguards independent of Cloudflare account quotas. The 1.5 MB workspace budget comes from storing each workspace as one document; [scalable workspace storage and execution](workspace-storage.md) is the proposed replacement.
 
 ### Concurrent runs
 
