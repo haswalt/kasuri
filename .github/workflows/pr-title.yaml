@@ -1,0 +1,25 @@
+name: Pull request title
+on:
+  pull_request:
+    types: [opened, edited, reopened, synchronize]
+permissions:
+  contents: read
+jobs:
+  conventional:
+    runs-on: ubuntu-latest
+    timeout-minutes: 2
+    steps:
+      # A squash merge uses the title as the commit subject, so the title must be a
+      # Conventional Commit header for the changelog.
+      # The title is passed through the environment, never interpolated into the script.
+      - name: Check Conventional Commit title
+        env:
+          TITLE: ${{ github.event.pull_request.title }}
+        run: |
+          pattern='^(build|chore|ci|docs|feat|fix|perf|refactor|revert|style|test)(\([a-z0-9][a-z0-9-]*\))?!?: [^ ].{0,99}$'
+          if printf '%s' "$TITLE" | grep -Eq "$pattern"; then
+            echo "Title follows Conventional Commits."
+          else
+            echo "::error title=Pull request title::Use a Conventional Commit title such as 'fix(engine): describe the change' (types: build, chore, ci, docs, feat, fix, perf, refactor, revert, style, test; header up to 100 characters after the type). See CONTRIBUTING.md."
+            exit 1
+          fi
