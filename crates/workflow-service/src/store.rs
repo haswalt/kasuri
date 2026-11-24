@@ -9,9 +9,10 @@
 //! This phase changes no storage format and no service behaviour: the service
 //! still operates on a whole `Workspace`, and hosts still persist it as they do
 //! today. Later phases load entities on demand and back the trait with SQLite.
-use crate::Workspace;
+use crate::{ApiError, RunRecord, Workspace};
 use serde_json::{Map, Value};
 use std::collections::{BTreeMap, HashMap};
+use workflow_engine::RunStatus;
 
 /// The workspace collections stored as individual records, in document order.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
@@ -51,11 +52,86 @@ pub struct EntityKey {
 
 /// One stored entity. `order` reproduces the entity's position in its collection:
 /// records sort by ascending order. `body` is the entity's JSON encoding.
+/// Run records also carry [`RunColumns`], derived from the body when written, so
+/// run queries never decode run bodies.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Record {
     pub key: EntityKey,
     pub order: i64,
     pub body: String,
+    pub columns: Option<RunColumns>,
+}
+
+/// Indexed facts about a run, derived from its [`RunRecord`] whenever the run is
+/// written. They answer every [`RunQueries`] question without decoding the run.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct RunColumns {
+    /// Engine status (`running`, `paused`, `succeeded`, `failed`, `cancelled`).
+    pub status: String,
+    pub created_at: u64,
+    /// When the run next needs the engine (a wait, retry or deadline).
+    pub wake_at: Option<u64>,
+    /// Whether the run holds an open webhook response window.
+    pub response_open: bool,
+    /// The open window's deadline, if it has one.
+    pub response_deadline: Option<u64>,
+    /// The invoking parent run and the root of its invocation tree.
+    pub parent_id: Option<String>,
+    pub root_id: Option<String>,
+    /// Child runs this run awaits and has not yet collected.
+    pub awaits: Vec<String>,
+    /// The run's list entry (`RunRecord::view(true)`), as JSON.
+    pub summary: String,
+}
+impl RunColumns {
+    pub fn of(record: &RunRecord) -> Result<Self, ApiError> {
+        let window = record.webhook_response.as_ref().filter(|w| w.open());
+        Ok(Self {
+            status: status_text(record.status()?),
+            created_at: record.created_at,
+            wake_at: record.wake_at,
+            response_open: window.is_some(),
+            response_deadline: window.and_then(|w| w.deadline_ms),
+            parent_id: record.parent.as_ref().map(|p| p.run_id.clone()),
+            root_id: record.parent.as_ref().map(|p| p.root_id.clone()),
+            awaits: record
+                .children
+                .iter()
+                .filter(|c| c.awaited && !c.collected)
+                .map(|c| c.run_id.clone())
+                .collect(),
+            summary: record.view(true)?.to_string(),
+        })
+    }
+    fn active(&self) -> bool {
+        matches!(self.status.as_str(), "running" | "paused")
+    }
+}
+fn status_text(status: RunStatus) -> String {
+    serde_json::to_value(status)
+        .ok()
+        .and_then(|v| v.as_str().map(str::to_owned))
+        .unwrap_or_default()
+}
+
+/// The run questions the service asks. `Workspace` answers them from runs in
+/// memory; stores answer them from [`RunColumns`] without loading runs.
+pub trait RunQueries {
+    type Error;
+    /// The earliest time any run needs the engine: a wake time, or the deadline of
+    /// an open webhook response window.
+    fn next_run_wake(&self) -> Result<Option<u64>, Self::Error>;
+    /// Runs the alarm must visit at `now`, in list order: those due to wake, and
+    /// those holding an open webhook response window (which may need settling).
+    fn due_runs(&self, now: u64) -> Result<Vec<String>, Self::Error>;
+    /// Running and paused runs, plus (when asked) runs holding an open webhook
+    /// response window.
+    fn active_runs(&self, count_open_responses: bool) -> Result<usize, Self::Error>;
+    /// List entries (`RunRecord::view(true)`) for the newest `limit` runs.
+    fn run_summaries(&self, limit: usize) -> Result<Vec<Value>, Self::Error>;
+    /// Whether an active run depends on `id`, as its parent, its invocation root or
+    /// an awaited, uncollected child. Protected runs are never pruned.
+    fn run_protected(&self, id: &str) -> Result<bool, Self::Error>;
 }
 
 /// The rows one operation changed. Applying it must be atomic.
@@ -109,9 +185,19 @@ pub trait Store {
 #[derive(Clone, Debug, Default)]
 pub struct MemoryStore {
     meta: Option<String>,
-    records: BTreeMap<EntityKey, (i64, String)>,
+    records: BTreeMap<EntityKey, (i64, String, Option<RunColumns>)>,
 }
 impl MemoryStore {
+    fn run_columns(&self) -> impl Iterator<Item = (&EntityKey, i64, &RunColumns)> {
+        let mut runs: Vec<_> = self
+            .records
+            .iter()
+            .filter(|(key, _)| key.collection == Collection::Run)
+            .filter_map(|(key, (order, _, columns))| columns.as_ref().map(|c| (key, *order, c)))
+            .collect();
+        runs.sort_by(|a, b| a.1.cmp(&b.1).then_with(|| a.0.cmp(b.0)));
+        runs.into_iter()
+    }
     /// Number of stored entity records (excluding metadata).
     pub fn len(&self) -> usize {
         self.records.len()
@@ -129,20 +215,22 @@ impl Store for MemoryStore {
             .records
             .iter()
             .filter(|(key, _)| key.collection == collection)
-            .map(|(key, (order, body))| Record {
+            .map(|(key, (order, body, columns))| Record {
                 key: key.clone(),
                 order: *order,
                 body: body.clone(),
+                columns: columns.clone(),
             })
             .collect();
         records.sort_by(|a, b| a.order.cmp(&b.order).then_with(|| a.key.cmp(&b.key)));
         Ok(records)
     }
     fn record(&self, key: &EntityKey) -> Result<Option<Record>, StoreError> {
-        Ok(self.records.get(key).map(|(order, body)| Record {
+        Ok(self.records.get(key).map(|(order, body, columns)| Record {
             key: key.clone(),
             order: *order,
             body: body.clone(),
+            columns: columns.clone(),
         }))
     }
     fn apply(&mut self, changes: &ChangeSet) -> Result<(), StoreError> {
@@ -154,10 +242,106 @@ impl Store for MemoryStore {
             self.records.remove(key);
         }
         for record in &changes.upserts {
-            self.records
-                .insert(record.key.clone(), (record.order, record.body.clone()));
+            self.records.insert(
+                record.key.clone(),
+                (record.order, record.body.clone(), record.columns.clone()),
+            );
         }
         Ok(())
+    }
+}
+impl RunQueries for MemoryStore {
+    type Error = StoreError;
+    fn next_run_wake(&self) -> Result<Option<u64>, StoreError> {
+        Ok(self
+            .run_columns()
+            .flat_map(|(_, _, c)| [c.wake_at, c.response_deadline])
+            .flatten()
+            .min())
+    }
+    fn due_runs(&self, now: u64) -> Result<Vec<String>, StoreError> {
+        Ok(self
+            .run_columns()
+            .filter(|(_, _, c)| c.response_open || c.wake_at.is_some_and(|at| at <= now))
+            .map(|(key, _, _)| key.id.clone())
+            .collect())
+    }
+    fn active_runs(&self, count_open_responses: bool) -> Result<usize, StoreError> {
+        Ok(self
+            .run_columns()
+            .filter(|(_, _, c)| (count_open_responses && c.response_open) || c.active())
+            .count())
+    }
+    fn run_summaries(&self, limit: usize) -> Result<Vec<Value>, StoreError> {
+        self.run_columns()
+            .take(limit)
+            .map(|(_, _, c)| {
+                serde_json::from_str(&c.summary).map_err(|e| StoreError::Invalid(e.to_string()))
+            })
+            .collect()
+    }
+    fn run_protected(&self, id: &str) -> Result<bool, StoreError> {
+        Ok(self.run_columns().any(|(_, _, c)| {
+            c.active()
+                && (c.parent_id.as_deref() == Some(id)
+                    || c.root_id.as_deref() == Some(id)
+                    || c.awaits.iter().any(|a| a == id))
+        }))
+    }
+}
+
+/// Today's in-memory answers: the reference behaviour every store must match.
+impl RunQueries for Workspace {
+    type Error = ApiError;
+    fn next_run_wake(&self) -> Result<Option<u64>, ApiError> {
+        Ok(self
+            .runs
+            .iter()
+            .filter_map(|r| r.wake_at)
+            .chain(self.runs.iter().filter_map(|r| {
+                r.webhook_response
+                    .as_ref()
+                    .filter(|w| w.open())
+                    .and_then(|w| w.deadline_ms)
+            }))
+            .min())
+    }
+    fn due_runs(&self, now: u64) -> Result<Vec<String>, ApiError> {
+        self.runs
+            .iter()
+            .filter(|r| {
+                r.webhook_response.as_ref().is_some_and(|w| w.open())
+                    || r.wake_at.is_some_and(|at| at <= now)
+            })
+            .map(RunRecord::id_string)
+            .collect()
+    }
+    fn active_runs(&self, count_open_responses: bool) -> Result<usize, ApiError> {
+        Ok(self
+            .runs
+            .iter()
+            .filter(|r| {
+                (count_open_responses && r.webhook_response.as_ref().is_some_and(|w| w.open()))
+                    || r.status()
+                        .is_ok_and(|s| matches!(s, RunStatus::Running | RunStatus::Paused))
+            })
+            .count())
+    }
+    fn run_summaries(&self, limit: usize) -> Result<Vec<Value>, ApiError> {
+        self.runs.iter().take(limit).map(|r| r.view(true)).collect()
+    }
+    fn run_protected(&self, id: &str) -> Result<bool, ApiError> {
+        Ok(self.runs.iter().any(|r| {
+            r.status()
+                .is_ok_and(|s| matches!(s, RunStatus::Running | RunStatus::Paused))
+                && (r
+                    .parent
+                    .as_ref()
+                    .is_some_and(|p| p.root_id == id || p.run_id == id)
+                    || r.children
+                        .iter()
+                        .any(|c| c.awaited && !c.collected && c.run_id == id))
+        }))
     }
 }
 
@@ -218,16 +402,29 @@ impl Tracked {
             ..ChangeSet::default()
         };
         let mut seen = HashMap::new();
-        for (_, entities) in collections {
+        for (collection, entities) in collections {
             let orders = assign_orders(&entities, &self.baseline);
-            for ((key, body), order) in entities.into_iter().zip(orders) {
+            for (index, ((key, body), order)) in entities.into_iter().zip(orders).enumerate() {
                 let unchanged = self
                     .baseline
                     .get(&key)
                     .is_some_and(|(old_order, old_body)| *old_order == order && *old_body == body);
                 seen.insert(key.clone(), ());
                 if !unchanged {
-                    changes.upserts.push(Record { key, order, body });
+                    // Run columns are derived only for runs being written.
+                    let columns = match collection {
+                        Collection::Run => Some(
+                            RunColumns::of(&self.workspace.runs[index])
+                                .map_err(|e| StoreError::Invalid(e.message))?,
+                        ),
+                        _ => None,
+                    };
+                    changes.upserts.push(Record {
+                        key,
+                        order,
+                        body,
+                        columns,
+                    });
                 }
             }
         }
