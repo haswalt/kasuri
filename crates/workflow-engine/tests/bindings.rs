@@ -37,6 +37,14 @@ fn bindings_are_typed_persisted_and_stable_across_wait_restart_and_retry() {
         task.input,
         json!({"orderId":"ORD-1001","total":94898,"original":true,"workflow":"bindings"})
     );
+    // Resolved bindings leave no ancestor outputs or trigger payload on the task.
+    assert!(task.context.is_null(), "{}", task.context);
+    assert!(
+        !run.checkpoint()
+            .unwrap()
+            .to_string()
+            .contains("\"context\":{")
+    );
     let mut restored = Run::restore(&run.checkpoint().unwrap()).unwrap();
     let Dispatch::Task(same) = restored.next(now).unwrap() else {
         panic!()
