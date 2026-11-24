@@ -16,7 +16,7 @@ croner = "3"
 connectors-http = { path = "../connectors-http" }
 connectors-webhook = { path = "../connectors-webhook" }
 
-sha2 = "0.10"
+sha2 = "0.11"
 
 connectors-data = { path = "../connectors-data" }
 

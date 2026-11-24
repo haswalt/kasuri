@@ -343,3 +343,12 @@ fn clients_stored_before_establishment_tracking_keep_their_retention() {
     auth.prune(30 * 86_400_000);
     assert_eq!(auth.clients.len(), 1);
 }
+
+#[test]
+fn credential_hashes_keep_their_stored_encoding() {
+    // Stored token hashes must keep the same lowercase hex across upgrades.
+    assert_eq!(
+        workflow_mcp::auth::hash("abc"),
+        "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad"
+    );
+}

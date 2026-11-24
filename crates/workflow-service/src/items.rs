@@ -148,12 +148,12 @@ impl Workspace {
                         .map(|index| Item {
                             index,
                             item_id: format!(
-                                "item-{:x}",
-                                Sha256::digest(
+                                "item-{}",
+                                connectors_webhook::hex(&Sha256::digest(
                                     json!([task.idempotency_key, "item", index])
                                         .to_string()
                                         .as_bytes()
-                                )
+                                ))
                             ),
                             status: Status::Pending,
                             run_id: None,
@@ -167,12 +167,12 @@ impl Workspace {
                     item.index != index
                         || item.item_id
                             != format!(
-                                "item-{:x}",
-                                Sha256::digest(
+                                "item-{}",
+                                connectors_webhook::hex(&Sha256::digest(
                                     json!([task.idempotency_key, "item", index])
                                         .to_string()
                                         .as_bytes()
-                                )
+                                ))
                             )
                         || (item.status == Status::Running && item.run_id.is_none())
                 })

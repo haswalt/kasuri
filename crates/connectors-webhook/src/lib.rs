@@ -1,5 +1,5 @@
 //! Authentication for incoming events. Headers and secrets never enter engine inputs.
-use hmac::{Hmac, Mac};
+use hmac::{Hmac, KeyInit, Mac};
 use sha2::{Digest, Sha256};
 use subtle::ConstantTimeEq;
 pub const MAX_WEBHOOK_BYTES: usize = 32_768;
@@ -65,6 +65,30 @@ pub fn verify_signature(
 #[cfg(test)]
 mod tests {
     use super::*;
+    /// Hashes and signatures are persisted (token hashes, receipts, run IDs) and
+    /// checked by external senders, so their encoding must never change across
+    /// dependency upgrades. Standard vectors pin both.
+    #[test]
+    fn digests_and_signatures_match_standard_vectors() {
+        assert_eq!(
+            hash(b"abc"),
+            "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad"
+        );
+        // RFC 4231 test case 2.
+        let mut mac = Hmac::<Sha256>::new_from_slice(b"Jefe").unwrap();
+        mac.update(b"what do ya want for nothing?");
+        assert_eq!(
+            hex(&mac.finalize().into_bytes()),
+            "5bdcc146bf60754e6a042426089575c75a003f089d2739839dec58b964ec3843"
+        );
+        // The v2 signature is HMAC-SHA256 over timestamp + "." + body.
+        let mut mac = Hmac::<Sha256>::new_from_slice(b"secret").unwrap();
+        mac.update(b"1700000000.{\"a\":1}");
+        assert_eq!(
+            signature_v2(b"secret", "1700000000", b"{\"a\":1}"),
+            hex(&mac.finalize().into_bytes())
+        );
+    }
     #[test]
     fn bearer_and_signed_events_are_authenticated() {
         let secret = b"private";
