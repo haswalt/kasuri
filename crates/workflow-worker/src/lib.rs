@@ -132,6 +132,7 @@ pub async fn main(req: Request, env: Env, _ctx: Context) -> Result<Response> {
         response
             .headers_mut()
             .set("X-Content-Type-Options", "nosniff")?;
+        set_document_security_headers(response.headers_mut())?;
         return Ok(response);
     }
     // A configured public origin is explicit trust for a TLS-terminating proxy;
@@ -209,7 +210,21 @@ pub async fn main(req: Request, env: Env, _ctx: Context) -> Result<Response> {
         )?;
     }
     response.headers_mut().set("Cache-Control", "no-store")?;
+    set_document_security_headers(response.headers_mut())?;
     Ok(response)
+}
+
+/// Application pages and API responses must never render inside another site's
+/// frame (the MCP consent screen and workflow editor are click targets), and must
+/// not leak workspace paths to external links through the Referer header.
+/// Script and style sources are left to the bundler's defaults.
+const DOCUMENT_CSP: &str =
+    "frame-ancestors 'none'; base-uri 'self'; object-src 'none'; form-action 'self'";
+fn set_document_security_headers(headers: &mut Headers) -> Result<()> {
+    headers.set("Content-Security-Policy", DOCUMENT_CSP)?;
+    headers.set("X-Frame-Options", "DENY")?;
+    headers.set("Referrer-Policy", "strict-origin-when-cross-origin")?;
+    Ok(())
 }
 
 #[durable_object]

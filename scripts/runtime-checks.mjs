@@ -8,7 +8,7 @@ export async function checkRuntime(origin,credentials,restart){
  const versionClient=versionedTestClient()
  async function api(path,method='GET',body){body=versionClient.prepare(path,method,body);const res=await fetch(`${origin}/api/${path}`,{method,headers:{cookie,Authorization:authorization,...(body===undefined?{}:{'Content-Type':'application/json'})},...(body===undefined?{}:{body:JSON.stringify(body)})});if(res.headers.has('set-cookie'))cookie=res.headers.get('set-cookie').split(';')[0];assert.ok(res.ok,`${path}: ${res.status} ${await res.clone().text()}`);return versionClient.remember(await res.json())}
  assert.equal((await fetch(origin)).status,401)
- const html=await fetch(origin,{headers:{Authorization:authorization}});assert.equal(html.status,200);assert.match(html.headers.get('content-type'),/text\/html/);const htmlText=await html.text();assert.match(htmlText,/root/)
+ const html=await fetch(origin,{headers:{Authorization:authorization}});assert.equal(html.status,200);assert.match(html.headers.get('content-type'),/text\/html/);const htmlText=await html.text();assert.match(htmlText,/root/);assert.match(html.headers.get('content-security-policy')??'',/frame-ancestors 'none'/);assert.equal(html.headers.get('x-frame-options'),'DENY');assert.equal(html.headers.get('referrer-policy'),'strict-origin-when-cross-origin')
  const stylesheet=htmlText.match(/href="([^"]+\.css)"/);assert.ok(stylesheet,'Built UI stylesheet')
  const cssUrl=new URL(stylesheet[1],origin);const cssResponse=await fetch(cssUrl,{headers:{Authorization:authorization}});assert.equal(cssResponse.status,200)
  const css=await cssResponse.text();const font=css.match(/url\(["']?([^"')]+\.woff2)/);assert.ok(font,'Self-hosted UI font')
