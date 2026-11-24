@@ -19,6 +19,11 @@ updates:
       include: scope
     open-pull-requests-limit: 5
     groups:
+      # RustCrypto crates share digest/crypto-common versions (hmac 0.13
+      # requires sha2 0.11), so they are only buildable when bumped together.
+      # Listed first: an update joins the first group that matches it.
+      rustcrypto:
+        patterns: ["sha2", "hmac", "digest", "crypto-common", "subtle"]
       cargo-minor-and-patch:
         update-types: [minor, patch]
   - package-ecosystem: npm
