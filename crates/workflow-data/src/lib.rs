@@ -6,6 +6,10 @@ pub use schema::{command_schema, mutation_schema, query_schema};
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 use sha2::{Digest, Sha256};
+/// Lowercase hex of a digest, matching the `{:x}` format of sha2 0.10 output.
+fn hex(bytes: &[u8]) -> String {
+    bytes.iter().map(|b| format!("{b:02x}")).collect()
+}
 use std::collections::BTreeMap;
 
 pub const MAX_VALUE_BYTES: usize = 32_768;
@@ -416,13 +420,10 @@ pub fn apply(
     {
         return Err(error(ErrorCode::InvalidRequest, "Invalid receipt key"));
     }
-    let fingerprint = format!(
-        "{:x}",
-        Sha256::digest(
-            serde_json::to_vec(&command)
-                .map_err(|_| error(ErrorCode::InvalidRequest, "Invalid command"))?
-        )
-    );
+    let fingerprint = hex(&Sha256::digest(
+        serde_json::to_vec(&command)
+            .map_err(|_| error(ErrorCode::InvalidRequest, "Invalid command"))?,
+    ));
     if let Some(key) = receipt_key {
         if let Some(receipt) = store.receipt(key)? {
             return if receipt.fingerprint == fingerprint {
@@ -466,13 +467,10 @@ pub fn apply_batch(
             "Invalid bounded batch or receipt key",
         ));
     }
-    let fingerprint = format!(
-        "{:x}",
-        Sha256::digest(
-            serde_json::to_vec(&commands)
-                .map_err(|_| error(ErrorCode::InvalidRequest, "Invalid batch"))?
-        )
-    );
+    let fingerprint = hex(&Sha256::digest(
+        serde_json::to_vec(&commands)
+            .map_err(|_| error(ErrorCode::InvalidRequest, "Invalid batch"))?,
+    ));
     if let Some(receipt) = store.receipt(receipt_key)? {
         return if receipt.fingerprint == fingerprint {
             Ok(receipt.result)

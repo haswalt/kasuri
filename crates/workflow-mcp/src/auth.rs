@@ -6,8 +6,12 @@ use sha2::{Digest, Sha256};
 use subtle::ConstantTimeEq;
 use url::Url;
 
+/// Lowercase hex of a digest, matching the `{:x}` format of sha2 0.10 output.
+fn hex(bytes: &[u8]) -> String {
+    bytes.iter().map(|b| format!("{b:02x}")).collect()
+}
 pub fn hash(s: &str) -> String {
-    format!("{:x}", Sha256::digest(s.as_bytes()))
+    hex(&Sha256::digest(s.as_bytes()))
 }
 fn same(a: &str, b: &str) -> bool {
     bool::from(a.as_bytes().ct_eq(b.as_bytes()))

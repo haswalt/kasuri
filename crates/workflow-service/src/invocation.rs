@@ -483,8 +483,8 @@ impl Workspace {
         }
         self.admit_run(false)?;
         let id = format!(
-            "child-{:x}",
-            Sha256::digest(task.idempotency_key.as_bytes())
+            "child-{}",
+            connectors_webhook::hex(&Sha256::digest(task.idempotency_key.as_bytes()))
         );
         let awaited = task.node.config.get("mode").and_then(Value::as_str) != Some("background");
         let time = if record.mode == Mode::Simulation {
@@ -506,8 +506,12 @@ impl Workspace {
             depth,
             awaited,
             item_index,
-            item_id: item_index
-                .map(|_| format!("item-{:x}", Sha256::digest(task.idempotency_key.as_bytes()))),
+            item_id: item_index.map(|_| {
+                format!(
+                    "item-{}",
+                    connectors_webhook::hex(&Sha256::digest(task.idempotency_key.as_bytes()))
+                )
+            }),
         };
         let mut child_record = RunRecord {
             invocation_targets: record.invocation_targets.clone(),

@@ -37,10 +37,9 @@ pub fn fingerprint(graph: &Workflow) -> String {
     graph.edges.sort_by(|a, b| {
         (&a.source, &a.source_port, &a.target).cmp(&(&b.source, &b.source_port, &b.target))
     });
-    format!(
-        "{:x}",
-        Sha256::digest(serde_json::to_vec(&graph).expect("serializable workflow"))
-    )
+    connectors_webhook::hex(&Sha256::digest(
+        serde_json::to_vec(&graph).expect("serializable workflow"),
+    ))
 }
 impl Workspace {
     pub(crate) fn migrate_publications(&mut self) {
