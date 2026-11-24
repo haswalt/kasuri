@@ -3,7 +3,9 @@
 use serde_json::{Value, json};
 use std::{fs, path::PathBuf};
 use workflow_service::Workspace;
-use workflow_service::store::{ChangeSet, Collection, MemoryStore, StoreError, Tracked};
+use workflow_service::store::{
+    ChangeSet, Collection, MemoryStore, RunQueries, StoreError, Tracked,
+};
 
 /// Commit, reload from the store, and require the reload to equal the workspace
 /// that was committed. Returns the reloaded workspace and what was written.
@@ -15,7 +17,56 @@ fn cycle(store: &mut MemoryStore, tracked: &mut Tracked) -> (Tracked, ChangeSet)
         serde_json::to_value(&tracked.workspace).unwrap(),
         "reload differs from the committed workspace"
     );
+    assert_queries_match(store, &tracked.workspace);
     (reloaded, written)
+}
+/// The store answers every run query from its columns exactly as the workspace
+/// answers it from runs in memory.
+fn assert_queries_match(store: &MemoryStore, ws: &Workspace) {
+    assert_eq!(
+        store.next_run_wake().unwrap(),
+        ws.next_run_wake().unwrap(),
+        "next wake"
+    );
+    let wake = ws.next_run_wake().unwrap();
+    for now in [
+        Some(0),
+        wake,
+        wake.map(|w| w.saturating_sub(1)),
+        Some(u64::MAX),
+    ]
+    .into_iter()
+    .flatten()
+    {
+        assert_eq!(
+            store.due_runs(now).unwrap(),
+            ws.due_runs(now).unwrap(),
+            "due at {now}"
+        );
+    }
+    for open in [false, true] {
+        assert_eq!(
+            store.active_runs(open).unwrap(),
+            ws.active_runs(open).unwrap(),
+            "active"
+        );
+    }
+    for limit in [0, 3, 100] {
+        assert_eq!(
+            store.run_summaries(limit).unwrap(),
+            ws.run_summaries(limit).unwrap(),
+            "summaries"
+        );
+    }
+    let mut ids: Vec<String> = ws.runs.iter().map(|r| r.id_string().unwrap()).collect();
+    ids.push("missing-run".into());
+    for id in ids {
+        assert_eq!(
+            store.run_protected(&id).unwrap(),
+            ws.run_protected(&id).unwrap(),
+            "protected {id}"
+        );
+    }
 }
 fn handle(
     ws: &mut Workspace,
@@ -455,4 +506,132 @@ fn every_published_example_runs_through_the_store() {
             );
         }
     }
+}
+
+#[test]
+fn webhook_response_windows_are_indexed_until_they_close() {
+    let graph = json!({"schemaVersion":1,"id":"response","name":"Response","status":"draft","updatedAt":"","nodes":[{"id":"start","type":"Webhook","label":"Webhook","config":{"authentication":"none"}},{"id":"wait","type":"Wait / Delay","label":"Wait","config":{"delayMs":6000}},{"id":"respond","type":"Respond to Webhook","label":"Respond","config":{"status":201,"body":{"$input":""}}}],"edges":[{"id":"a","source":"start","target":"wait"},{"id":"b","source":"wait","target":"respond"}]});
+    let mut store = MemoryStore::default();
+    let mut tracked = Tracked::load(&store).unwrap();
+    handle(
+        &mut tracked.workspace,
+        "PUT",
+        "/api/workflows/response",
+        graph,
+        0,
+        "",
+    );
+    tracked
+        .workspace
+        .configure_webhook("response", "endpoint".into(), "hash".into())
+        .unwrap();
+    handle(
+        &mut tracked.workspace,
+        "POST",
+        "/api/workflows/response/publish",
+        Value::Null,
+        0,
+        "",
+    );
+    let (mut tracked, _) = cycle(&mut store, &mut tracked);
+    tracked
+        .workspace
+        .receive_webhook_context(
+            "response",
+            "endpoint",
+            json!({"input":1}),
+            0,
+            "hook-run",
+            json!({"trigger":"webhook","request":{}}),
+        )
+        .unwrap();
+    let (mut tracked, _) = cycle(&mut store, &mut tracked);
+    // The open window's 5 s deadline comes before the 6 s wait, and the run counts
+    // as active only when open responses are counted, or while it runs.
+    assert_eq!(store.next_run_wake().unwrap(), Some(5000));
+    assert_eq!(
+        store.due_runs(0).unwrap(),
+        ["hook-run"],
+        "open windows are always visited"
+    );
+    // Past the deadline the window closes and is no longer indexed as open.
+    tracked.workspace.alarm(5000).unwrap();
+    let (tracked, _) = cycle(&mut store, &mut tracked);
+    assert_eq!(store.next_run_wake().unwrap(), Some(6000));
+    assert!(store.due_runs(5001).unwrap().is_empty());
+    assert_eq!(
+        tracked.workspace.runs[0].view(true).unwrap()["webhookResponse"]["delivery"],
+        "timed_out"
+    );
+}
+
+#[test]
+fn awaited_children_and_their_parents_are_indexed_as_protected() {
+    let child = json!({"schemaVersion":1,"id":"child","name":"Child","status":"draft","updatedAt":"","nodes":[{"id":"trigger","type":"Execute Workflow Trigger","label":"Invoked","config":{"outputNodeId":"result"}},{"id":"wait","type":"Wait / Delay","label":"Wait","config":{"delayMs":100}},{"id":"result","type":"Map / Transform","label":"Result","config":{"mapping":{"answer":42}}}],"edges":[{"id":"a","source":"trigger","target":"wait"},{"id":"b","source":"wait","target":"result"}]});
+    let parent = json!({"schemaVersion":1,"id":"parent","name":"Parent","status":"draft","updatedAt":"","nodes":[{"id":"start","type":"Manual Trigger","label":"Start","config":{}},{"id":"invoke","type":"Execute Workflow","label":"Call child","config":{"workflowId":"child","mode":"await"}}],"edges":[{"id":"a","source":"start","target":"invoke"}]});
+    let mut store = MemoryStore::default();
+    let mut tracked = Tracked::load(&store).unwrap();
+    handle(
+        &mut tracked.workspace,
+        "PUT",
+        "/api/workflows/child",
+        child,
+        0,
+        "",
+    );
+    handle(
+        &mut tracked.workspace,
+        "POST",
+        "/api/workflows/child/publish",
+        Value::Null,
+        0,
+        "",
+    );
+    handle(
+        &mut tracked.workspace,
+        "PUT",
+        "/api/workflows/parent",
+        parent,
+        0,
+        "",
+    );
+    let (mut tracked, _) = cycle(&mut store, &mut tracked);
+    let started = handle(
+        &mut tracked.workspace,
+        "POST",
+        "/api/runs",
+        json!({"workflowId":"parent","mode":"run","input":{}}),
+        0,
+        "parent-run",
+    );
+    let child_id = started["children"][0]["runId"]
+        .as_str()
+        .unwrap()
+        .to_string();
+    let (mut tracked, _) = cycle(&mut store, &mut tracked);
+    // The running parent awaits the child, and the child's root is the parent.
+    assert!(store.run_protected(&child_id).unwrap(), "awaited child");
+    assert!(
+        store.run_protected("parent-run").unwrap(),
+        "invocation root"
+    );
+    for at in [100, 101] {
+        tracked.workspace.alarm(at).unwrap();
+        tracked = cycle(&mut store, &mut tracked).0;
+    }
+    assert_eq!(
+        handle(
+            &mut tracked.workspace,
+            "GET",
+            "/api/runs/parent-run",
+            Value::Null,
+            101,
+            ""
+        )["status"],
+        "succeeded"
+    );
+    assert!(
+        !store.run_protected(&child_id).unwrap(),
+        "released once collected"
+    );
 }

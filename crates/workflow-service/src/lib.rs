@@ -18,6 +18,7 @@ pub use publication::{Lifecycle, Revision};
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 use std::str::FromStr;
+use store::RunQueries;
 pub use webhook_response::{Reply as WebhookReply, ResponseWindow};
 use workflow_engine::{Dispatch, Limits, NodeState, Run, RunStatus};
 use workflow_schema::Workflow;
@@ -529,16 +530,7 @@ impl Workspace {
     /// to record progress and finish, and the workspace can always still be saved.
     pub(crate) fn admit_run(&self, count_open_responses: bool) -> Result<(), ApiError> {
         if let Some(limit) = self.max_active_runs {
-            let active = self
-                .runs
-                .iter()
-                .filter(|r| {
-                    (count_open_responses && r.webhook_response.as_ref().is_some_and(|w| w.open()))
-                        || r.status()
-                            .is_ok_and(|s| matches!(s, RunStatus::Running | RunStatus::Paused))
-                })
-                .count();
-            if active >= limit {
+            if self.active_runs(count_open_responses)? >= limit {
                 return Err(error(
                     429,
                     "Wait for an active run to finish before starting another",
@@ -619,21 +611,17 @@ impl Workspace {
             })
     }
     pub fn next_alarm(&self) -> Option<u64> {
+        // The in-memory run queries cannot fail.
+        let runs = self.next_run_wake().unwrap_or(None);
         self.workflows
             .iter()
             .filter_map(|w| w.next_scheduled_at)
-            .chain(self.runs.iter().filter_map(|r| r.wake_at))
-            .chain(self.runs.iter().filter_map(|r| {
-                r.webhook_response
-                    .as_ref()
-                    .filter(|w| w.open())
-                    .and_then(|w| w.deadline_ms)
-            }))
+            .chain(runs)
             .min()
     }
     pub fn snapshot(&self) -> Result<Value, ApiError> {
         Ok(
-            json!({"apiVersion":2,"editPreconditionsRequired":true,"workflows":self.workflows.iter().filter(|w|w.archived_at.is_none()).collect::<Vec<_>>(),"runs":self.runs.iter().take(100).map(|r|r.view(true)).collect::<Result<Vec<_>,_>>()?,"connectors":manifests()}),
+            json!({"apiVersion":2,"editPreconditionsRequired":true,"workflows":self.workflows.iter().filter(|w|w.archived_at.is_none()).collect::<Vec<_>>(),"runs":self.run_summaries(100)?,"connectors":manifests()}),
         )
     }
     fn index(&self, id: &str) -> Result<usize, ApiError> {
@@ -1757,12 +1745,20 @@ impl Workspace {
         Ok(true)
     }
     pub fn alarm(&mut self, now: u64) -> Result<(), ApiError> {
+        // Only due runs and runs with open response windows can change here; every
+        // other run's settle and advance would be a no-op.
+        let due = self.due_runs(now)?;
         let before: Vec<_> = self
             .runs
             .iter()
+            .filter(|r| due.iter().any(|id| r.matches_id(id)))
             .map(|r| Ok((r.id_string()?, r.status()?)))
             .collect::<Result<_, ApiError>>()?;
-        for record in &mut self.runs {
+        for record in self
+            .runs
+            .iter_mut()
+            .filter(|r| due.iter().any(|id| r.matches_id(id)))
+        {
             record.settle_response(now)?;
             if record.wake_at.is_some_and(|at| at <= now)
                 && let Err(_) = record.advance(now)

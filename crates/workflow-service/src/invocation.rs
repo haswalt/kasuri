@@ -177,17 +177,7 @@ impl Workspace {
         let Ok(id) = self.runs[index].id_string() else {
             return true;
         };
-        self.runs.iter().any(|r| {
-            r.status()
-                .is_ok_and(|s| matches!(s, RunStatus::Running | RunStatus::Paused))
-                && (r
-                    .parent
-                    .as_ref()
-                    .is_some_and(|p| p.root_id == id || p.run_id == id)
-                    || r.children
-                        .iter()
-                        .any(|c| c.awaited && !c.collected && c.run_id == id))
-        })
+        self.run_protected(&id).unwrap_or(true)
     }
     pub(crate) fn child_output(record: &RunRecord) -> Result<Value, ApiError> {
         let run = record.restore()?;
