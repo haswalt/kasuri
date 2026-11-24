@@ -30,4 +30,19 @@ fn from_value_decodes_exactly_like_from_json() {
         Workspace::from_value(json!({}), usize::MAX).is_err(),
         "size limit applies"
     );
+    // Records stored before run identity was cached are backfilled on this path too.
+    let mut legacy: Value = serde_json::from_str(&text).unwrap();
+    for run in legacy["runs"].as_array_mut().unwrap() {
+        let run = run.as_object_mut().unwrap();
+        run.remove("runId");
+        run.remove("runStatus");
+    }
+    let backfilled = Workspace::from_value(legacy, text.len()).unwrap();
+    assert!(
+        backfilled
+            .runs
+            .iter()
+            .all(|r| !r.run_id.is_empty() && r.run_status.is_some())
+    );
+    assert!(backfilled.runs.iter().any(|r| r.matches_id("run-1")));
 }
