@@ -52,6 +52,17 @@ Finished runs are kept in storage and listed with active runs, newest first. By 
 
 Older runs are deleted when a commit archives runs of that workflow, and the age limits are checked on every commit, using indexes. Runs that are still active, or that an active run depends on, are never deleted. An invalid value fails requests with a configuration error rather than keeping a different amount of history. Without any limit, history is bounded only by the Durable Object's 10 GB storage.
 
+### Run execution
+
+`RUN_EXECUTION` chooses where runs execute:
+
+| Value | Meaning |
+| --- | --- |
+| empty or `workspace` (default) | Every run executes in its workspace's Durable Object. |
+| `objects` (preview) | A run that still has to wait after its first step (on an HTTP call or a timer) moves to its own Durable Object, which steps it on its own alarm and reports to the workspace. The workspace keeps only an index entry, so waiting runs don't use its memory, and runs no longer share one object's thread. |
+
+Runs that finish at once still answer with their result. Runs using Execute Workflow, Each, Data Tables, Context Store or Respond to Webhook still execute in the workspace. Lists and details of a run in a run object can lag it by one step. Pause, resume and cancel are forwarded to the run object. The run object deletes its storage once the run has finished and the workspace has its final state. See [run objects](workspace-storage.md#first-deployment-run-objects-b1) for the design.
+
 ### Concurrent runs
 
 Runs are not limited by count by default. A workspace holds its workflows, revisions, active runs and audit entries in memory, within a 6 MB budget; finished runs leave memory and don't count. The budget protects the Durable Object's 128 MB memory limit: measured on workerd, a request uses about ten times the workspace's in-memory state. Active runs can never be pruned, so a workspace stops starting new runs, Execute Workflow children and Each items once that state reaches 75% of the budget. Run state stores each repeated value once (an input passed through a trigger and a Wait node is kept once, not three times), so that is about 85 concurrent runs with 50 KB inputs, or many more with small ones. The remaining budget keeps the workspace writable while active runs finish; refused starts return `429`, and Each items wait and retry. To cap concurrency as well, set `MAX_ACTIVE_RUNS` to a positive integer (as a Worker variable on Cloudflare, or in the environment when self-hosting). Empty, `0` or `unlimited` mean no count limit. Running and paused runs, and runs holding an open webhook response, count as active. An invalid value fails requests with a configuration error rather than silently using another limit. See Rust source for graph/engine budgets.

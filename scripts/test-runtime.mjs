@@ -24,6 +24,7 @@ import { checkExpressions } from './expression-checks.mjs'
 import { checkInputBindings } from './input-binding-checks.mjs'
 import { checkRunLimits } from './run-limit-checks.mjs'
 import { checkRetention } from './retention-checks.mjs'
+import { checkRunObjects } from './run-object-checks.mjs'
 import { checkItems } from './items-checks.mjs'
 import { checkParallel } from './parallel-checks.mjs'
 import { checkInvocations } from './invocation-checks.mjs'
@@ -88,6 +89,8 @@ function start(policy = {}) {
         RUN_HISTORY: '',
         RUN_HISTORY_DAYS: '',
         FAILED_RUN_HISTORY_DAYS: '',
+        // Run the whole suite with run objects with RUN_EXECUTION=objects.
+        RUN_EXECUTION: process.env.RUN_EXECUTION ?? '',
         HTTP_SECRETS: JSON.stringify({
           api_password: 'super-private-password',
           api_key: 'private-api-key',
@@ -120,6 +123,9 @@ try {
   if (process.argv.includes('--validation-only')) {
     await checkParsing(origin, 'test:runtime-check', async () => {await stop();start();await healthy(origin)})
     await checkValidation(origin, 'test:runtime-check', async () => {await stop();start();await healthy(origin)})
+  } else if (process.argv.includes('--run-objects-only')) {
+    await stop(); start({ RUN_EXECUTION: 'objects' }); await healthy(origin)
+    await checkRunObjects(origin, 'test:runtime-check', data, async () => {await stop();start({ RUN_EXECUTION: 'objects' });await healthy(origin)})
   } else if (process.argv.includes('--retention-only')) {
     await checkRetention(origin, 'test:runtime-check', async (policy) => {await stop();start(policy);await healthy(origin)})
   } else if (process.argv.includes('--bindings-only')) {
@@ -211,6 +217,10 @@ try {
     await checkRestrictedHttp(origin)
     await checkRunLimits(origin, 'test:runtime-check', null)
     await checkRetention(origin, 'test:runtime-check', async (policy) => {await stop();start(policy);await healthy(origin)})
+    await stop()
+    start({ RUN_EXECUTION: 'objects' })
+    await healthy(origin)
+    await checkRunObjects(origin, 'test:runtime-check', data, async () => {await stop();start({ RUN_EXECUTION: 'objects' });await healthy(origin)})
     await stop()
     start({ MAX_ACTIVE_RUNS: '2' })
     await healthy(origin)

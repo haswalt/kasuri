@@ -10,6 +10,7 @@ const config :Workerd.Config = (
       compatibilityDate = "2026-11-18",
       bindings = [
         (name = "WORKSPACES", durableObjectNamespace = "WorkflowWorkspace"),
+        (name = "RUNS", durableObjectNamespace = "WorkflowRun"),
         (name = "ASSETS", service = "assets"),
         (name = "BASIC_AUTH", fromEnvironment = "BASIC_AUTH"),
         (name = "PUBLIC_ORIGIN", fromEnvironment = "PUBLIC_ORIGIN"),
@@ -19,9 +20,10 @@ const config :Workerd.Config = (
         (name = "RUN_HISTORY", fromEnvironment = "RUN_HISTORY"),
         (name = "RUN_HISTORY_DAYS", fromEnvironment = "RUN_HISTORY_DAYS"),
         (name = "FAILED_RUN_HISTORY_DAYS", fromEnvironment = "FAILED_RUN_HISTORY_DAYS"),
+        (name = "RUN_EXECUTION", fromEnvironment = "RUN_EXECUTION"),
         (name = "HTTP_SECRETS", fromEnvironment = "HTTP_SECRETS")
       ],
-      durableObjectNamespaces = [(className = "WorkflowWorkspace", uniqueKey = "workspaces", enableSql = true)],
+      durableObjectNamespaces = [(className = "WorkflowWorkspace", uniqueKey = "workspaces", enableSql = true), (className = "WorkflowRun", uniqueKey = "runs", enableSql = true)],
       durableObjectStorage = (localDisk = "storage")
     )),
     (name = "assets", disk = (path = "public")),

@@ -22,7 +22,7 @@
 use crate::{ApiError, ExternalTask, Mode, RunRecord, error};
 use connector_sdk::{Outcome, Task};
 use serde::{Deserialize, Serialize};
-use workflow_engine::RunStatus;
+pub use workflow_engine::RunStatus;
 
 /// "This run has work", for the version it was sent for. Messages carry no data:
 /// consumers always re-read the run.
@@ -298,4 +298,37 @@ impl RunRecord {
         self.advance(now)?;
         Ok(true)
     }
+}
+
+/// Pause, resume or cancel a stored run, with compare-and-swap (retried if a step
+/// saves in between), then schedule its next message. Returns the run as saved.
+pub fn control(
+    store: &dyn RunStore,
+    bus: &dyn WorkBus,
+    run: &str,
+    action: &str,
+    now: u64,
+) -> Result<(RunRecord, Progress), ApiError> {
+    for _ in 0..8 {
+        let Some((mut record, version)) = store.load(run)? else {
+            return Err(error(404, "Run not found"));
+        };
+        record.control(action, now)?;
+        match store.save(run, &record, Some(version)) {
+            Ok(saved) => {
+                schedule(bus, &record, run, saved, now)?;
+                let status = record.status()?;
+                return Ok((
+                    record,
+                    Progress::Saved {
+                        version: saved,
+                        status,
+                    },
+                ));
+            }
+            Err(SaveError::Conflict) => continue,
+            Err(SaveError::Failed(message)) => return Err(error(500, message)),
+        }
+    }
+    Err(error(409, "The run is changing too quickly; try again"))
 }

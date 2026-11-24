@@ -209,6 +209,28 @@ impl RunRecord {
         }
     }
     /// Whether this record holds the run with `id`, without restoring it.
+    /// Pause, resume or cancel the run. Hosts that keep runs outside the
+    /// workspace apply control requests with this too.
+    pub fn control(&mut self, action: &str, now: u64) -> Result<(), ApiError> {
+        let mut run = self.restore()?;
+        match action {
+            "pause" => run.pause(),
+            "resume" => run.resume(),
+            "cancel" => run.cancel(),
+            _ => return Err(error(404, "Unknown run action")),
+        }
+        .map_err(|e| error(409, e.to_string()))?;
+        self.store(&run, 400)?;
+        self.wake_at = None;
+        if action == "cancel" {
+            self.external = None;
+            self.pending.clear();
+        }
+        if action == "resume" {
+            self.advance(now)?
+        }
+        self.settle_response(now)
+    }
     pub fn matches_id(&self, id: &str) -> bool {
         if self.run_id.is_empty() {
             self.matches_id(id)
@@ -517,6 +539,18 @@ pub struct Workspace {
     /// load. Applied when the workspace is committed through a store.
     #[serde(skip)]
     pub retention: store::RunRetention,
+    /// Whether eligible top-level runs execute outside the workspace (in run
+    /// stores) instead of in it. Set by the host.
+    #[serde(skip)]
+    pub offload: bool,
+    /// Runs started in this operation for execution outside the workspace. The
+    /// commit writes their index rows; the host then starts them in run stores.
+    #[serde(skip)]
+    pub offloaded: Vec<RunRecord>,
+    /// Control requests (run, action) for runs executing outside the workspace,
+    /// accepted in this operation. The host forwards them after the commit.
+    #[serde(skip)]
+    pub remote_controls: Vec<(String, String)>,
     /// Internal management credentials and receipts. Never included in API snapshots.
     #[serde(default)]
     pub management: Value,
@@ -568,7 +602,13 @@ impl Workspace {
     /// to record progress and finish, and the workspace can always still be saved.
     pub(crate) fn admit_run(&self, count_open_responses: bool) -> Result<(), ApiError> {
         if let Some(limit) = self.max_active_runs {
-            if self.active_runs(count_open_responses)? >= limit {
+            let remote = match &self.archive.0 {
+                Some(archive) => archive
+                    .remote_active()
+                    .map_err(|e| error(500, e.to_string()))?,
+                None => 0,
+            };
+            if self.active_runs(count_open_responses)? + remote + self.offloaded.len() >= limit {
                 return Err(error(
                     429,
                     "Wait for an active run to finish before starting another",
@@ -1025,6 +1065,18 @@ impl Workspace {
     pub fn start_record(&mut self, mut record: RunRecord, now: u64) -> Result<Value, ApiError> {
         let id = record.id_string()?;
         record.advance(now)?;
+        // The first advance happens here, as it always has, so runs that finish
+        // at once answer with their result. A run still waiting (on HTTP or a
+        // timer) is handed to a run store if it is eligible.
+        if self.offload
+            && record.parent.is_none()
+            && record.status()? == RunStatus::Running
+            && execution::eligible(record.restore()?.workflow())
+        {
+            let view = record.view(false)?;
+            self.offloaded.push(record);
+            return Ok(view);
+        }
         self.runs.insert(0, record);
         self.settle_invocations(now)?;
         self.runs
@@ -1528,8 +1580,29 @@ impl Workspace {
                 let record = self
                     .find_run(id)?
                     .ok_or_else(|| error(404, "Run not found"))?;
+                let remote = match &self.archive.0 {
+                    Some(archive) => archive
+                        .is_remote(id)
+                        .map_err(|e| error(500, e.to_string()))?,
+                    None => false,
+                };
+                let active = matches!(record.status()?, RunStatus::Running | RunStatus::Paused);
                 return match (method, parts.len()) {
                     ("GET", 3) => Ok((200, record.view(false)?)),
+                    ("POST", 4)
+                        if remote
+                            && active
+                            && matches!(parts[3], "pause" | "resume" | "cancel") =>
+                    {
+                        // The run executes elsewhere: check the request against
+                        // its last reported state, answer with the result, and
+                        // let the host forward it.
+                        let mut expected = record.into_owned();
+                        expected.control(parts[3], now)?;
+                        self.remote_controls
+                            .push((id.to_owned(), parts[3].to_owned()));
+                        Ok((200, expected.view(false)?))
+                    }
                     ("POST", 4) if matches!(parts[3], "pause" | "resume" | "cancel") => {
                         Err(error(409, "Run has already finished"))
                     }
@@ -1540,26 +1613,8 @@ impl Workspace {
                 return Ok((200, self.runs[index].view(false)?));
             }
             if method == "POST" && parts.len() == 4 {
-                let record = &mut self.runs[index];
-                let mut run = record.restore()?;
-                match parts[3] {
-                    "pause" => run.pause(),
-                    "resume" => run.resume(),
-                    "cancel" => run.cancel(),
-                    _ => return Err(error(404, "Unknown run action")),
-                }
-                .map_err(|e| error(409, e.to_string()))?;
-                record.store(&run, 400)?;
-                record.wake_at = None;
-                if parts[3] == "cancel" {
-                    record.external = None;
-                    record.pending.clear();
-                }
-                if parts[3] == "resume" {
-                    record.advance(now)?
-                }
-                record.settle_response(now)?;
-                let id = run.id().to_string();
+                let id = self.runs[index].id_string()?;
+                self.runs[index].control(parts[3], now)?;
                 self.settle_invocations(now)?;
                 return Ok((
                     200,
