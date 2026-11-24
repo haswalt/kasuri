@@ -409,6 +409,7 @@ impl WorkflowWorkspace {
                     .unchecked_into::<worker::worker_sys::DurableObjectState>(),
             ),
             env: self.env.clone(),
+            cache: self.cache.clone(),
         };
         let id = id.to_string();
         let result = std::rc::Rc::new(std::cell::RefCell::new(None));

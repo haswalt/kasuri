@@ -465,13 +465,28 @@ impl Workspace {
         if text.len() > MAX_STATE_BYTES {
             return Err(error(500, "Stored workspace exceeds size limit"));
         }
-        let mut ws: Self =
+        let ws: Self =
             serde_json::from_str(text).map_err(|_| error(500, "Invalid stored workspace"))?;
-        ws.migrate_publications();
-        for record in &mut ws.runs {
+        Ok(ws.migrated())
+    }
+    /// Like `from_json` for a document already parsed into a `Value`, such as one
+    /// assembled from stored records. `encoded_bytes` is the stored size it came
+    /// from, which is held to the same limit.
+    pub fn from_value(value: Value, encoded_bytes: usize) -> Result<Self, ApiError> {
+        if encoded_bytes > MAX_STATE_BYTES {
+            return Err(error(500, "Stored workspace exceeds size limit"));
+        }
+        let ws: Self =
+            serde_json::from_value(value).map_err(|_| error(500, "Invalid stored workspace"))?;
+        Ok(ws.migrated())
+    }
+    /// Upgrades applied to every loaded workspace, whatever form it was read from.
+    fn migrated(mut self) -> Self {
+        self.migrate_publications();
+        for record in &mut self.runs {
             record.backfill();
         }
-        Ok(ws)
+        self
     }
     pub fn checkpoint(&mut self) -> Result<String, ApiError> {
         loop {

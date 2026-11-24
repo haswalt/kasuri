@@ -35,7 +35,9 @@ struct Record {
 fn decode(rows: Vec<Record>) -> Result<Workspace> {
     let mut root = None;
     let mut collections = json!({"workflows":[],"runs":[],"audit":[],"webhooks":[],"webhookEvents":[],"revisions":[]});
+    let mut encoded = 0;
     for row in rows {
+        encoded += row.body.len();
         let value: Value = serde_json::from_str(&row.body).map_err(internal)?;
         let field = match row.kind.as_str() {
             "metadata" => {
@@ -57,10 +59,15 @@ fn decode(rows: Vec<Record>) -> Result<Workspace> {
     }
     let mut root = root.ok_or_else(|| internal("Workspace record metadata missing"))?;
     root.as_object_mut().unwrap().remove("storageVersion");
-    for (key, value) in collections.as_object().unwrap() {
-        root[key] = value.clone();
+    let Value::Object(collections) = collections else {
+        unreachable!()
+    };
+    for (key, value) in collections {
+        root[key] = value;
     }
-    Workspace::from_json(&root.to_string()).map_err(internal)
+    // Each record is parsed once; the assembled value is not re-encoded and
+    // re-parsed as text.
+    Workspace::from_value(root, encoded).map_err(internal)
 }
 fn write_encoded_records(sql: &SqlStorage, body: String) -> Result<()> {
     sql.exec(CREATE_RECORDS, None)?;
@@ -133,10 +140,33 @@ impl WorkflowWorkspace {
     pub(crate) fn load(&self) -> Result<Workspace> {
         let sql = self.state.storage().sql();
         sql.exec(CREATE_RECORDS, None)?;
-        let records = sql.exec(LOAD_RECORDS, None)?.to_array::<Record>()?;
-        if !records.is_empty() {
+        #[derive(Deserialize)]
+        struct Generation {
+            generation: Option<f64>,
+        }
+        let generation = sql
+            .exec(
+                "SELECT MAX(generation) AS generation FROM workspace_records",
+                None,
+            )?
+            .one::<Generation>()?
+            .generation;
+        if let Some(generation) = generation {
+            // Every save inserts a new generation and a rolled-back transaction
+            // leaves the old one, so a decoded copy of this generation is exactly
+            // the committed workspace.
+            if let Some((cached, workspace)) = &*self.cache.borrow() {
+                if *cached == generation {
+                    return Ok(workspace.clone());
+                }
+            }
+            // No write can run between the generation query and this read, so
+            // LOAD_RECORDS reads the same generation.
+            let records = sql.exec(LOAD_RECORDS, None)?.to_array::<Record>()?;
             // Corrupt new-format records fail closed; never resurrect stale legacy data.
-            return decode(records);
+            let workspace = decode(records)?;
+            *self.cache.borrow_mut() = Some((generation, workspace.clone()));
+            return Ok(workspace);
         }
         sql.exec("CREATE TABLE IF NOT EXISTS workspace (id INTEGER PRIMARY KEY CHECK(id=1), body TEXT NOT NULL)",None)?;
         #[derive(Deserialize)]
