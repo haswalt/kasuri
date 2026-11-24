@@ -394,13 +394,58 @@ impl Tracked {
         })
     }
 
-    /// Apply today's retention (`Workspace::checkpoint`), then return the rows that
-    /// differ from what was loaded. The tracked baseline is not changed.
+    /// Apply retention, then return the rows that differ from what was loaded.
+    /// The tracked baseline is not changed.
+    ///
+    /// Each entity is encoded once. Retention works from those encoded sizes, so
+    /// the whole workspace is never encoded as one document.
     pub fn changes(&mut self) -> Result<ChangeSet, StoreError> {
+        let (mut meta, mut collections) = split(&self.workspace)?;
+        let total = encoded_total(&meta, &collections);
+        let sizes = |collection: Collection, collections: &[(Collection, Entities)]| {
+            collections
+                .iter()
+                .find(|(c, _)| *c == collection)
+                .map(|(_, entities)| entities.iter().map(|(_, body)| body.len() + 1).collect())
+                .unwrap_or_else(Vec::new)
+        };
+        let (runs, audit) = (self.workspace.runs.len(), self.workspace.audit.len());
         self.workspace
-            .checkpoint()
+            .retain(
+                total,
+                &sizes(Collection::Run, &collections),
+                &sizes(Collection::Audit, &collections),
+            )
             .map_err(|e| StoreError::Invalid(e.message))?;
-        let (meta, collections) = split(&self.workspace)?;
+        if self.workspace.runs.len() != runs || self.workspace.audit.len() != audit {
+            // Drop the entities retention removed; the rest are already encoded.
+            let kept = |collection: Collection| -> Result<HashMap<String, ()>, StoreError> {
+                Ok(match collection {
+                    Collection::Run => self
+                        .workspace
+                        .runs
+                        .iter()
+                        .map(|r| r.id_string().map(|id| (id, ())))
+                        .collect::<Result<_, _>>()
+                        .map_err(|_| StoreError::MissingKey(Collection::Run))?,
+                    _ => self
+                        .workspace
+                        .audit
+                        .iter()
+                        .filter_map(|e| e.get("id").and_then(Value::as_u64))
+                        .map(|id| (id.to_string(), ()))
+                        .collect(),
+                })
+            };
+            for (collection, entities) in &mut collections {
+                if matches!(collection, Collection::Run | Collection::Audit) {
+                    let kept = kept(*collection)?;
+                    entities.retain(|(key, _)| kept.contains_key(&key.id));
+                }
+            }
+            // Retention never changes metadata, but re-derive it to be certain.
+            meta = split_meta(&self.workspace)?;
+        }
         let mut changes = ChangeSet {
             meta: (self.meta.as_deref() != Some(meta.as_str())).then_some(meta),
             ..ChangeSet::default()
@@ -535,6 +580,10 @@ fn split(workspace: &Workspace) -> Result<(String, Vec<(Collection, Entities)>),
             .map(|w| Ok((w.endpoint_id.clone(), encode(w)?)))
             .collect::<Result<_, StoreError>>()?,
     )?;
+    Ok((split_meta(workspace)?, collections))
+}
+/// The metadata entity: the workspace without its keyed collections.
+fn split_meta(workspace: &Workspace) -> Result<String, StoreError> {
     let mut meta =
         serde_json::to_value(workspace).map_err(|e| StoreError::Invalid(e.to_string()))?;
     let object = meta
@@ -543,7 +592,20 @@ fn split(workspace: &Workspace) -> Result<(String, Vec<(Collection, Entities)>),
     for collection in Collection::ALL {
         object.remove(collection.field());
     }
-    Ok((meta.to_string(), collections))
+    Ok(meta.to_string())
+}
+/// The size of the workspace encoded as one document, computed from its parts:
+/// the metadata object plus `,"field":[...]` for each collection.
+fn encoded_total(meta: &str, collections: &[(Collection, Entities)]) -> usize {
+    meta.len()
+        + collections
+            .iter()
+            .map(|(collection, entities)| {
+                let items: usize = entities.iter().map(|(_, body)| body.len()).sum();
+                // `,"field":[` + items + commas between them + `]`
+                1 + collection.field().len() + 2 + 2 + items + entities.len().saturating_sub(1) + 1
+            })
+            .sum::<usize>()
 }
 
 /// Order keys for `entities` (in document order) that keep every stored entity's
@@ -657,6 +719,58 @@ mod tests {
         assert_eq!(
             assign_orders(&entities(&["a", "x", "b"]), &stored),
             renumber(3)
+        );
+    }
+
+    #[test]
+    fn encoded_total_is_the_whole_document_length() {
+        let mut ws = Workspace::default();
+        assert_eq!(
+            encoded_total(&split(&ws).unwrap().0, &split(&ws).unwrap().1),
+            serde_json::to_string(&ws).unwrap().len(),
+            "empty"
+        );
+        let doc = serde_json::json!({"schemaVersion":1,"id":"flow","name":"Flow","status":"draft","updatedAt":"","nodes":[{"id":"start","type":"Manual Trigger","label":"Start","config":{}}],"edges":[]});
+        ws.handle(
+            "PUT",
+            "/api/workflows/flow",
+            doc.to_string().as_bytes(),
+            0,
+            "",
+        )
+        .unwrap();
+        ws.handle("POST", "/api/workflows/flow/publish", b"", 0, "")
+            .unwrap();
+        for i in 0..3 {
+            let body = serde_json::json!({"workflowId":"flow","mode":"run","input":{"i":i}});
+            ws.handle(
+                "POST",
+                "/api/runs",
+                body.to_string().as_bytes(),
+                i,
+                &format!("r{i}"),
+            )
+            .unwrap();
+        }
+        let hook = serde_json::json!({"schemaVersion":1,"id":"hook","name":"Hook","status":"draft","updatedAt":"","nodes":[{"id":"start","type":"Webhook","label":"Start","config":{"authentication":"bearer"}}],"edges":[]});
+        ws.handle(
+            "PUT",
+            "/api/workflows/hook",
+            hook.to_string().as_bytes(),
+            0,
+            "",
+        )
+        .unwrap();
+        ws.configure_webhook("hook", "endpoint".into(), "hash".into())
+            .unwrap();
+        let (meta, collections) = split(&ws).unwrap();
+        assert!(
+            collections.iter().all(|(_, e)| !e.is_empty()),
+            "every collection populated"
+        );
+        assert_eq!(
+            encoded_total(&meta, &collections),
+            serde_json::to_string(&ws).unwrap().len()
         );
     }
 

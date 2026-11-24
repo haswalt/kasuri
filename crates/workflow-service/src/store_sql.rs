@@ -373,3 +373,126 @@ impl<E: SqlExec> RunQueries for SqlStore<E> {
         Ok(found.map(|v| v.integer()).transpose()?.flatten() == Some(1))
     }
 }
+
+/// Releases before table storage kept the whole workspace as record generations
+/// (`workspace_records`), and earlier ones as a single row (`workspace`).
+pub mod legacy {
+    use super::{SqlExec, SqlStore, SqlValue};
+    use crate::Workspace;
+    use crate::store::{Store, StoreError, Tracked};
+    use serde_json::{Value, json};
+
+    fn exists<E: SqlExec>(sql: &E, table: &str) -> Result<bool, StoreError> {
+        let rows = sql.query(
+            "SELECT count(*) FROM sqlite_master WHERE type='table' AND name=?",
+            vec![SqlValue::Text(table.into())],
+        )?;
+        Ok(rows
+            .into_iter()
+            .next()
+            .and_then(|row| row.into_iter().next())
+            .map(|v| v.integer())
+            .transpose()?
+            .flatten()
+            .unwrap_or(0)
+            > 0)
+    }
+    fn invalid(message: impl std::fmt::Display) -> StoreError {
+        StoreError::Invalid(format!("legacy workspace: {message}"))
+    }
+
+    /// Assemble a workspace from one record generation's `(kind, body)` rows, in
+    /// position order within each kind. Corrupt generations are an error, never an
+    /// empty workspace.
+    pub fn decode(rows: Vec<(String, String)>) -> Result<Workspace, StoreError> {
+        let mut root = None;
+        let mut collections = json!({"workflows":[],"runs":[],"audit":[],"webhooks":[],"webhookEvents":[],"revisions":[]});
+        let mut encoded = 0;
+        for (kind, body) in rows {
+            encoded += body.len();
+            let value: Value = serde_json::from_str(&body).map_err(invalid)?;
+            let field = match kind.as_str() {
+                "metadata" => {
+                    if root.is_some() || value["storageVersion"] != 1 || !value.is_object() {
+                        return Err(invalid("invalid record metadata"));
+                    }
+                    root = Some(value);
+                    continue;
+                }
+                "revision" => "revisions",
+                "workflow" => "workflows",
+                "run" => "runs",
+                "audit" => "audit",
+                "webhook" => "webhooks",
+                "webhook_event" => "webhookEvents",
+                other => return Err(invalid(format!("unknown record type {other}"))),
+            };
+            if let Some(items) = collections[field].as_array_mut() {
+                items.push(value);
+            }
+        }
+        let mut root = root.ok_or_else(|| invalid("record metadata missing"))?;
+        if let (Some(object), Value::Object(collections)) = (root.as_object_mut(), collections) {
+            object.remove("storageVersion");
+            object.extend(collections);
+        }
+        Workspace::from_value(root, encoded).map_err(|e| invalid(e.message))
+    }
+
+    /// The workspace stored in a legacy layout, or `None` if there is none.
+    pub fn read<E: SqlExec>(sql: &E) -> Result<Option<Workspace>, StoreError> {
+        if exists(sql, "workspace_records")? {
+            let rows = sql.query(
+                "SELECT kind,body FROM workspace_records WHERE generation=(SELECT MAX(generation) FROM workspace_records) ORDER BY kind,position",
+                Vec::new(),
+            )?;
+            if !rows.is_empty() {
+                let rows = rows
+                    .into_iter()
+                    .map(|row| {
+                        let mut row = row.into_iter();
+                        match (row.next(), row.next()) {
+                            (Some(kind), Some(body)) => Ok((kind.text()?, body.text()?)),
+                            _ => Err(invalid("short record row")),
+                        }
+                    })
+                    .collect::<Result<_, _>>()?;
+                return decode(rows).map(Some);
+            }
+        }
+        if exists(sql, "workspace")? {
+            let rows = sql.query("SELECT body FROM workspace WHERE id=1", Vec::new())?;
+            if let Some(body) = rows.into_iter().next().and_then(|r| r.into_iter().next()) {
+                return Workspace::from_json(&body.text()?)
+                    .map(Some)
+                    .map_err(|e| invalid(e.message));
+            }
+        }
+        Ok(None)
+    }
+
+    /// Move a legacy workspace (or, if there is none, an empty one) into the
+    /// tables, and drop the legacy tables. Returns the workspace as committed.
+    ///
+    /// Run it inside one host transaction: if any step fails, rolling back leaves
+    /// the legacy layout exactly as it was.
+    pub fn migrate<E: SqlExec>(store: &mut SqlStore<E>) -> Result<Tracked, StoreError> {
+        let workspace = read(store.sql())?.unwrap_or_default();
+        store.create()?;
+        let mut tracked = Tracked::load(&*store)?;
+        if tracked.workspace.workflows.len() + tracked.workspace.runs.len() > 0
+            || Store::meta(&*store)?.is_some()
+        {
+            return Err(invalid("the tables already hold a workspace"));
+        }
+        tracked.workspace = workspace;
+        tracked.commit(store)?;
+        store.set_format()?;
+        for table in ["workspace_records", "workspace"] {
+            store
+                .sql()
+                .query(&format!("DROP TABLE IF EXISTS {table}"), Vec::new())?;
+        }
+        Ok(tracked)
+    }
+}

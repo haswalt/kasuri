@@ -1,6 +1,6 @@
 # Scalable workspace storage and execution
 
-Status: **stage 1 in progress.** Phases 1 to 3 are implemented: table storage is available behind `WORKSPACE_STORAGE=tables` (see [workspace storage layout](deployment.md#workspace-storage-layout)), and the default is still whole-workspace generations. Until later phases land, the limits in [deployment](deployment.md) apply: a 1.5 MB budget per workspace, retention of up to 100 runs, and admission that stops new runs once state that retention cannot reclaim reaches 75% of that budget.
+Status: **stage 1 in progress.** Phases 1 to 4 are implemented: every workspace is stored in per-entity tables, and workspaces from earlier releases migrate on first load (see [workspace storage](deployment.md#workspace-storage)). Until phase 5 lands, the limits in [deployment](deployment.md) apply: a 1.5 MB budget per workspace, retention of up to 100 runs, and admission that stops new runs once state that retention cannot reclaim reaches 75% of that budget.
 
 Priorities, in order: **scalability** (concurrent runs and history grow with demand, not with one object's limits), **performance** (an operation's latency and CPU don't grow with workspace size), then **cost** (no work or writes beyond what an operation changes).
 
@@ -138,15 +138,17 @@ Invocation rules that scan every run today, such as `invocation_protected` and c
 
 ### Migration
 
-`WORKSPACE_STORAGE` chooses the layout. When a workspace is loaded in a layout other than the configured one, it migrates:
+On the first load after upgrading, when `ws_meta` has no format version, the workspace migrates in **one transaction** (`store::sql::legacy::migrate`):
 
-1. **To tables:** read the current state as today (the latest record generation, or the legacy single row). In **one transaction**, insert every entity into the tables, derive the run columns, rewrite `webhook_auth`, set the `ws_meta` format version, and drop `workspace_records` and the legacy `workspace` table.
-2. **Back to generations:** load the workspace from the tables and, in one transaction, write it as a record generation and drop the tables.
-3. If anything fails, the transaction rolls back, the workspace keeps its current layout, and the next load tries again.
+1. Read the current state: the latest record generation, or the legacy single row. A corrupt generation is an error, never an empty workspace.
+2. Insert every entity into the tables, derive the run columns, rewrite `webhook_auth`, set the `ws_meta` format version, and drop `workspace_records` and the legacy `workspace` table.
+3. If anything fails, the transaction rolls back and the old layout is left exactly as it was. The next load tries again.
+
+Native tests migrate both legacy layouts on SQLite with the frozen SQL those releases wrote, and inject a failure at every statement of a migration to show that each one rolls back to the intact old layout.
 
 Notes:
 
-- **Downgrade:** releases before phase 3 can't read the tables. Phase 3 can still read and write both layouts, so downgrading means setting `WORKSPACE_STORAGE=generations` first. Phase 4 makes tables the default and removes generations.
+- **Downgrade:** releases before phase 3 can't read the tables. Phase 3 can migrate tables back to generations (`WORKSPACE_STORAGE=generations`); from phase 4 on, migration is one-way and `WORKSPACE_STORAGE` is no longer read.
 - **Size:** the migration's own transaction rewrites at most the current 1.5 MB workspace, so it stays within today's limits.
 - **Backups:** backups remain whole-volume or whole-object, so the procedures in the self-hosting guide don't change.
 
@@ -270,7 +272,7 @@ Self-hosting implements `WorkBus` and `RunStore` with whatever it has: a small i
 1. **Store trait with an in-memory implementation** that reproduces today's behaviour, with no storage format change. All existing tests pass through it.
 2. **Run queries:** move run lookups, listing, due-run selection, `next_wake`, and invocation and Each queries onto the trait. Add the summary columns.
 3. **SQLite store and migration** in the worker. The old layout is still readable for rollback if that option is chosen. *Implemented:* `SqlStore` over a minimal SQL interface (Durable Object SQLite in the worker, SQLite in native tests), opt-in with `WORKSPACE_STORAGE=tables`, migrating in both directions.
-4. **Incremental commits** become the default. Record generations, the decode cache and whole-document `checkpoint()` are removed.
+4. **Incremental commits** become the default. Record generations, the decode cache and whole-document `checkpoint()` are removed. *Implemented:* tables are the only layout and older layouts migrate one way. Saves no longer encode the whole workspace: retention works from the per-entity encodings the commit already produces (`Workspace::retain`), and a test checks it removes exactly what whole-document retention would. The generation decode cache is gone; the worker keeps the last committed workspace, keyed by commit token, until entities are loaded on demand. A save still encodes every entity to find what changed, and admission still measures the workspace; on-demand loading and phase 5 remove both.
 5. **Retention policies** replace `MAX_STATE_BYTES`, and the admission guard is removed or replaced with the indexed active-bytes check.
 6. **`WorkBus` and `RunStore`** (stage 2): define both, with Cloudflare Queues and per-run Durable Object implementations plus in-memory ones for tests. Move top-level runs onto queue-driven execution behind a flag.
 7. **Timers, children and Each:** the timer table and scheduler, child admission and completion messages, and Each fan-out as independent runs.

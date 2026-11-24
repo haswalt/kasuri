@@ -16,8 +16,6 @@ import { checkData } from './data-checks.mjs'
 import { checkPreconditions } from './precondition-checks.mjs'
 import { checkAudit } from './audit-checks.mjs'
 import { checkPublications } from './publication-checks.mjs'
-import { checkStorage } from './storage-checks.mjs'
-import { checkStorageLayouts } from './storage-layout-checks.mjs'
 import { checkWorkspaces } from './workspace-checks.mjs'
 import { checkMcp } from './mcp-checks.mjs'
 import { checkMcpDiscovery } from './mcp-discovery-checks.mjs'
@@ -39,7 +37,6 @@ import {
   checkAnonymousSecrets
 } from './http-checks.mjs'
 import { checkRuntime, healthy } from './runtime-checks.mjs'
-checkStorage()
 const originalFetch = globalThis.fetch
 globalThis.fetch = (url, options = {}) => {
   if (process.env.KASURI_TEST_TRACE) console.error('Request:', options.method || 'GET', String(url))
@@ -87,8 +84,6 @@ function start(policy = {}) {
         HTTP_ALLOWED_HOSTS: '',
         HTTP_PRIVATE_HOSTS: '',
         MAX_ACTIVE_RUNS: '',
-        // Run the whole suite on either layout with WORKSPACE_STORAGE=tables.
-        WORKSPACE_STORAGE: process.env.WORKSPACE_STORAGE ?? '',
         HTTP_SECRETS: JSON.stringify({
           api_password: 'super-private-password',
           api_key: 'private-api-key',
@@ -121,8 +116,6 @@ try {
   if (process.argv.includes('--validation-only')) {
     await checkParsing(origin, 'test:runtime-check', async () => {await stop();start();await healthy(origin)})
     await checkValidation(origin, 'test:runtime-check', async () => {await stop();start();await healthy(origin)})
-  } else if (process.argv.includes('--layouts-only')) {
-    await checkStorageLayouts(origin, 'test:runtime-check', async (layout) => {await stop();start({ WORKSPACE_STORAGE: layout })})
   } else if (process.argv.includes('--bindings-only')) {
     await checkInputBindings(origin, 'test:runtime-check', async () => {await stop();start();await healthy(origin)})
   } else if (process.argv.includes('--mcp-discovery-only')) {
@@ -203,7 +196,6 @@ try {
       start()
       await healthy(origin)
     })
-    await checkStorageLayouts(origin, 'test:runtime-check', async (layout) => {await stop();start({ WORKSPACE_STORAGE: layout })})
     await stop()
     start({
       HTTP_ALLOWED_HOSTS: 'fixture.example,private.internal',

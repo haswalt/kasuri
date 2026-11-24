@@ -551,50 +551,61 @@ impl Workspace {
         }
         Ok(())
     }
+    /// Apply retention and encode the whole workspace. Hosts that store entities
+    /// separately use [`Workspace::retain`] with sizes they already have instead.
     pub fn checkpoint(&mut self) -> Result<String, ApiError> {
-        loop {
-            let text =
-                serde_json::to_string(self).map_err(|_| error(500, "Cannot encode workspace"))?;
-            if text.len() <= MAX_STATE_BYTES && self.runs.len() <= 100 {
-                return Ok(text);
+        let text =
+            serde_json::to_string(self).map_err(|_| error(500, "Cannot encode workspace"))?;
+        if text.len() <= MAX_STATE_BYTES && self.runs.len() <= 100 {
+            return Ok(text);
+        }
+        let runs: Vec<usize> = self.runs.iter().map(|r| encoded_len(r) + 1).collect();
+        let audit: Vec<usize> = self.audit.iter().map(|e| encoded_len(e) + 1).collect();
+        self.retain(text.len(), &runs, &audit)?;
+        serde_json::to_string(self).map_err(|_| error(500, "Cannot encode workspace"))
+    }
+    /// Retention, from encoded sizes rather than by encoding the workspace:
+    /// `total` is the workspace's encoded size, and `run_sizes` and `audit_sizes`
+    /// the encoded size of each run and audit entry, in order, each including its
+    /// separator. Keeps at most 100 runs and keeps the workspace within
+    /// `MAX_STATE_BYTES` by removing the oldest removable runs, then (if that isn't
+    /// enough) the oldest audit entries. The newest run and audit entry are kept.
+    pub fn retain(
+        &mut self,
+        total: usize,
+        run_sizes: &[usize],
+        audit_sizes: &[usize],
+    ) -> Result<(), ApiError> {
+        if run_sizes.len() != self.runs.len() || audit_sizes.len() != self.audit.len() {
+            return Err(error(500, "Retention sizes do not match the workspace"));
+        }
+        let mut excess = total.saturating_sub(MAX_STATE_BYTES);
+        let mut surplus = self.runs.len().saturating_sub(100);
+        let mut index = self.runs.len();
+        while index > 1 && (excess > 0 || surplus > 0) {
+            index -= 1;
+            if self.retention_removable(index) {
+                self.runs.remove(index);
+                excess = excess.saturating_sub(run_sizes[index]);
+                surplus = surplus.saturating_sub(1);
             }
-            // Plan this pass's removals from each element's encoded size (plus its
-            // separating comma), so the workspace is re-encoded once per pass rather
-            // than once per removed run. Runs are taken oldest first, as before.
-            let mut excess = text.len().saturating_sub(MAX_STATE_BYTES);
-            let mut surplus = self.runs.len().saturating_sub(100);
-            let mut removed = false;
-            let mut index = self.runs.len();
-            while index > 1 && (excess > 0 || surplus > 0) {
-                index -= 1;
-                if self.retention_removable(index) {
-                    let size = serde_json::to_string(&self.runs[index]).map_or(0, |t| t.len() + 1);
-                    self.runs.remove(index);
-                    excess = excess.saturating_sub(size);
-                    surplus = surplus.saturating_sub(1);
-                    removed = true;
-                }
+        }
+        if excess > 0 && self.audit.len() > 1 {
+            // Audit retention is bounded by both count and available storage.
+            let mut drop = 0;
+            while drop < self.audit.len() - 1 && excess > 0 {
+                excess = excess.saturating_sub(audit_sizes[drop]);
+                drop += 1;
             }
-            if removed {
-                continue;
-            }
-            if text.len() > MAX_STATE_BYTES && self.audit.len() > 1 {
-                // Audit retention is bounded by both count and available storage.
-                let mut drop = 0;
-                while drop < self.audit.len() - 1 && excess > 0 {
-                    excess = excess.saturating_sub(
-                        serde_json::to_string(&self.audit[drop]).map_or(0, |t| t.len() + 1),
-                    );
-                    drop += 1;
-                }
-                self.audit.drain(..drop.max(1));
-                continue;
-            }
+            self.audit.drain(..drop);
+        }
+        if excess > 0 {
             return Err(error(
                 413,
                 "Workspace checkpoint budget exceeded; reduce stored inputs/outputs",
             ));
         }
+        Ok(())
     }
     /// A terminal run that no active parent or awaiting caller depends on.
     fn retention_removable(&self, index: usize) -> bool {
