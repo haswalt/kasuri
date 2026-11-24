@@ -137,16 +137,12 @@ pub fn begin(
         // consumer owns the step.
         return match store.save(&message.run, &record, Some(version)) {
             Ok(claimed) => {
-                // If the host never reports back, the task's deadline settles it
-                // as "outcome unknown", as in the workspace. `finish` supersedes
-                // this message by saving a newer version.
-                bus.send(
-                    WorkMessage {
-                        run: message.run.clone(),
-                        version: claimed,
-                    },
-                    Some(task.deadline_ms.saturating_sub(now)),
-                )?;
+                // The next message claims the next ready task straight away, so
+                // parallel requests are in flight together. Once none is left, it
+                // waits for the earliest claimed deadline: if the host never
+                // reports back, that settles the task as "outcome unknown", as in
+                // the workspace. `finish` supersedes it by saving a newer version.
+                schedule(bus, &record, &message.run, claimed, now)?;
                 Ok(Step::Perform {
                     run: message.run.clone(),
                     task,

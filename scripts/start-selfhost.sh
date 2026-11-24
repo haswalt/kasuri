@@ -13,4 +13,9 @@ export FAILED_RUN_HISTORY_DAYS="${FAILED_RUN_HISTORY_DAYS:-}"
 export RUN_EXECUTION="${RUN_EXECUTION:-}"
 export HTTP_SECRETS="${HTTP_SECRETS:-}"
 cd "$(dirname "$0")/../dist"
+# RUN_EXECUTION=queues uses workerd's built-in Queues Worker, which workerd
+# marks experimental; the default config doesn't include it.
+if [ "$RUN_EXECUTION" = "queues" ]; then
+  exec ../node_modules/workerd/bin/workerd serve workerd-queues.capnp --experimental "$@"
+fi
 exec ../node_modules/workerd/bin/workerd serve workerd.capnp "$@"
