@@ -40,29 +40,30 @@ fn run_count_retention_keeps_the_newest_hundred() {
 #[test]
 fn byte_retention_removes_only_as_many_old_runs_as_needed() {
     let mut ws = Workspace::default();
-    // Each run stores a ~20 KiB output and a ~50 KiB input (kept as the run's
-    // input and its trigger's output); 60 of them exceed the 6 MB budget.
+    // Each run stores a ~60 KiB input (once: its trigger's output repeats it, and
+    // checkpoints store repeated values once) and its graph with a ~60 KiB mapping
+    // (the mapped output repeats it); 55 of them exceed the 6 MB budget.
     ws.handle(
         "PUT",
         "/api/workflows/flow",
-        &serde_json::to_vec(&workflow(20_000)).unwrap(),
+        &serde_json::to_vec(&workflow(60_000)).unwrap(),
         0,
         "",
     )
     .unwrap();
-    for i in 0..60 {
+    for i in 0..55 {
         run_with(
             &mut ws,
             &format!("run-{i:03}"),
             i,
-            json!({"pad":"p".repeat(50_000)}),
+            json!({"pad":"p".repeat(60_000)}),
         );
     }
     let before = ws.runs.clone();
     let text = ws.checkpoint().unwrap();
     assert!(text.len() <= MAX_STATE_BYTES);
     let kept = ws.runs.len();
-    assert!(kept < 60 && kept > 1);
+    assert!(kept < 55 && kept > 1);
     // The newest runs are kept, in order.
     assert_eq!(
         ids(&ws),

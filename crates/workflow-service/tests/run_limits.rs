@@ -15,7 +15,11 @@ fn save(ws: &mut Workspace, payload: usize) {
     .unwrap();
 }
 fn start(ws: &mut Workspace, id: &str) -> Result<(u16, Value), u16> {
-    let body = serde_json::to_vec(&json!({"workflowId":"flow","mode":"run","input":{}})).unwrap();
+    start_with(ws, id, json!({}))
+}
+fn start_with(ws: &mut Workspace, id: &str, input: Value) -> Result<(u16, Value), u16> {
+    let body =
+        serde_json::to_vec(&json!({"workflowId":"flow","mode":"run","input":input})).unwrap();
     ws.handle("POST", "/api/runs", &body, 1, id)
         .map_err(|e| e.status)
 }
@@ -50,10 +54,13 @@ fn runs_are_not_limited_by_count_unless_configured() {
 #[test]
 fn new_runs_stop_before_active_runs_can_exhaust_storage() {
     let mut ws = Workspace::default();
-    // Each active run holds a ~40 KB output that cannot be pruned while it runs.
+    // Each active run holds a ~60 KB input and a ~40 KB graph (its mapped output
+    // repeats the graph's mapping and is stored once), which can't be pruned while
+    // it runs.
     save(&mut ws, 40_000);
+    let pad = json!({"pad": "p".repeat(60_000)});
     let mut started = 0;
-    while start(&mut ws, &format!("run-{started}")).is_ok() {
+    while start_with(&mut ws, &format!("run-{started}"), pad.clone()).is_ok() {
         started += 1;
         assert!(
             started < 100,

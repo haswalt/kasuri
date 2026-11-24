@@ -846,7 +846,7 @@ pub fn call_with_data(
                     .as_str()
                     .and_then(|id| ws.find_run(id).ok().flatten())
                     .and_then(|r| {
-                        let checkpoint: Value = serde_json::from_str(&r.checkpoint).ok()?;
+                        let checkpoint = workflow_service::checkpoint_state(&r.checkpoint).ok()?;
                         Some((
                             serde_json::from_value::<workflow_schema::Workflow>(
                                 checkpoint["workflow"].clone(),

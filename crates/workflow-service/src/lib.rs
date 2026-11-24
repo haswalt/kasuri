@@ -20,6 +20,8 @@ use serde_json::{Value, json};
 use std::str::FromStr;
 use store::RunQueries;
 pub use webhook_response::{Reply as WebhookReply, ResponseWindow};
+/// Read a stored run checkpoint as JSON (checkpoints may be stored compactly).
+pub use workflow_engine::checkpoint_state;
 use workflow_engine::{Dispatch, Limits, NodeState, Run, RunStatus};
 use workflow_schema::Workflow;
 
@@ -231,8 +233,8 @@ impl RunRecord {
     }
     pub fn view(&self, summary: bool) -> Result<Value, ApiError> {
         let run = self.restore()?;
-        let state: Value =
-            serde_json::from_str(&self.checkpoint).map_err(|_| error(500, "Invalid stored run"))?;
+        let state: Value = workflow_engine::checkpoint_state(&self.checkpoint)
+            .map_err(|_| error(500, "Invalid stored run"))?;
         let nodes:Vec<_>=run.workflow().nodes.iter().map(|n| {
             let s=&run.nodes()[&n.id];
             let (status,attempts,output,code,until)=match s {
