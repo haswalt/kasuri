@@ -478,7 +478,9 @@ pub const ORDER_SPACING: i64 = 1 << 20;
 pub struct Tracked {
     pub workspace: Workspace,
     meta: Option<String>,
-    baseline: HashMap<EntityKey, (i64, String)>,
+    /// Each stored entity's order and a digest of its body: enough to tell what an
+    /// operation changed without keeping a second copy of every body in memory.
+    baseline: HashMap<EntityKey, (i64, Digest)>,
     /// The lowest stored run order, archived runs included. New runs (always the
     /// newest) take keys below it.
     run_floor: Option<i64>,
@@ -504,7 +506,7 @@ impl Tracked {
                 items.push(serde_json::from_str::<Value>(&record.body).map_err(|e| {
                     StoreError::Invalid(format!("{:?} {}: {e}", collection, record.key.id))
                 })?);
-                baseline.insert(record.key, (record.order, record.body));
+                baseline.insert(record.key, (record.order, digest(&record.body)));
             }
             object.insert(collection.field().into(), Value::Array(items));
         }
@@ -622,7 +624,9 @@ impl Tracked {
                 let unchanged = self
                     .baseline
                     .get(&key)
-                    .is_some_and(|(old_order, old_body)| *old_order == order && *old_body == body);
+                    .is_some_and(|(old_order, old_digest)| {
+                        *old_order == order && *old_digest == digest(&body)
+                    });
                 seen.insert(key.clone(), ());
                 if !unchanged {
                     // Run columns are derived only for runs being written.
@@ -687,7 +691,7 @@ impl Tracked {
                 self.baseline.remove(&record.key);
             } else {
                 self.baseline
-                    .insert(record.key.clone(), (record.order, record.body.clone()));
+                    .insert(record.key.clone(), (record.order, digest(&record.body)));
             }
             if record.key.collection == Collection::Run {
                 self.run_floor = Some(self.run_floor.map_or(record.order, |f| f.min(record.order)));
@@ -793,6 +797,12 @@ impl RunRetention {
 }
 
 type Entities = Vec<(EntityKey, String)>;
+/// SHA-256 of an entity's encoded body.
+type Digest = [u8; 32];
+fn digest(body: &str) -> Digest {
+    use sha2::{Digest as _, Sha256};
+    Sha256::digest(body.as_bytes()).into()
+}
 
 /// Split a workspace into its metadata entity and keyed collection entities, each
 /// in document order.
@@ -896,7 +906,7 @@ fn encoded_total(meta: &str, collections: &[(Collection, Entities)]) -> usize {
 /// the whole collection is renumbered.
 fn assign_orders(
     entities: &Entities,
-    baseline: &HashMap<EntityKey, (i64, String)>,
+    baseline: &HashMap<EntityKey, (i64, Digest)>,
     floor: Option<i64>,
 ) -> Vec<i64> {
     let existing: Vec<Option<i64>> = entities
@@ -983,7 +993,7 @@ mod tests {
             })
             .collect()
     }
-    fn baseline(pairs: &[(&str, i64)]) -> HashMap<EntityKey, (i64, String)> {
+    fn baseline(pairs: &[(&str, i64)]) -> HashMap<EntityKey, (i64, Digest)> {
         pairs
             .iter()
             .map(|(id, order)| {
@@ -992,7 +1002,7 @@ mod tests {
                         collection: Collection::Run,
                         id: (*id).into(),
                     },
-                    (*order, String::new()),
+                    (*order, [0; 32]),
                 )
             })
             .collect()

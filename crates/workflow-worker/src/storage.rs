@@ -84,11 +84,15 @@ pub(crate) fn write_workspace(
     workspace: &mut Workspace,
 ) -> Result<()> {
     let mut store = tables(sql);
-    let mut tracked = baseline(&mut store, cache)?;
-    tracked.workspace = workspace.clone();
+    prepare(&mut store, cache)?;
+    let mut tracked = take_committed(&store, cache)?;
+    // Move the candidate in rather than copying it; on failure the transaction
+    // rolls back and the caller discards its candidate.
+    tracked.workspace = std::mem::take(workspace);
     let written = tracked.commit(&mut store).map_err(store_error)?;
-    // Hand back the workspace with retention applied.
-    workspace.clone_from(&tracked.workspace);
+    // Hand back the workspace with retention applied: the one copy a save makes,
+    // since the cache keeps the committed state as well.
+    *workspace = tracked.workspace.clone();
     crate::data::sync_run_data(sql, workspace, crate::now())?;
     let affects_webhooks = written
         .upserts
@@ -115,29 +119,47 @@ fn remember(store: &SqlStore<DoSql>, cache: &WorkspaceCache, tracked: Tracked) -
     *cache.borrow_mut() = Some((token, tracked));
     Ok(())
 }
-/// The committed workspace: the cached copy when it is still current, otherwise
-/// a fresh load. Must run inside `sql_transaction` if the workspace may still need
-/// migrating.
-fn baseline(store: &mut SqlStore<DoSql>, cache: &WorkspaceCache) -> Result<Tracked> {
+/// Bring the tables to the current layout: migrate a workspace from an earlier
+/// release (or start a new one), or upgrade tables from an older version. Must run
+/// inside `sql_transaction` unless the tables are already current.
+fn prepare(store: &mut SqlStore<DoSql>, cache: &WorkspaceCache) -> Result<()> {
     if store.format().map_err(store_error)?.is_none() {
         let tracked = legacy::migrate(store).map_err(store_error)?;
         write_webhook_auth(&store.sql().0, &tracked.workspace)?;
-        remember(store, cache, tracked.clone())?;
+        return remember(store, cache, tracked);
+    }
+    store.upgrade().map_err(store_error)?;
+    Ok(())
+}
+/// The committed state for a write. When the cache holds it, it is taken out
+/// rather than copied: the write replaces it, and if the write fails the cache is
+/// simply empty and the next read loads from storage.
+fn take_committed(store: &SqlStore<DoSql>, cache: &WorkspaceCache) -> Result<Tracked> {
+    let token = store.commit().map_err(store_error)?;
+    let mut cached = cache.borrow_mut();
+    let current = matches!((&token, &*cached), (Some(token), Some((at, _))) if at == token);
+    if current && let Some((_, tracked)) = cached.take() {
         return Ok(tracked);
     }
-    // Tables from an older layout version are brought up to date in place.
-    store.upgrade().map_err(store_error)?;
+    *cached = None;
+    Tracked::load(store).map_err(store_error)
+}
+/// The committed workspace for a read: a copy of the cached workspace when it is
+/// still current (the change-tracking baseline is not copied), otherwise a fresh
+/// load, which is cached.
+fn committed_workspace(store: &SqlStore<DoSql>, cache: &WorkspaceCache) -> Result<Workspace> {
     let token = store.commit().map_err(store_error)?;
-    if let (Some(token), Some((cached, tracked))) = (&token, &*cache.borrow())
-        && cached == token
+    if let (Some(token), Some((current, tracked))) = (&token, &*cache.borrow())
+        && current == token
     {
-        return Ok(tracked.clone());
+        return Ok(tracked.workspace.clone());
     }
-    let tracked = Tracked::load(&*store).map_err(store_error)?;
+    let tracked = Tracked::load(store).map_err(store_error)?;
+    let workspace = tracked.workspace.clone();
     if let Some(token) = token {
-        *cache.borrow_mut() = Some((token, tracked.clone()));
+        *cache.borrow_mut() = Some((token, tracked));
     }
-    Ok(tracked)
+    Ok(workspace)
 }
 pub(crate) const CREATE_WEBHOOK_AUTH: &str = "CREATE TABLE IF NOT EXISTS webhook_auth (endpoint_id TEXT NOT NULL, workflow_id TEXT NOT NULL, body TEXT NOT NULL, PRIMARY KEY(endpoint_id,workflow_id))";
 /// Rewritten in the same transaction as every workspace generation, so it always
@@ -234,15 +256,19 @@ impl WorkflowWorkspace {
     }
     fn load_stored(&self) -> Result<Workspace> {
         let sql = self.state.storage().sql();
-        let mut store = tables(&sql);
+        let store = tables(&sql);
         if store.current().map_err(store_error)? {
-            return Ok(baseline(&mut store, &self.cache)?.workspace);
+            return committed_workspace(&store, &self.cache);
         }
         // Migrate a workspace saved by an earlier release (or start a new one), or
         // upgrade tables from an older layout version.
         let cache = self.cache.clone();
-        self.sql_transaction(move |sql| Ok(baseline(&mut tables(&sql), &cache)?.workspace))
-            .inspect_err(|error| console_error!("Workspace migration to tables failed: {error}"))
+        self.sql_transaction(move |sql| {
+            let mut store = tables(&sql);
+            prepare(&mut store, &cache)?;
+            committed_workspace(&store, &cache)
+        })
+        .inspect_err(|error| console_error!("Workspace migration to tables failed: {error}"))
     }
     pub(crate) async fn save(&self, workspace: &mut Workspace) -> Result<()> {
         self.save_with_sql(workspace, |_| Ok(())).await
