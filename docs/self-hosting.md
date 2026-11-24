@@ -54,15 +54,13 @@ pnpm build:selfhost
 BASIC_AUTH='username:password' pnpm start
 ```
 
-The process runs from `dist/`, serves on port 8080 and stores data in the root `data/` directory. `dist/` contains the Wasm binary, generated module, assets and `workerd.capnp`. Distribute it with a compatible workerd binary if Node.js is unavailable on the destination. From that directory run `PUBLIC_ORIGIN= BASIC_AUTH= HTTP_ALLOWED_HOSTS= HTTP_PRIVATE_HOSTS= HTTP_SECRETS= MAX_ACTIVE_RUNS= WORKSPACE_STORAGE= workerd serve workerd.capnp`. The provided launchers supply an empty default for the optional workerd environment binding. The binary itself requires no Node.js runtime.
+The process runs from `dist/`, serves on port 8080 and stores data in the root `data/` directory. `dist/` contains the Wasm binary, generated module, assets and `workerd.capnp`. Distribute it with a compatible workerd binary if Node.js is unavailable on the destination. From that directory run `PUBLIC_ORIGIN= BASIC_AUTH= HTTP_ALLOWED_HOSTS= HTTP_PRIVATE_HOSTS= HTTP_SECRETS= MAX_ACTIVE_RUNS= workerd serve workerd.capnp`. The provided launchers supply an empty default for the optional workerd environment binding. The binary itself requires no Node.js runtime.
 
 For a different address or storage path, use workerd's `--socket-addr http=127.0.0.1:8090` and `--directory-path storage=/absolute/data/path` options. Create the storage directory first.
 
 ## Outbound HTTP connectors
 
 Public HTTPS works by default. Optionally set `HTTP_ALLOWED_HOSTS` to restrict destinations. Basic authentication and sensitive custom headers resolve aliases from `HTTP_SECRETS` (a JSON map); use an environment secret, Kubernetes Secret or an `HTTP_SECRETS_FILE` mount. `HTTP_PRIVATE_HOSTS` opts specific private hosts into the application policy, but workerd network permissions/connectivity must also allow those destinations. Redirects remain blocked. See [connector configuration](connectors.md).
-
-`WORKSPACE_STORAGE` selects the workspace storage layout, `generations` (the default) or `tables`. See [workspace storage layout](deployment.md#workspace-storage-layout) for what each does and how workspaces migrate between them.
 
 ## MCP and external HTTPS origins
 

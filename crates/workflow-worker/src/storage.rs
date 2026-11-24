@@ -1,54 +1,23 @@
-//! Workspace persistence, in one of two layouts chosen by `WORKSPACE_STORAGE`:
+//! Workspace persistence: one SQLite row per workflow, revision, run, audit entry
+//! and webhook, with indexed run columns (`workflow_service::store::sql`). A save
+//! writes only the rows that changed, in one transaction.
 //!
-//! - **generations** (the default): the whole workspace is written as a new record
-//!   generation on every save. One INSERT publishes a complete generation
-//!   atomically; readers never combine rows from different saves. Legacy
-//!   single-row checkpoints migrate on save.
-//! - **tables**: one row per workflow, revision, run, audit entry and webhook, with
-//!   indexed run columns (`workflow_service::store::sql`). A save writes only the
-//!   rows that changed.
-//!
-//! Loading a workspace stored in the other layout migrates it in one transaction,
-//! in either direction. If a migration fails, the transaction rolls back and the
-//! workspace keeps its current layout.
+//! Workspaces saved by earlier releases (record generations, or the single-row
+//! layout before them) migrate into the tables on first load, in one transaction.
+//! If the migration fails, it rolls back, leaving the old layout intact, and the
+//! next load tries again.
 use crate::{WorkflowWorkspace, internal};
-use serde::Deserialize;
-use serde_json::{Value, json};
 use std::{cell::RefCell, rc::Rc};
 use worker::wasm_bindgen::{JsCast, JsValue, closure::Closure};
 use worker::*;
 use workflow_service::Workspace;
-use workflow_service::store::sql::{SqlExec, SqlStore, SqlValue};
+use workflow_service::store::sql::{SqlExec, SqlStore, SqlValue, legacy};
 use workflow_service::store::{Collection, StoreError, Tracked};
 
-/// The committed workspace this object last read or wrote, with the marker that
-/// identifies the commit it came from. Reused while that commit is still current.
-pub(crate) enum Committed {
-    /// A decoded record generation.
-    Generation(f64, Workspace),
-    /// A workspace loaded from (or committed to) the tables, keyed by commit token.
-    Tables(String, Tracked),
-}
-pub(crate) type WorkspaceCache = Rc<RefCell<Option<Committed>>>;
-
-/// Where workspaces are stored.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(crate) enum Layout {
-    Generations,
-    Tables,
-}
-/// `WORKSPACE_STORAGE`: unset, empty or `generations` keeps whole-workspace
-/// generations; `tables` stores one row per entity. Anything else is an error,
-/// rather than a silent fallback to a different layout.
-pub(crate) fn parse_layout(value: &str) -> std::result::Result<Layout, String> {
-    match value.trim() {
-        "" | "generations" => Ok(Layout::Generations),
-        "tables" => Ok(Layout::Tables),
-        other => Err(format!(
-            "WORKSPACE_STORAGE must be 'generations' or 'tables', not '{other}'"
-        )),
-    }
-}
+/// The committed workspace this object last read or wrote, with the commit token
+/// it came from. Reused while that token is still the stored one, so most
+/// requests don't decode the workspace.
+pub(crate) type WorkspaceCache = Rc<RefCell<Option<(String, Tracked)>>>;
 
 /// Durable Object SQLite as a [`SqlExec`].
 pub(crate) struct DoSql(pub(crate) SqlStorage);
@@ -107,94 +76,18 @@ fn commit_token() -> String {
         (js_sys::Math::random() * 9_007_199_254_740_992.0) as u64
     )
 }
-const CREATE_LEGACY: &str =
-    "CREATE TABLE IF NOT EXISTS workspace (id INTEGER PRIMARY KEY CHECK(id=1), body TEXT NOT NULL)";
-
-const CREATE_RECORDS: &str = "CREATE TABLE IF NOT EXISTS workspace_records (generation INTEGER NOT NULL, kind TEXT NOT NULL, position INTEGER NOT NULL, body TEXT NOT NULL, PRIMARY KEY(generation,kind,position))";
-const STORE_RECORDS: &str = r#"
-WITH input(body,generation) AS (
-  SELECT json(?), COALESCE((SELECT MAX(generation) FROM workspace_records),0)+1
-), records(kind,position,body) AS (
-  SELECT 'metadata',0,json_set(json_remove(body,'$.workflows','$.runs','$.audit','$.webhooks','$.webhookEvents','$.revisions'),'$.storageVersion',1) FROM input
-  UNION ALL
-  SELECT CASE collection.key
-    WHEN 'workflows' THEN 'workflow' WHEN 'runs' THEN 'run'
-    WHEN 'audit' THEN 'audit' WHEN 'webhooks' THEN 'webhook'
-    WHEN 'webhookEvents' THEN 'webhook_event' WHEN 'revisions' THEN 'revision' END,
-    CAST(item.key AS INTEGER),item.value
-  FROM input,json_each(input.body) AS collection,
-    json_each(CASE WHEN collection.key IN ('workflows','runs','audit','webhooks','webhookEvents','revisions') THEN collection.value ELSE '[]' END) AS item
-)
-INSERT INTO workspace_records(generation,kind,position,body)
-SELECT input.generation,records.kind,records.position,records.body FROM input,records
-"#;
-const LOAD_RECORDS: &str = "SELECT kind,body FROM workspace_records WHERE generation=(SELECT MAX(generation) FROM workspace_records) ORDER BY kind,position";
-#[derive(Deserialize)]
-struct Record {
-    kind: String,
-    body: String,
-}
-fn decode(rows: Vec<Record>) -> Result<Workspace> {
-    let mut root = None;
-    let mut collections = json!({"workflows":[],"runs":[],"audit":[],"webhooks":[],"webhookEvents":[],"revisions":[]});
-    let mut encoded = 0;
-    for row in rows {
-        encoded += row.body.len();
-        let value: Value = serde_json::from_str(&row.body).map_err(internal)?;
-        let field = match row.kind.as_str() {
-            "metadata" => {
-                if root.is_some() || value["storageVersion"] != 1 || !value.is_object() {
-                    return Err(internal("Invalid workspace record metadata"));
-                }
-                root = Some(value);
-                continue;
-            }
-            "revision" => "revisions",
-            "workflow" => "workflows",
-            "run" => "runs",
-            "audit" => "audit",
-            "webhook" => "webhooks",
-            "webhook_event" => "webhookEvents",
-            _ => return Err(internal("Unknown workspace record type")),
-        };
-        collections[field].as_array_mut().unwrap().push(value);
-    }
-    let mut root = root.ok_or_else(|| internal("Workspace record metadata missing"))?;
-    root.as_object_mut().unwrap().remove("storageVersion");
-    let Value::Object(collections) = collections else {
-        unreachable!()
-    };
-    for (key, value) in collections {
-        root[key] = value;
-    }
-    // Each record is parsed once; the assembled value is not re-encoded and
-    // re-parsed as text.
-    Workspace::from_value(root, encoded).map_err(internal)
-}
-fn write_encoded_records(sql: &SqlStorage, body: String) -> Result<()> {
-    sql.exec(CREATE_RECORDS, None)?;
-    sql.exec(STORE_RECORDS, Some(vec![body.into()]))?;
-    sql.exec("DELETE FROM workspace_records WHERE generation < (SELECT MAX(generation) FROM workspace_records)",None)?;
-    sql.exec(CREATE_LEGACY, None)?;
-    sql.exec("DELETE FROM workspace WHERE id=1", None)?;
-    Ok(())
-}
-/// Commit `workspace` in whichever layout the object currently uses. Must run
-/// inside `sql_transaction`. Retention is applied to `workspace` first.
+/// Commit `workspace`, writing only the rows that changed. Must run inside
+/// `sql_transaction`. Retention is applied to `workspace` first.
 pub(crate) fn write_workspace(
     sql: &SqlStorage,
     cache: &WorkspaceCache,
     workspace: &mut Workspace,
 ) -> Result<()> {
-    let store = tables(sql);
-    if store.format().map_err(store_error)?.is_none() {
-        return write_generation(sql, workspace);
-    }
-    let mut tracked = baseline(&store, cache)?;
+    let mut store = tables(sql);
+    let mut tracked = baseline(&mut store, cache)?;
     tracked.workspace = workspace.clone();
-    let mut store = store;
     let written = tracked.commit(&mut store).map_err(store_error)?;
-    // Hand back the workspace with retention applied, as a generation save does.
+    // Hand back the workspace with retention applied.
     workspace.clone_from(&tracked.workspace);
     crate::data::sync_run_data(sql, workspace, crate::now())?;
     let affects_webhooks = written
@@ -211,108 +104,38 @@ pub(crate) fn write_workspace(
     if affects_webhooks {
         write_webhook_auth(sql, workspace)?;
     }
+    remember(&store, cache, tracked)
+}
+/// Record a new commit token and cache the committed workspace under it. If the
+/// surrounding transaction rolls back, the stored token stays the old one, so the
+/// cached copy is never mistaken for the committed workspace.
+fn remember(store: &SqlStore<DoSql>, cache: &WorkspaceCache, tracked: Tracked) -> Result<()> {
     let token = commit_token();
     store.set_commit(&token).map_err(store_error)?;
-    // If the surrounding transaction rolls back, the stored token stays the old
-    // one, so this entry is never mistaken for the committed workspace.
-    *cache.borrow_mut() = Some(Committed::Tables(token, tracked));
+    *cache.borrow_mut() = Some((token, tracked));
     Ok(())
 }
-/// The committed workspace as stored in the tables: the cached copy when it is
-/// still current, otherwise a fresh load.
-fn baseline(store: &SqlStore<DoSql>, cache: &WorkspaceCache) -> Result<Tracked> {
+/// The committed workspace: the cached copy when it is still current, otherwise
+/// a fresh load. Must run inside `sql_transaction` if the workspace may still need
+/// migrating.
+fn baseline(store: &mut SqlStore<DoSql>, cache: &WorkspaceCache) -> Result<Tracked> {
+    if store.format().map_err(store_error)?.is_none() {
+        let tracked = legacy::migrate(store).map_err(store_error)?;
+        write_webhook_auth(&store.sql().0, &tracked.workspace)?;
+        remember(store, cache, tracked.clone())?;
+        return Ok(tracked);
+    }
     let token = store.commit().map_err(store_error)?;
-    if let (Some(token), Some(Committed::Tables(cached, tracked))) = (&token, &*cache.borrow())
+    if let (Some(token), Some((cached, tracked))) = (&token, &*cache.borrow())
         && cached == token
     {
         return Ok(tracked.clone());
     }
-    let tracked = Tracked::load(store).map_err(store_error)?;
+    let tracked = Tracked::load(&*store).map_err(store_error)?;
     if let Some(token) = token {
-        *cache.borrow_mut() = Some(Committed::Tables(token, tracked.clone()));
+        *cache.borrow_mut() = Some((token, tracked.clone()));
     }
     Ok(tracked)
-}
-fn write_generation(sql: &SqlStorage, workspace: &mut Workspace) -> Result<()> {
-    let body = workspace.checkpoint().map_err(internal)?;
-    crate::data::sync_run_data(sql, workspace, crate::now())?;
-    write_encoded_records(sql, body)?;
-    write_webhook_auth(sql, workspace)
-}
-/// Read the workspace from record generations, or the legacy single row.
-fn read_generations(sql: &SqlStorage, cache: Option<&WorkspaceCache>) -> Result<Workspace> {
-    sql.exec(CREATE_RECORDS, None)?;
-    #[derive(Deserialize)]
-    struct Generation {
-        generation: Option<f64>,
-    }
-    let generation = sql
-        .exec(
-            "SELECT MAX(generation) AS generation FROM workspace_records",
-            None,
-        )?
-        .one::<Generation>()?
-        .generation;
-    if let Some(generation) = generation {
-        // Every save inserts a new generation and a rolled-back transaction
-        // leaves the old one, so a decoded copy of this generation is exactly
-        // the committed workspace.
-        if let Some(cache) = cache
-            && let Some(Committed::Generation(cached, workspace)) = &*cache.borrow()
-            && *cached == generation
-        {
-            return Ok(workspace.clone());
-        }
-        // No write can run between the generation query and this read, so
-        // LOAD_RECORDS reads the same generation.
-        let records = sql.exec(LOAD_RECORDS, None)?.to_array::<Record>()?;
-        // Corrupt new-format records fail closed; never resurrect stale legacy data.
-        let workspace = decode(records)?;
-        if let Some(cache) = cache {
-            *cache.borrow_mut() = Some(Committed::Generation(generation, workspace.clone()));
-        }
-        return Ok(workspace);
-    }
-    sql.exec(CREATE_LEGACY, None)?;
-    #[derive(Deserialize)]
-    struct Legacy {
-        body: String,
-    }
-    let rows = sql
-        .exec("SELECT body FROM workspace WHERE id=1", None)?
-        .to_array::<Legacy>()?;
-    rows.first()
-        .map(|row| Workspace::from_json(&row.body).map_err(internal))
-        .unwrap_or_else(|| Ok(Workspace::default()))
-}
-/// Move a workspace from generations (or the legacy row) into the tables.
-fn migrate_to_tables(sql: &SqlStorage, cache: &WorkspaceCache) -> Result<Workspace> {
-    let workspace = read_generations(sql, None)?;
-    let mut store = tables(sql);
-    // Leftovers of an earlier migration back to generations are discarded.
-    store.drop_tables().map_err(store_error)?;
-    store.create().map_err(store_error)?;
-    let mut tracked = Tracked::load(&store).map_err(store_error)?;
-    tracked.workspace = workspace;
-    tracked.commit(&mut store).map_err(store_error)?;
-    store.set_format().map_err(store_error)?;
-    write_webhook_auth(sql, &tracked.workspace)?;
-    sql.exec("DROP TABLE IF EXISTS workspace_records", None)?;
-    sql.exec("DROP TABLE IF EXISTS workspace", None)?;
-    let token = commit_token();
-    store.set_commit(&token).map_err(store_error)?;
-    let workspace = tracked.workspace.clone();
-    *cache.borrow_mut() = Some(Committed::Tables(token, tracked));
-    Ok(workspace)
-}
-/// Move a workspace from the tables back to record generations.
-fn migrate_to_generations(sql: &SqlStorage, cache: &WorkspaceCache) -> Result<Workspace> {
-    let store = tables(sql);
-    let mut workspace = Tracked::load(&store).map_err(store_error)?.workspace;
-    store.drop_tables().map_err(store_error)?;
-    write_generation(sql, &mut workspace)?;
-    *cache.borrow_mut() = None;
-    Ok(workspace)
 }
 pub(crate) const CREATE_WEBHOOK_AUTH: &str = "CREATE TABLE IF NOT EXISTS webhook_auth (endpoint_id TEXT NOT NULL, workflow_id TEXT NOT NULL, body TEXT NOT NULL, PRIMARY KEY(endpoint_id,workflow_id))";
 /// Rewritten in the same transaction as every workspace generation, so it always
@@ -386,38 +209,16 @@ impl WorkflowWorkspace {
             .unwrap_or_default();
         workflow_service::parse_max_active_runs(&value).map_err(internal)
     }
-    fn layout(&self) -> Result<Layout> {
-        let value = self
-            .env
-            .var("WORKSPACE_STORAGE")
-            .map(|v| v.to_string())
-            .unwrap_or_default();
-        parse_layout(&value).map_err(internal)
-    }
     fn load_stored(&self) -> Result<Workspace> {
-        let wanted = self.layout()?;
         let sql = self.state.storage().sql();
-        let in_tables = tables(&sql).format().map_err(store_error)?.is_some();
-        match (wanted, in_tables) {
-            (Layout::Generations, false) => read_generations(&sql, Some(&self.cache)),
-            (Layout::Tables, true) => Ok(baseline(&tables(&sql), &self.cache)?.workspace),
-            (Layout::Tables, false) => {
-                let cache = self.cache.clone();
-                self.sql_transaction(move |sql| migrate_to_tables(&sql, &cache))
-                    .or_else(|error| {
-                        console_error!("Workspace migration to tables failed: {error}");
-                        read_generations(&sql, Some(&self.cache))
-                    })
-            }
-            (Layout::Generations, true) => {
-                let cache = self.cache.clone();
-                self.sql_transaction(move |sql| migrate_to_generations(&sql, &cache))
-                    .or_else(|error| {
-                        console_error!("Workspace migration to generations failed: {error}");
-                        Ok(baseline(&tables(&sql), &self.cache)?.workspace)
-                    })
-            }
+        let mut store = tables(&sql);
+        if store.format().map_err(store_error)?.is_some() {
+            return Ok(baseline(&mut store, &self.cache)?.workspace);
         }
+        // Migrate a workspace saved by an earlier release (or start a new one).
+        let cache = self.cache.clone();
+        self.sql_transaction(move |sql| Ok(baseline(&mut tables(&sql), &cache)?.workspace))
+            .inspect_err(|error| console_error!("Workspace migration to tables failed: {error}"))
     }
     pub(crate) async fn save(&self, workspace: &mut Workspace) -> Result<()> {
         self.save_with_sql(workspace, |_| Ok(())).await
@@ -427,10 +228,9 @@ impl WorkflowWorkspace {
         workspace: &mut Workspace,
         stage: impl FnOnce(&SqlStorage) -> Result<()> + 'static,
     ) -> Result<()> {
-        // All validation and retention precedes the atomic commit. No callback I/O.
+        // No callback I/O inside the transaction. Retention runs in the commit,
+        // before lifecycle cleanup, so pruned runs cannot retain data scopes.
         let mut candidate = workspace.clone();
-        // Retention precedes lifecycle cleanup, so pruned runs cannot retain scopes.
-        candidate.checkpoint().map_err(internal)?;
         let cache = self.cache.clone();
         *workspace = self.sql_transaction(move |sql| {
             stage(&sql)?;
@@ -455,58 +255,5 @@ impl WorkflowWorkspace {
             self.state.storage().delete_alarm().await?;
         }
         Ok(())
-    }
-}
-#[cfg(test)]
-mod tests {
-    use super::*;
-    fn row(kind: &str, body: Value) -> Record {
-        Record {
-            kind: kind.into(),
-            body: body.to_string(),
-        }
-    }
-    #[test]
-    fn storage_layout_is_explicit() {
-        assert_eq!(parse_layout(""), Ok(Layout::Generations));
-        assert_eq!(parse_layout(" generations "), Ok(Layout::Generations));
-        assert_eq!(parse_layout("tables"), Ok(Layout::Tables));
-        assert!(parse_layout("table").is_err());
-        assert!(parse_layout("Tables").is_err());
-    }
-    #[test]
-    fn metadata_and_collections_roundtrip_without_exposing_management() {
-        let ws = decode(vec![
-            row("audit", json!({"id":7,"action":"workflow.saved"})),
-            row(
-                "metadata",
-                json!({"storageVersion":1,"management":{"private":"stored"},"auditSequence":7}),
-            ),
-        ])
-        .unwrap();
-        assert_eq!(ws.audit.len(), 1);
-        assert_eq!(ws.audit_sequence, 7);
-        assert_eq!(ws.management["private"], "stored");
-        assert!(ws.snapshot().unwrap().get("management").is_none());
-        assert!(ws.snapshot().unwrap().get("audit").is_none());
-    }
-    #[test]
-    fn corrupt_generations_are_not_accepted_as_empty_workspaces() {
-        assert!(decode(vec![]).is_err());
-        assert!(decode(vec![row("metadata", json!({"storageVersion":2}))]).is_err());
-        assert!(
-            decode(vec![
-                row("metadata", json!({"storageVersion":1})),
-                row("unknown", json!({}))
-            ])
-            .is_err()
-        );
-        assert!(
-            decode(vec![
-                row("metadata", json!({"storageVersion":1})),
-                row("metadata", json!({"storageVersion":1}))
-            ])
-            .is_err()
-        );
     }
 }
