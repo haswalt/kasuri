@@ -109,6 +109,27 @@ fn discovery_and_every_tool_schema_are_valid_offline_and_public() {
         json!({}),
     );
     assert_eq!(capabilities["plannedConnectorsExecutable"], false);
+    let flow = capabilities["dataFlow"].to_string();
+    assert!(flow.contains("inputBindings") && flow.contains("workflow"));
+    // The build sequence spans read and write tools; check names against all tools.
+    let operator_token = grant(&mut auth, "operator");
+    let tools: Vec<_> =
+        workflow_mcp::tools::list(&auth.authenticate(&operator_token, RESOURCE, 1).unwrap())
+            .into_iter()
+            .map(|t| t["name"].as_str().unwrap().to_string())
+            .collect();
+    for step in capabilities["buildSequence"].as_array().unwrap() {
+        assert!(
+            tools.contains(&step.as_str().unwrap().to_string()),
+            "{step}"
+        );
+    }
+    assert!(
+        capabilities["buildSequence"]
+            .as_array()
+            .unwrap()
+            .contains(&json!("connectors_get"))
+    );
     assert!(ws.workflows.is_empty());
     assert!(ws.runs.is_empty());
     assert!(ws.audit.is_empty());
