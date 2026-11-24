@@ -7,6 +7,7 @@ mod http_api;
 pub mod invocation;
 mod items;
 mod publication;
+pub mod store;
 mod webhook_response;
 use chrono::{DateTime, SecondsFormat, Utc};
 use chrono_tz::Tz;
