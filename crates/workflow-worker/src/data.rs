@@ -442,6 +442,7 @@ impl WorkflowWorkspace {
                 "Provide 1–100 commands, or exactly one non-batch command",
             ));
         }
+        let cache = self.cache.clone();
         self.data_transaction(domain,time,move |store| {
             let replayed=if let Some(key)=receipt.as_deref(){store.receipt(key)?.is_some()}else{false};
             let ids:BTreeSet<String>=commands.iter().map(|c|c.table_id().to_string()).collect();
@@ -459,7 +460,7 @@ impl WorkflowWorkspace {
                     event["before"]=json!(before.iter().map(|t|t.as_ref().map(|t|json!({"id":t.definition.id,"version":t.version,"dataRevision":t.data_revision}))).collect::<Vec<_>>());
                     event["after"]=json!(after.iter().map(|t|t.as_ref().map(|t|json!({"id":t.definition.id,"version":t.version,"dataRevision":t.data_revision}))).collect::<Vec<_>>());
                 }
-                crate::storage::write_workspace_records(&store.sql,workspace).map_err(storage_error)?;
+                crate::storage::write_workspace(&store.sql,&cache,workspace).map_err(storage_error)?;
             }
             Ok(DataExecution{result,replayed,workspace})
         })
@@ -630,6 +631,7 @@ impl WorkflowWorkspace {
             let task_id = task.id.clone();
             let failed = Rc::new(RefCell::new(None));
             let failure = failed.clone();
+            let cache = self.cache.clone();
             let result = self.sql_transaction(move |sql| {
                 let outcome = if time >= task.deadline_ms {
                     connectors_http::failure(connector_sdk::FailureCode::Timeout, false)
@@ -645,7 +647,7 @@ impl WorkflowWorkspace {
                                     time,
                                 )
                                 .map_err(internal)?;
-                            crate::storage::write_workspace_records(&sql, &mut candidate)?;
+                            crate::storage::write_workspace(&sql, &cache, &mut candidate)?;
                             return Ok(candidate);
                         }
                     };
@@ -677,7 +679,7 @@ impl WorkflowWorkspace {
                 {
                     return Err(internal("Data task is no longer pending"));
                 }
-                crate::storage::write_workspace_records(&sql, &mut candidate)?;
+                crate::storage::write_workspace(&sql, &cache, &mut candidate)?;
                 Ok(candidate)
             });
             match result {
@@ -701,8 +703,9 @@ impl WorkflowWorkspace {
                             time,
                         )
                         .map_err(internal)?;
+                    let cache = self.cache.clone();
                     *workspace = self.sql_transaction(move |sql| {
-                        crate::storage::write_workspace_records(&sql, &mut candidate)?;
+                        crate::storage::write_workspace(&sql, &cache, &mut candidate)?;
                         Ok(candidate)
                     })?;
                 }

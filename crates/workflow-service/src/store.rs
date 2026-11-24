@@ -6,13 +6,16 @@
 //! else. A [`Store`] holds those records. [`Tracked`] loads a workspace from a
 //! store and, after an operation, commits only the entities that changed.
 //!
-//! This phase changes no storage format and no service behaviour: the service
-//! still operates on a whole `Workspace`, and hosts still persist it as they do
-//! today. Later phases load entities on demand and back the trait with SQLite.
+//! The service still operates on a whole `Workspace`. [`MemoryStore`] keeps
+//! records in memory for tests, and [`sql::SqlStore`] keeps them in SQLite tables
+//! for hosts. Later phases load entities on demand.
 use crate::{ApiError, RunRecord, Workspace};
 use serde_json::{Map, Value};
 use std::collections::{BTreeMap, HashMap};
 use workflow_engine::RunStatus;
+
+#[path = "store_sql.rs"]
+pub mod sql;
 
 /// The workspace collections stored as individual records, in document order.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
@@ -53,7 +56,8 @@ pub struct EntityKey {
 /// One stored entity. `order` reproduces the entity's position in its collection:
 /// records sort by ascending order. `body` is the entity's JSON encoding.
 /// Run records also carry [`RunColumns`], derived from the body when written, so
-/// run queries never decode run bodies.
+/// run queries never decode run bodies. Stores must be given columns with every
+/// run they write, but need not return them when reading records back.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Record {
     pub key: EntityKey,
