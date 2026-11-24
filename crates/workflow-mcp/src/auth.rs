@@ -52,7 +52,20 @@ pub struct Client {
     pub name: String,
     pub redirects: Vec<String>,
     pub created: u64,
+    /// Set once the client completes an authorization. Clients stored before this
+    /// field existed are treated as established, keeping their original retention.
+    #[serde(default = "established_default")]
+    pub established: bool,
 }
+fn established_default() -> bool {
+    true
+}
+/// Registration is unauthenticated, so clients that never complete an authorization
+/// are kept only briefly and are evicted first when the registry is full.
+const UNUSED_CLIENT_MS: u64 = 3_600_000;
+const ESTABLISHED_CLIENT_MS: u64 = 90 * 86_400_000;
+const MAX_CLIENTS: usize = 128;
+const MAX_REQUESTS: usize = 64;
 #[derive(Clone, Serialize, Deserialize)]
 pub struct GrantRequest {
     pub id: String,
@@ -92,13 +105,36 @@ impl Auth {
         self.receipts.retain(|r| r.expires > now);
         self.credentials
             .retain(|c| c.expires_at.max(c.refresh_until) > now);
+        let (credentials, requests) = (&self.credentials, &self.requests);
         self.clients.retain(|c| {
-            c.created + 90 * 86400000 > now
-                || self
-                    .credentials
+            let lifetime = if c.established {
+                ESTABLISHED_CLIENT_MS
+            } else {
+                UNUSED_CLIENT_MS
+            };
+            c.created.saturating_add(lifetime) > now
+                || credentials
                     .iter()
                     .any(|g| g.client_id.as_deref() == Some(&c.id))
+                || requests.iter().any(|r| r.client_id == c.id)
         });
+    }
+    /// The oldest client that never completed an authorization and has no live
+    /// credential or request, if any.
+    fn evictable_client(&self) -> Option<usize> {
+        self.clients
+            .iter()
+            .enumerate()
+            .filter(|(_, c)| {
+                !c.established
+                    && !self
+                        .credentials
+                        .iter()
+                        .any(|g| g.client_id.as_deref() == Some(&c.id))
+                    && !self.requests.iter().any(|r| r.client_id == c.id)
+            })
+            .min_by_key(|(_, c)| c.created)
+            .map(|(i, _)| i)
     }
     pub fn authenticate(
         &mut self,
@@ -180,8 +216,9 @@ impl Auth {
         entropy: &mut dyn FnMut() -> String,
     ) -> Result<Value, &'static str> {
         self.prune(now);
-        if self.clients.len() >= 128 {
-            return Err("client_limit");
+        if self.clients.len() >= MAX_CLIENTS {
+            let index = self.evictable_client().ok_or("client_limit")?;
+            self.clients.remove(index);
         }
         let redirects = input["redirect_uris"]
             .as_array()
@@ -220,6 +257,7 @@ impl Auth {
             name: name.into(),
             redirects: urls,
             created: now,
+            established: false,
         };
         let result = json!({"client_id":c.id,"client_name":c.name,"redirect_uris":c.redirects,"token_endpoint_auth_method":"none","grant_types":["authorization_code","refresh_token"],"response_types":["code"]});
         self.clients.push(c);
@@ -233,8 +271,18 @@ impl Auth {
         entropy: &mut dyn FnMut() -> String,
     ) -> Result<String, &'static str> {
         self.prune(now);
-        if self.requests.len() >= 64 {
-            return Err("request_limit");
+        if self.requests.len() >= MAX_REQUESTS {
+            // Drop the oldest request still awaiting consent. Approved requests are
+            // kept so a user who has already consented can finish the exchange.
+            let index = self
+                .requests
+                .iter()
+                .enumerate()
+                .filter(|(_, r)| r.approved.is_none() && !r.used)
+                .min_by_key(|(_, r)| r.expires)
+                .map(|(i, _)| i)
+                .ok_or("request_limit")?;
+            self.requests.remove(index);
         }
         let get = |key| input[key].as_str().unwrap_or("");
         let c = self
@@ -417,6 +465,9 @@ impl Auth {
         let scopes = r.approved.clone().ok_or("invalid_grant")?;
         let client_id = r.client_id.clone();
         r.used = true;
+        if let Some(client) = self.clients.iter_mut().find(|c| c.id == client_id) {
+            client.established = true;
+        }
         let name = self
             .clients
             .iter()

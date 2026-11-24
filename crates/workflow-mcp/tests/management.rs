@@ -265,3 +265,81 @@ fn malformed_tool_inputs_do_not_panic_or_execute() {
     assert!(!redacted.to_string().contains("Bearer secret"));
     assert!(!redacted.to_string().contains("private"));
 }
+
+#[test]
+fn unused_oauth_clients_cannot_lock_out_registration_or_authorization() {
+    let mut auth = Auth::default();
+    let mut random = entropy();
+    let resource = "https://kasuri.example/mcp/test/mcp";
+    let register = |auth: &mut Auth, random: &mut dyn FnMut() -> String, now| {
+        auth.register(
+            &json!({"redirect_uris":["https://app.example/callback"]}),
+            now,
+            random,
+        )
+    };
+    // A legitimate client completes authorization before the registry is flooded.
+    let legit = register(&mut auth, &mut random, 0).unwrap();
+    let verifier = "v".repeat(64);
+    let challenge = URL_SAFE_NO_PAD.encode(Sha256::digest(verifier.as_bytes()));
+    let request = |client: &Value, state: &str| json!({"client_id":client["client_id"],"redirect_uri":"https://app.example/callback","resource":resource,"response_type":"code","code_challenge_method":"S256","code_challenge":challenge,"state":state,"scope":"read"});
+    let id = auth
+        .authorize(&request(&legit, "s"), resource, 0, &mut random)
+        .unwrap();
+    let redirect = auth
+        .consent(&id, vec!["read".into()], 0, &mut random)
+        .unwrap();
+    let code = url::Url::parse(&redirect)
+        .unwrap()
+        .query_pairs()
+        .find(|(k, _)| k == "code")
+        .unwrap()
+        .1
+        .to_string();
+    auth.exchange(
+        &json!({"grant_type":"authorization_code","code":code,"code_verifier":verifier,"client_id":legit["client_id"],"redirect_uri":"https://app.example/callback","resource":resource}),
+        resource,
+        0,
+        &mut random,
+    )
+    .unwrap();
+    // Flood the registry with clients that never authorize.
+    for _ in 0..200 {
+        register(&mut auth, &mut random, 1).unwrap();
+    }
+    assert!(auth.clients.len() <= 128);
+    assert!(
+        auth.clients.iter().any(|c| c.id == legit["client_id"]),
+        "an authorized client is never evicted"
+    );
+    // Unused registrations expire within the hour; established ones are kept.
+    register(&mut auth, &mut random, 2).unwrap();
+    auth.prune(3_600_002);
+    assert_eq!(auth.clients.len(), 1);
+    assert_eq!(auth.clients[0].id, legit["client_id"]);
+    // Pending authorization requests cannot be exhausted either.
+    let flooder = register(&mut auth, &mut random, 3_600_003).unwrap();
+    for i in 0..100 {
+        auth.authorize(
+            &request(&flooder, &format!("flood-{i}")),
+            resource,
+            3_600_003,
+            &mut random,
+        )
+        .unwrap();
+    }
+    assert!(auth.requests.len() <= 64);
+    assert!(
+        auth.authorize(&request(&legit, "after"), resource, 3_600_004, &mut random)
+            .is_ok()
+    );
+}
+
+#[test]
+fn clients_stored_before_establishment_tracking_keep_their_retention() {
+    let auth: Auth = serde_json::from_value(json!({"clients":[{"id":"legacy","name":"Old","redirects":["https://app.example/cb"],"created":0}]})).unwrap();
+    assert!(auth.clients[0].established);
+    let mut auth = auth;
+    auth.prune(30 * 86_400_000);
+    assert_eq!(auth.clients.len(), 1);
+}
