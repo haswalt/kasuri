@@ -5,7 +5,6 @@ pub mod contract;
 pub use contract::{Diagnostic, json_schema, shape_diagnostics};
 use serde_json::{Map, Value};
 
-pub const SCHEMA_VERSION: u32 = 1;
 pub const LATEST_SCHEMA_VERSION: u32 = 2;
 pub const SUPPORTED_SCHEMA_VERSIONS: &[u32] = &[1, 2];
 /// Connector kinds that start a run and therefore have no input port.

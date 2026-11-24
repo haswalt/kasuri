@@ -124,5 +124,13 @@ pub fn errors(value: &Value) -> Vec<Diagnostic> {
 }
 pub fn validate(value: &Value) -> Value {
     let errors = errors(value);
-    json!({"valid":errors.is_empty(),"schemaVersion":value.get("schemaVersion").cloned().unwrap_or(json!(workflow_schema::LATEST_SCHEMA_VERSION)),"errors":errors,"errorsTruncated":errors.len()==32})
+    // Report the document's format only when it is one this server supports; an
+    // unsupported or wrong-typed value is already reported in errors.
+    let schema_version = value
+        .get("schemaVersion")
+        .and_then(Value::as_u64)
+        .and_then(|v| u32::try_from(v).ok())
+        .filter(|v| workflow_schema::SUPPORTED_SCHEMA_VERSIONS.contains(v))
+        .unwrap_or(workflow_schema::LATEST_SCHEMA_VERSION);
+    json!({"valid":errors.is_empty(),"schemaVersion":schema_version,"errors":errors,"errorsTruncated":errors.len()==32})
 }
