@@ -19,13 +19,15 @@ use workflow_service::{RunRecord, Workspace};
 pub(crate) enum RunExecution {
     Workspace,
     Objects,
+    Queues,
 }
 pub(crate) fn parse_run_execution(value: &str) -> std::result::Result<RunExecution, String> {
     match value.trim() {
         "" | "workspace" => Ok(RunExecution::Workspace),
         "objects" => Ok(RunExecution::Objects),
+        "queues" => Ok(RunExecution::Queues),
         other => Err(format!(
-            "RUN_EXECUTION must be 'workspace' or 'objects', not '{other}'"
+            "RUN_EXECUTION must be 'workspace', 'objects' or 'queues', not '{other}'"
         )),
     }
 }
@@ -260,7 +262,7 @@ impl WorkflowWorkspace {
         let mut workspace = self.load_stored()?;
         workspace.max_active_runs = self.max_active_runs()?;
         workspace.retention = self.retention()?.at(crate::now());
-        workspace.offload = self.run_execution()? == RunExecution::Objects;
+        workspace.offload = self.run_execution()? != RunExecution::Workspace;
         // Finished runs are read from storage on demand.
         workspace.archive =
             workflow_service::Archive::new(Rc::new(tables(&self.state.storage().sql())));

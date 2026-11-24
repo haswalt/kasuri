@@ -1,12 +1,19 @@
-//! Run objects: one Durable Object per run executed outside the workspace
-//! (`RUN_EXECUTION=objects`; see "First deployment: run objects" in
-//! `docs/workspace-storage.md`).
+//! Run objects: one Durable Object per run executed outside the workspace (see
+//! "First deployment: run objects" in `docs/workspace-storage.md`).
 //!
-//! The object stores its run with a version, advances it on its own alarm with
-//! `workflow_service::execution`, performs claimed HTTP tasks with the worker's
-//! HTTP executor, and reports every save to its workspace's index. Its alarm is
-//! the run's single live message. Once the run has finished and the workspace has
-//! accepted the final report, the object deletes its storage.
+//! The object stores its run with a version and reports every save to its
+//! workspace's index. Once the run has finished and the workspace has accepted
+//! the final report, the object deletes its storage. How the run advances depends
+//! on `RUN_EXECUTION`:
+//!
+//! - `objects`: the object's alarm is the run's single live message. It advances
+//!   the run with `workflow_service::execution` and performs claimed HTTP tasks
+//!   itself.
+//! - `queues`: the run's messages go on the `RUN_QUEUE` queue. Its consumer (any
+//!   Worker invocation) asks the object to claim work for the message's version
+//!   (`/begin`), performs the HTTP task itself, and reports the outcome
+//!   (`/finish`). Delays longer than the queue allows wait on the object's alarm,
+//!   which then sends the message.
 use crate::{api_error, internal, now};
 use serde::{Deserialize, Serialize};
 use serde_json::json;
@@ -108,6 +115,29 @@ struct Start {
 struct Control {
     action: String,
 }
+#[derive(Deserialize)]
+struct Begin {
+    version: u64,
+}
+#[derive(Serialize, Deserialize)]
+struct Finish {
+    task: String,
+    outcome: connector_sdk::Outcome,
+}
+#[derive(Serialize, Deserialize)]
+struct Claimed {
+    task: Option<connector_sdk::Task>,
+}
+/// A queue message: this run has work at this version.
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct Envelope {
+    pub workspace: String,
+    pub run: String,
+    pub version: u64,
+}
+/// The longest delay a queue message can have (24 hours); longer waits use the
+/// run object's alarm.
+const QUEUE_MAX_DELAY_MS: u64 = 24 * 60 * 60 * 1000;
 #[derive(Serialize)]
 struct Report<'a> {
     run: &'a str,
@@ -169,10 +199,55 @@ impl DurableObject for WorkflowRun {
                     Err(error) => api_error(error.status, &error.message),
                 }
             }
+            (Method::Post, "/begin") => {
+                let begin: Begin = req.json().await?;
+                let runs = self.runs();
+                let alarm = Alarm::default();
+                let Some(row) = runs.row().map_err(internal)? else {
+                    return Response::from_json(&Claimed { task: None });
+                };
+                if row.version as u64 == 0 {
+                    return Response::from_json(&Claimed { task: None });
+                }
+                let record: RunRecord = serde_json::from_str(&row.body).map_err(internal)?;
+                let message = WorkMessage {
+                    run: record.id_string().map_err(internal)?,
+                    version: begin.version,
+                };
+                let task =
+                    match execution::begin(&runs, &alarm, &message, now()).map_err(internal)? {
+                        Step::Done(_) => None,
+                        Step::Perform { task, .. } => Some(task),
+                    };
+                self.settle(&alarm).await?;
+                Response::from_json(&Claimed { task })
+            }
+            (Method::Post, "/finish") => {
+                let finish: Finish = req.json().await?;
+                let runs = self.runs();
+                let alarm = Alarm::default();
+                let Some(row) = runs.row().map_err(internal)? else {
+                    return Response::from_json(&json!({"ok": true}));
+                };
+                let record: RunRecord = serde_json::from_str(&row.body).map_err(internal)?;
+                let id = record.id_string().map_err(internal)?;
+                execution::finish(&runs, &alarm, &id, &finish.task, finish.outcome, now())
+                    .map_err(internal)?;
+                self.settle(&alarm).await?;
+                Response::from_json(&json!({"ok": true}))
+            }
             _ => api_error(404, "Route not found"),
         }
     }
     async fn alarm(&self) -> Result<Response> {
+        if self.queued()? {
+            // With queues the alarm only carries delays longer than the queue
+            // allows (and final-report retries): send the message it held.
+            let alarm = Alarm::default();
+            alarm.0.set(Some(0));
+            self.settle(&alarm).await?;
+            return Response::empty();
+        }
         use futures_util::{
             StreamExt,
             future::{Either, select},
@@ -280,16 +355,41 @@ impl WorkflowRun {
             return Ok(());
         }
         match alarm.0.get() {
+            Some(delay) if self.queued()? && delay <= QUEUE_MAX_DELAY_MS => {
+                // Queue delays are whole seconds: round up, never deliver early.
+                let message = MessageBuilder::new(Envelope {
+                    workspace: row.workspace.clone(),
+                    run: record.id_string().map_err(internal)?,
+                    version: row.version as u64,
+                })
+                .delay_seconds(delay.div_ceil(1000) as u32)
+                .content_type(QueueContentType::Json)
+                .build();
+                self.env.queue("RUN_QUEUE")?.send(message).await?;
+                storage.delete_alarm().await?;
+            }
             Some(delay) => {
                 storage
                     .set_alarm(std::time::Duration::from_millis(delay))
                     .await?
             }
-            // Nothing scheduled (for example, paused): no alarm until a control
+            // Nothing scheduled (for example, paused): no message until a control
             // request changes that.
             None => storage.delete_alarm().await?,
         }
         Ok(())
+    }
+    /// Whether runs advance through the queue (`RUN_EXECUTION=queues`).
+    fn queued(&self) -> Result<bool> {
+        Ok(crate::storage::parse_run_execution(
+            &self
+                .env
+                .var("RUN_EXECUTION")
+                .map(|v| v.to_string())
+                .unwrap_or_default(),
+        )
+        .map_err(internal)?
+            == crate::storage::RunExecution::Queues)
     }
     /// Report the stored run as it is now.
     async fn report_current(&self) {
@@ -323,4 +423,51 @@ impl WorkflowRun {
         };
         matches!(send.await, Ok(response) if response.status_code() == 200)
     }
+}
+
+/// Process one queue message: ask the run object to claim work for its version,
+/// perform the claimed HTTP task here (in the consumer, not the object), and
+/// report the outcome. Safe to repeat: the object drops stale versions and
+/// outcomes for tasks it isn't waiting on.
+pub(crate) async fn consume(envelope: &Envelope, env: &Env) -> Result<()> {
+    let stub = env
+        .durable_object("RUNS")?
+        .id_from_name(&format!("{}/{}", envelope.workspace, envelope.run))?
+        .get_stub()?;
+    let call = |path: &str, body: String| -> Result<Request> {
+        let mut init = RequestInit::new();
+        init.with_method(Method::Post).with_body(Some(body.into()));
+        Request::new_with_init(&format!("https://run{path}"), &init)
+    };
+    let mut response = stub
+        .fetch_with_request(call(
+            "/begin",
+            serde_json::to_string(&json!({"version": envelope.version}))?,
+        )?)
+        .await?;
+    if response.status_code() != 200 {
+        return Err(internal(format!(
+            "run object refused a step: {}",
+            response.status_code()
+        )));
+    }
+    let claimed: Claimed = response.json().await?;
+    let Some(task) = claimed.task else {
+        return Ok(());
+    };
+    let outcome = crate::http::execute(&task, env).await;
+    let finish = Finish {
+        task: task.id,
+        outcome,
+    };
+    let response = stub
+        .fetch_with_request(call("/finish", serde_json::to_string(&finish)?)?)
+        .await?;
+    if response.status_code() != 200 {
+        return Err(internal(format!(
+            "run object refused an outcome: {}",
+            response.status_code()
+        )));
+    }
+    Ok(())
 }

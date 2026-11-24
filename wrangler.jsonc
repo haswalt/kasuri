@@ -28,6 +28,23 @@
       }
     ]
   },
+  // Run messages for RUN_EXECUTION=queues. Unused (and free) otherwise.
+  "queues": {
+    "producers": [
+      {
+        "binding": "RUN_QUEUE",
+        "queue": "kasuri-runs"
+      }
+    ],
+    "consumers": [
+      {
+        "queue": "kasuri-runs",
+        "max_batch_size": 10,
+        "max_batch_timeout": 1,
+        "max_retries": 10
+      }
+    ]
+  },
   "migrations": [
     {
       "tag": "v1",

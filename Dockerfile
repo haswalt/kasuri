@@ -18,8 +18,10 @@ COPY apps/web/theme ./apps/web/theme
 RUN pnpm install --frozen-lockfile
 COPY apps/web ./apps/web
 COPY packages ./packages
+COPY deploy/workerd ./deploy/workerd
 RUN pnpm build:web \
- && cp node_modules/workerd/bin/workerd /tmp/workerd
+ && cp node_modules/workerd/bin/workerd /tmp/workerd \
+ && node deploy/workerd/queues.mjs deploy/workerd/workerd.capnp /tmp/workerd-queues.capnp
 
 FROM debian:bookworm-slim AS runtime
 RUN apt-get update && apt-get install -y --no-install-recommends ca-certificates curl \
@@ -32,6 +34,7 @@ COPY --from=application /src/apps/web/dist ./public
 COPY --from=worker /src/crates/workflow-worker/build/index.js ./worker/index.js
 COPY --from=worker /src/crates/workflow-worker/build/index_bg.wasm ./worker/index_bg.wasm
 COPY deploy/workerd/workerd.capnp ./workerd.capnp
+COPY --from=application /tmp/workerd-queues.capnp ./workerd-queues.capnp
 COPY --chmod=755 scripts/container-entrypoint.sh /usr/local/bin/kasuri
 USER kasuri
 VOLUME ["/data"]

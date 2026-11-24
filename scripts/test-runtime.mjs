@@ -53,7 +53,11 @@ await new Promise((r) => probe.close(r))
 cpSync('dist/worker', join(data, 'worker'), { recursive: true })
 cpSync('scripts/fixtures/http-upstream.mjs', join(data, 'upstream.mjs'))
 const configPath = join(data, 'test.capnp')
-let config = readFileSync('dist/workerd.capnp', 'utf8')
+// RUN_EXECUTION=queues needs the config with workerd's (experimental) Queues Worker.
+const queues = process.env.RUN_EXECUTION === 'queues'
+// The run-object checks use queues when the suite does, otherwise run objects.
+const offloaded = queues ? 'queues' : 'objects'
+let config = readFileSync(queues ? 'dist/workerd-queues.capnp' : 'dist/workerd.capnp', 'utf8')
   .replace(
     'services = [',
     `services = [(name = "upstream", worker = (modules = [(name = "upstream.mjs", esModule = embed "upstream.mjs")], compatibilityDate = "2026-11-18")),`
@@ -75,7 +79,8 @@ function start(policy = {}) {
       '--socket-addr',
       `http=127.0.0.1:${port}`,
       '--directory-path',
-      `storage=${data}`
+      `storage=${data}`,
+      ...(queues ? ['--experimental'] : [])
     ],
     {
       cwd: resolve('dist'),
@@ -89,7 +94,7 @@ function start(policy = {}) {
         RUN_HISTORY: '',
         RUN_HISTORY_DAYS: '',
         FAILED_RUN_HISTORY_DAYS: '',
-        // Run the whole suite with run objects with RUN_EXECUTION=objects.
+        // Run the whole suite with run objects (RUN_EXECUTION=objects) or queues.
         RUN_EXECUTION: process.env.RUN_EXECUTION ?? '',
         HTTP_SECRETS: JSON.stringify({
           api_password: 'super-private-password',
@@ -124,8 +129,8 @@ try {
     await checkParsing(origin, 'test:runtime-check', async () => {await stop();start();await healthy(origin)})
     await checkValidation(origin, 'test:runtime-check', async () => {await stop();start();await healthy(origin)})
   } else if (process.argv.includes('--run-objects-only')) {
-    await stop(); start({ RUN_EXECUTION: 'objects' }); await healthy(origin)
-    await checkRunObjects(origin, 'test:runtime-check', data, async () => {await stop();start({ RUN_EXECUTION: 'objects' });await healthy(origin)})
+    await stop(); start({ RUN_EXECUTION: offloaded }); await healthy(origin)
+    await checkRunObjects(origin, 'test:runtime-check', data, offloaded, async () => {await stop();start({ RUN_EXECUTION: offloaded });await healthy(origin)})
   } else if (process.argv.includes('--retention-only')) {
     await checkRetention(origin, 'test:runtime-check', async (policy) => {await stop();start(policy);await healthy(origin)})
   } else if (process.argv.includes('--bindings-only')) {
@@ -218,9 +223,9 @@ try {
     await checkRunLimits(origin, 'test:runtime-check', null)
     await checkRetention(origin, 'test:runtime-check', async (policy) => {await stop();start(policy);await healthy(origin)})
     await stop()
-    start({ RUN_EXECUTION: 'objects' })
+    start({ RUN_EXECUTION: offloaded })
     await healthy(origin)
-    await checkRunObjects(origin, 'test:runtime-check', data, async () => {await stop();start({ RUN_EXECUTION: 'objects' });await healthy(origin)})
+    await checkRunObjects(origin, 'test:runtime-check', data, offloaded, async () => {await stop();start({ RUN_EXECUTION: offloaded });await healthy(origin)})
     await stop()
     start({ MAX_ACTIVE_RUNS: '2' })
     await healthy(origin)

@@ -504,3 +504,40 @@ fn control_requests_apply_to_stored_runs() {
         404
     );
 }
+
+#[test]
+fn parallel_requests_are_claimed_together() {
+    let mut ws = Workspace::default();
+    let doc = cases().into_iter().find(|d| d["id"] == "fan-out").unwrap();
+    publish(&mut ws, &doc);
+    let store = MemoryRuns::default();
+    let bus = MemoryBus::default();
+    let record = ws
+        .new_run_record(
+            "p",
+            &ws.live_document("fan-out").unwrap(),
+            json!({}),
+            Mode::Run,
+            0,
+            json!({}),
+        )
+        .unwrap();
+    execution::start(&store, &bus, record, 0).unwrap();
+    // Each claim's follow-up message is due now while another request is ready,
+    // so both requests are in flight before either reports back (a rendezvous
+    // between them would otherwise deadlock until a deadline).
+    let mut claimed = vec![];
+    for _ in 0..2 {
+        let (at, message) = bus.queue.borrow_mut().remove(0);
+        assert_eq!(at, 0, "due immediately");
+        let Step::Perform { task, .. } = execution::begin(&store, &bus, &message, 0).unwrap()
+        else {
+            panic!("claims a request");
+        };
+        claimed.push(task.node.id);
+    }
+    claimed.sort();
+    assert_eq!(claimed, ["left", "right"]);
+    // With nothing left to claim, the next message waits for a deadline.
+    assert!(bus.queue.borrow()[0].0 > 0);
+}

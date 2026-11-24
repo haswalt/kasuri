@@ -19,4 +19,9 @@ export RUN_HISTORY_DAYS="${RUN_HISTORY_DAYS:-}"
 export FAILED_RUN_HISTORY_DAYS="${FAILED_RUN_HISTORY_DAYS:-}"
 export RUN_EXECUTION="${RUN_EXECUTION:-}"
 export HTTP_SECRETS="${HTTP_SECRETS:-}"
+# RUN_EXECUTION=queues uses workerd's built-in Queues Worker, which workerd
+# marks experimental; the default config doesn't include it.
+if [ "$RUN_EXECUTION" = "queues" ]; then
+  exec /usr/local/bin/workerd serve /app/workerd-queues.capnp --experimental "$@"
+fi
 exec /usr/local/bin/workerd serve /app/workerd.capnp "$@"

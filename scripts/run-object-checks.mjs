@@ -5,10 +5,11 @@ import { join } from 'node:path'
 import { versionedTestClient } from './versioned-test-client.mjs'
 import { sleep } from './runtime-checks.mjs'
 
-// With RUN_EXECUTION=objects, a run that has to wait is executed by its own run
-// object: the workspace keeps only an index row, kept current by reports.
+// With RUN_EXECUTION=objects or queues, a run that has to wait is executed by its
+// own run object, stepped by its alarm or by queue messages: the workspace keeps
+// only an index row, kept current by reports.
 // `data` is workerd's storage directory, inspected directly to prove it.
-export async function checkRunObjects(origin, credentials, data, restart) {
+export async function checkRunObjects(origin, credentials, data, mode, restart) {
   let cookie = ''
   const versions = versionedTestClient()
   const Authorization = 'Basic ' + Buffer.from(credentials).toString('base64')
@@ -68,6 +69,13 @@ export async function checkRunObjects(origin, credentials, data, restart) {
   assert.equal(indexed(started.id)?.remote, 1, 'indexed as remote')
   assert.ok(inObject(started.id), 'stored in its run object')
   assert.equal((await api('workspace')).runs.find(r => r.id === started.id)?.status, 'running', 'listed')
+  if (mode === 'queues') {
+    // Its next step is a queued message, not a run object alarm.
+    assert.ok(query('SELECT id FROM messages').length >= 1, 'a message is queued')
+    const alarms = databases().filter(path => path.includes(join(data, 'runs')))
+      .flatMap(path => { const db = new DatabaseSync(path, { readOnly: true }); try { return db.prepare('SELECT * FROM _cf_ALARM').all() } catch { return [] } finally { db.close() } })
+    assert.equal(alarms.length, 0, 'no run object alarm')
+  }
 
   // It survives a restart mid-wait, completes, and its run object is deleted.
   await restart()
@@ -90,5 +98,5 @@ export async function checkRunObjects(origin, credentials, data, restart) {
   const cancelled = await settled(held.id)
   assert.equal(cancelled.status, 'cancelled')
   await api(`runs/${held.id}/cancel`, 'POST', undefined, 409)
-  console.log('Passed: waiting runs execute in run objects, survive restarts, accept control requests and are deleted once finished; instant runs answer from the workspace.')
+  console.log(`Passed (${mode}): waiting runs execute in run objects, survive restarts, accept control requests and are deleted once finished; instant runs answer from the workspace.`)
 }

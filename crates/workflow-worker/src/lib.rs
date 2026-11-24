@@ -228,6 +228,29 @@ fn set_document_security_headers(headers: &mut Headers) -> Result<()> {
     Ok(())
 }
 
+/// Run messages (`RUN_EXECUTION=queues`). Each message is processed
+/// independently; a failed one is retried by the queue.
+#[event(queue)]
+pub async fn queue(batch: MessageBatch<runs::Envelope>, env: Env, _ctx: Context) -> Result<()> {
+    let messages = batch.messages()?;
+    let results = futures_util::future::join_all(
+        messages
+            .iter()
+            .map(|message| runs::consume(message.body(), &env)),
+    )
+    .await;
+    for (message, result) in messages.iter().zip(results) {
+        match result {
+            Ok(()) => message.ack(),
+            Err(error) => {
+                console_error!("Run step failed; the queue will retry it: {error}");
+                message.retry()
+            }
+        }
+    }
+    Ok(())
+}
+
 #[durable_object]
 pub struct WorkflowWorkspace {
     state: State,
