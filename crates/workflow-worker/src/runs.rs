@@ -226,12 +226,24 @@ struct Finish {
     run: Option<String>,
     task: String,
     outcome: connector_sdk::Outcome,
+    /// For a data task, the time it was performed at.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    time: Option<u64>,
 }
 #[derive(Serialize, Deserialize)]
 struct Claimed {
     #[serde(default)]
     run: Option<String>,
     task: Option<connector_sdk::Task>,
+    /// Set for a data task: perform it on the workspace's data at this time.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    time: Option<u64>,
+}
+#[derive(Deserialize)]
+struct ReplyRequest {
+    run: String,
+    #[serde(default)]
+    disconnected: bool,
 }
 /// A queue message: this run has work at this version.
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -325,6 +337,7 @@ impl DurableObject for WorkflowRun {
                 let none = Claimed {
                     run: None,
                     task: None,
+                    time: None,
                 };
                 let Some(row) = runs.row().map_err(internal)? else {
                     return Response::from_json(&none);
@@ -342,6 +355,12 @@ impl DurableObject for WorkflowRun {
                         Step::Perform { run, task } => Claimed {
                             run: Some(run),
                             task: Some(task),
+                            time: None,
+                        },
+                        Step::Data { run, task, time } => Claimed {
+                            run: Some(run),
+                            task: Some(task),
+                            time: Some(time),
                         },
                     };
                 self.settle(&alarm).await?;
@@ -355,18 +374,56 @@ impl DurableObject for WorkflowRun {
                     return Response::from_json(&json!({"ok": true}));
                 };
                 let run = finish.run.unwrap_or_else(|| row.id.clone());
-                execution::finish(
-                    &runs,
-                    &alarm,
-                    &row.id,
-                    &run,
-                    &finish.task,
-                    finish.outcome,
-                    now(),
-                )
+                match finish.time {
+                    Some(time) => execution::finish_data(
+                        &runs,
+                        &alarm,
+                        &row.id,
+                        &run,
+                        &finish.task,
+                        finish.outcome,
+                        time,
+                        now(),
+                    ),
+                    None => execution::finish(
+                        &runs,
+                        &alarm,
+                        &row.id,
+                        &run,
+                        &finish.task,
+                        finish.outcome,
+                        now(),
+                    ),
+                }
                 .map_err(internal)?;
                 self.settle(&alarm).await?;
                 Response::from_json(&json!({"ok": true}))
+            }
+            (Method::Post, "/reply") => {
+                // The workspace's handler holding this run's webhook request asks
+                // for its response, as it would ask the workspace.
+                let request: ReplyRequest = req.json().await?;
+                let runs = self.runs();
+                let alarm = Alarm::default();
+                let Some(row) = runs.row().map_err(internal)? else {
+                    return api_error(404, "Run not found");
+                };
+                let reply = match execution::reply(
+                    &runs,
+                    &alarm,
+                    &row.id,
+                    &request.run,
+                    now(),
+                    request.disconnected,
+                ) {
+                    Ok(Some(reply)) => reply,
+                    Ok(None) => return api_error(404, "Run not found"),
+                    Err(error) => return api_error(error.status, &error.message),
+                };
+                if reply != workflow_service::WebhookReply::Pending {
+                    self.settle(&alarm).await?;
+                }
+                Response::from_json(&reply)
             }
             _ => api_error(404, "Route not found"),
         }
@@ -404,6 +461,23 @@ impl DurableObject for WorkflowRun {
                 };
                 match execution::begin(&runs, &alarm, &message, now()).map_err(internal)? {
                     Step::Done(_) => break,
+                    Step::Data { run, task, time } => {
+                        // Data tasks are short transactions on the workspace:
+                        // performed in turn, not alongside requests.
+                        let outcome =
+                            perform_data(&self.env, &row.workspace, &run, &task, time).await?;
+                        execution::finish_data(
+                            &runs,
+                            &alarm,
+                            &message.run,
+                            &run,
+                            &task.id,
+                            outcome,
+                            time,
+                            now(),
+                        )
+                        .map_err(internal)?;
+                    }
                     Step::Perform { run, task } => {
                         let env = self.env.clone();
                         in_flight.push(async move {
@@ -600,11 +674,18 @@ pub(crate) async fn consume(envelope: &Envelope, env: &Env) -> Result<()> {
     let Some(task) = claimed.task else {
         return Ok(());
     };
-    let outcome = crate::http::execute(&task, env).await;
+    let outcome = match claimed.time {
+        Some(time) => {
+            let run = claimed.run.as_deref().unwrap_or(&envelope.run);
+            perform_data(env, &envelope.workspace, run, &task, time).await?
+        }
+        None => crate::http::execute(&task, env).await,
+    };
     let finish = Finish {
         run: claimed.run,
         task: task.id,
         outcome,
+        time: claimed.time,
     };
     let response = stub
         .fetch_with_request(call("/finish", serde_json::to_string(&finish)?)?)
@@ -616,4 +697,36 @@ pub(crate) async fn consume(envelope: &Envelope, env: &Env) -> Result<()> {
         )));
     }
     Ok(())
+}
+
+/// Perform a data task on its workspace's data: the workspace applies it in a
+/// transaction, keyed by the task's idempotency key, so a repeat replays it.
+async fn perform_data(
+    env: &Env,
+    workspace: &str,
+    run: &str,
+    task: &connector_sdk::Task,
+    time: u64,
+) -> Result<connector_sdk::Outcome> {
+    let stub = env
+        .durable_object("WORKSPACES")?
+        .id_from_string(workspace)?
+        .get_stub()?;
+    let mut init = RequestInit::new();
+    init.with_method(Method::Post).with_body(Some(
+        serde_json::to_string(&json!({"run": run, "task": task, "time": time}))?.into(),
+    ));
+    let mut response = stub
+        .fetch_with_request(Request::new_with_init(
+            "https://workspace/internal/runs/data",
+            &init,
+        )?)
+        .await?;
+    if response.status_code() != 200 {
+        return Err(internal(format!(
+            "the workspace refused a data task: {}",
+            response.status_code()
+        )));
+    }
+    response.json().await
 }

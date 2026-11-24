@@ -463,12 +463,29 @@ impl<E: SqlExec> Store for SqlStore<E> {
 impl<E: SqlExec> SqlStore<E> {
     /// Whether `id` is a remote run that is still running or paused, as last
     /// reported. Hosts forward control requests for such runs to their run store.
-    /// The root of the remote tree `id` belongs to, if `id` is an active remote
-    /// run: its run store is named after the root.
+    /// Remote runs that are running or paused, as last reported.
+    pub fn remote_active_ids(&self) -> Result<Vec<String>, StoreError> {
+        self.rows(
+            &format!("SELECT id FROM ws_runs WHERE remote=1 AND {ACTIVE}"),
+            Vec::new(),
+        )?
+        .into_iter()
+        .map(|row| {
+            row.into_iter()
+                .next()
+                .ok_or_else(|| StoreError::Invalid("empty row".into()))?
+                .text()
+        })
+        .collect()
+    }
+    /// The root of the remote tree `id` belongs to, if `id` is a remote run its
+    /// run store still holds: active, or holding an open webhook response window
+    /// (kept until the response is handed over). The run store is named after the
+    /// root.
     pub fn remote_active_root(&self, id: &str) -> Result<Option<String>, StoreError> {
         self.first(
             &format!(
-                "SELECT coalesce(root_id,id) FROM ws_runs WHERE id=? AND remote=1 AND {ACTIVE}"
+                "SELECT coalesce(root_id,id) FROM ws_runs WHERE id=? AND remote=1 AND ({ACTIVE} OR response_open=1)"
             ),
             vec![text(id)],
         )?

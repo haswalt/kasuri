@@ -681,6 +681,12 @@ impl Tracked {
             let id = record
                 .id_string()
                 .map_err(|_| StoreError::MissingKey(Collection::Run))?;
+            let key = EntityKey {
+                collection: Collection::Run,
+                id: id.clone(),
+            };
+            // A run that was stored here keeps its place in the list.
+            let stored = self.baseline.get(&key).map(|(order, _)| *order);
             let order = match record
                 .parent
                 .as_ref()
@@ -688,19 +694,21 @@ impl Tracked {
             {
                 Some((root, children)) => {
                     *children += 1;
-                    *root - (*children).min(ORDER_SPACING - 1)
+                    stored.unwrap_or(*root - (*children).min(ORDER_SPACING - 1))
                 }
                 None => {
-                    lowest = lowest.saturating_sub(ORDER_SPACING);
-                    roots.insert(id.clone(), (lowest, 0));
-                    lowest
+                    let order = stored.unwrap_or_else(|| {
+                        lowest = lowest.saturating_sub(ORDER_SPACING);
+                        lowest
+                    });
+                    roots.insert(id, (order, 0));
+                    order
                 }
             };
+            // Rewritten as a remote index row, not deleted.
+            seen.insert(key.clone(), ());
             changes.upserts.push(Record {
-                key: EntityKey {
-                    collection: Collection::Run,
-                    id,
-                },
+                key,
                 order,
                 body: encode(record)?,
                 columns: Some(RunColumns::of(record).map_err(invalid)?),

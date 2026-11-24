@@ -439,15 +439,22 @@ impl WorkflowWorkspace {
     async fn await_webhook_response(&self, id: &str, signal: AbortSignal) -> Result<Response> {
         let observer = DisconnectObserver::new(signal)?;
         loop {
+            let disconnected = observer.disconnected.get() || observer.signal.aborted();
+            // A run executing in a run object holds its own response window: ask
+            // it, as the workspace would be asked. Its reply is saved there before
+            // it returns.
+            if let Some(reply) = self.remote_webhook_reply(id, disconnected).await? {
+                if matches!(reply, workflow_service::WebhookReply::Pending) {
+                    Delay::from(std::time::Duration::from_millis(100)).await;
+                    continue;
+                }
+                return webhook_reply_response(id, reply);
+            }
             // Always reload: alarms and management requests can advance or cancel
             // this run while the original request is awaiting its response.
             let mut workspace = self.load()?;
             let reply = workspace
-                .webhook_reply(
-                    id,
-                    now(),
-                    observer.disconnected.get() || observer.signal.aborted(),
-                )
+                .webhook_reply(id, now(), disconnected)
                 .map_err(crate::internal)?;
             if matches!(reply, workflow_service::WebhookReply::Pending) {
                 Delay::from(std::time::Duration::from_millis(100)).await;
@@ -455,53 +462,104 @@ impl WorkflowWorkspace {
             }
             // No await or network write occurs before the submission checkpoint.
             self.save(&mut workspace).await?;
-            let mut response = match reply {
-                workflow_service::WebhookReply::Response(spec) => {
-                    let mut response = if matches!(spec.status, 204 | 205 | 304) {
-                        Response::empty()?
-                    } else if spec.response_type == "text" {
-                        Response::ok(spec.body.as_str().unwrap_or_default())?
-                    } else {
-                        Response::from_json(&spec.body)?
-                    };
-                    response = response.with_status(spec.status);
-                    response.headers_mut().set(
-                        "Content-Type",
-                        if spec.response_type == "text" {
-                            "text/plain; charset=utf-8"
-                        } else {
-                            "application/json"
-                        },
-                    )?;
-                    for (name, value) in spec.headers {
-                        response.headers_mut().set(&name, &value)?;
-                    }
-                    response
-                }
-                workflow_service::WebhookReply::TimedOut => {
-                    Response::from_json(&json!({"runId":id,"error":"webhook_response_timeout"}))?
-                        .with_status(504)
-                }
-                workflow_service::WebhookReply::Disconnected => Response::empty()?.with_status(499),
-                workflow_service::WebhookReply::NoResponse => Response::from_json(
-                    &json!({"runId":id,"error":"workflow_completed_without_response"}),
-                )?
-                .with_status(502),
-                workflow_service::WebhookReply::Failed => Response::from_json(
-                    &json!({"runId":id,"error":"workflow_failed_before_response"}),
-                )?
-                .with_status(500),
-                _ => {
-                    Response::from_json(&json!({"runId":id,"error":"response_window_unavailable"}))?
-                        .with_status(409)
-                }
-            };
-            response.headers_mut().set("Cache-Control", "no-store")?;
-            response
-                .headers_mut()
-                .set("X-Content-Type-Options", "nosniff")?;
-            response.headers_mut().set("X-Kasuri-Run-Id", id)?;
-            return Ok(response);
+            return webhook_reply_response(id, reply);
         }
     }
+    /// The reply for a run executing in a run object, or `None` if the run isn't
+    /// active in one (then the workspace has its final state). A run object that
+    /// can't answer yet (its start is being retried) counts as pending until the
+    /// response window's deadline.
+    async fn remote_webhook_reply(
+        &self,
+        id: &str,
+        disconnected: bool,
+    ) -> Result<Option<workflow_service::WebhookReply>> {
+        let sql = self.state.storage().sql();
+        let Some(root) = crate::storage::tables(&sql)
+            .remote_active_root(id)
+            .map_err(crate::storage::store_error)?
+        else {
+            return Ok(None);
+        };
+        let stub = self
+            .env
+            .durable_object("RUNS")?
+            .id_from_name(&format!("{}/{root}", self.state.id()))?
+            .get_stub()?;
+        let mut init = RequestInit::new();
+        init.with_method(Method::Post).with_body(Some(
+            json!({"run": id, "disconnected": disconnected})
+                .to_string()
+                .into(),
+        ));
+        let answered = match stub
+            .fetch_with_request(Request::new_with_init("https://run/reply", &init)?)
+            .await
+        {
+            Ok(mut response) if response.status_code() == 200 => response.json().await.ok(),
+            _ => None,
+        };
+        if let Some(reply) = answered {
+            return Ok(Some(reply));
+        }
+        let deadline = self
+            .load()?
+            .find_run(id)
+            .map_err(crate::internal)?
+            .and_then(|r| r.webhook_response.as_ref().and_then(|w| w.deadline_ms));
+        Ok(Some(if deadline.is_some_and(|at| now() >= at) {
+            workflow_service::WebhookReply::TimedOut
+        } else {
+            workflow_service::WebhookReply::Pending
+        }))
+    }
+}
+
+/// The HTTP response a webhook reply becomes.
+fn webhook_reply_response(id: &str, reply: workflow_service::WebhookReply) -> Result<Response> {
+    let mut response = match reply {
+        workflow_service::WebhookReply::Response(spec) => {
+            let mut response = if matches!(spec.status, 204 | 205 | 304) {
+                Response::empty()?
+            } else if spec.response_type == "text" {
+                Response::ok(spec.body.as_str().unwrap_or_default())?
+            } else {
+                Response::from_json(&spec.body)?
+            };
+            response = response.with_status(spec.status);
+            response.headers_mut().set(
+                "Content-Type",
+                if spec.response_type == "text" {
+                    "text/plain; charset=utf-8"
+                } else {
+                    "application/json"
+                },
+            )?;
+            for (name, value) in spec.headers {
+                response.headers_mut().set(&name, &value)?;
+            }
+            response
+        }
+        workflow_service::WebhookReply::TimedOut => {
+            Response::from_json(&json!({"runId":id,"error":"webhook_response_timeout"}))?
+                .with_status(504)
+        }
+        workflow_service::WebhookReply::Disconnected => Response::empty()?.with_status(499),
+        workflow_service::WebhookReply::NoResponse => {
+            Response::from_json(&json!({"runId":id,"error":"workflow_completed_without_response"}))?
+                .with_status(502)
+        }
+        workflow_service::WebhookReply::Failed => {
+            Response::from_json(&json!({"runId":id,"error":"workflow_failed_before_response"}))?
+                .with_status(500)
+        }
+        _ => Response::from_json(&json!({"runId":id,"error":"response_window_unavailable"}))?
+            .with_status(409),
+    };
+    response.headers_mut().set("Cache-Control", "no-store")?;
+    response
+        .headers_mut()
+        .set("X-Content-Type-Options", "nosniff")?;
+    response.headers_mut().set("X-Kasuri-Run-Id", id)?;
+    Ok(response)
 }

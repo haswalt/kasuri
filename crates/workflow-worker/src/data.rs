@@ -564,7 +564,12 @@ impl WorkflowWorkspace {
 /// Snapshot and receipt lifecycle is committed with the corresponding checkpoint.
 /// SQL copies stay outside Rust heaps and run JSON; absent source tables remain
 /// absent until an explicit create command executes in the simulation.
-pub(crate) fn sync_run_data(sql: &SqlStorage, workspace: &Workspace, time: u64) -> Result<()> {
+pub(crate) fn sync_run_data(
+    sql: &SqlStorage,
+    workspace: &Workspace,
+    remote: &[String],
+    time: u64,
+) -> Result<()> {
     let active = workspace.data_runs().map_err(internal)?;
     if active.is_empty() {
         // Avoid creating data tables on installations that have never used them.
@@ -606,8 +611,16 @@ pub(crate) fn sync_run_data(sql: &SqlStorage, workspace: &Workspace, time: u64) 
             Some(vec![id.clone().into()]),
         )?;
     }
-    let ids = serde_json::to_string(&active.iter().map(|(id, _, _)| id).collect::<Vec<_>>())
-        .map_err(internal)?;
+    // Runs executing in run objects keep their receipts while they are active:
+    // a repeated data task must replay, not apply again.
+    let ids = serde_json::to_string(
+        &active
+            .iter()
+            .map(|(id, _, _)| id)
+            .chain(remote)
+            .collect::<Vec<_>>(),
+    )
+    .map_err(internal)?;
     sql.exec("DELETE FROM data_rows WHERE scope IN (SELECT 'sim:'||run_id FROM data_simulations WHERE run_id NOT IN (SELECT value FROM json_each(?)))",Some(vec![ids.clone().into()]))?;
     sql.exec("DELETE FROM data_tables WHERE scope IN (SELECT 'sim:'||run_id FROM data_simulations WHERE run_id NOT IN (SELECT value FROM json_each(?)))",Some(vec![ids.clone().into()]))?;
     sql.exec("DELETE FROM data_receipts WHERE run_id IS NOT NULL AND run_id NOT IN (SELECT value FROM json_each(?))",Some(vec![ids.clone().into()]))?;
@@ -618,6 +631,40 @@ pub(crate) fn sync_run_data(sql: &SqlStorage, workspace: &Workspace, time: u64) 
     Ok(())
 }
 impl WorkflowWorkspace {
+    /// Apply a data task for a run executing in a run object, in one transaction
+    /// with its receipt (keyed by the task's idempotency key, so a repeat replays
+    /// the first result). A failed effect is rolled back; its outcome is still
+    /// returned. Storage failures are errors, for the run object to retry.
+    pub(crate) fn perform_run_data(
+        &self,
+        run: String,
+        task: connector_sdk::Task,
+        time: u64,
+    ) -> Result<connector_sdk::Outcome> {
+        let rejected = Rc::new(RefCell::new(None));
+        let stash = rejected.clone();
+        let result = self.sql_transaction(move |sql| {
+            let mut store =
+                SqlDataStore::new(sql, "live".into(), "engine".into(), Some(run), time)
+                    .map_err(internal)?;
+            match workflow_service::execution::perform_data(&mut store, &task, time) {
+                Ok(outcome)
+                    if matches!(&outcome, connector_sdk::Outcome::Complete { port, .. } if port == "success") =>
+                {
+                    Ok(outcome)
+                }
+                Ok(outcome) => {
+                    *stash.borrow_mut() = Some(outcome);
+                    Err(internal("Data task rolled back"))
+                }
+                Err(error) => Err(internal(error.message)),
+            }
+        });
+        match result {
+            Ok(outcome) => Ok(outcome),
+            Err(error) => rejected.borrow_mut().take().map(Ok).unwrap_or(Err(error)),
+        }
+    }
     /// Each task's effect, receipt and completion checkpoint share one transaction.
     /// A data/config error rolls back the effect before persisting its failed outcome.
     pub(crate) fn flush_data_tasks(&self, workspace: &mut Workspace) -> Result<()> {

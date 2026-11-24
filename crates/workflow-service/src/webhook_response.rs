@@ -30,6 +30,9 @@ pub struct ResponseWindow {
     pub closed_at: Option<u64>,
     pub decision: Option<Decision>,
 }
+/// What the handler holding a webhook's request should do with it.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case", tag = "reply", content = "response")]
 pub enum Reply {
     Pending,
     Response(ResponseSpec),

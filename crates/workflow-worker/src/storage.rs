@@ -81,10 +81,10 @@ impl SqlExec for DoSql {
             .collect()
     }
 }
-fn store_error(error: StoreError) -> Error {
+pub(crate) fn store_error(error: StoreError) -> Error {
     internal(format!("Workspace storage: {error}"))
 }
-fn tables(sql: &SqlStorage) -> SqlStore<DoSql> {
+pub(crate) fn tables(sql: &SqlStorage) -> SqlStore<DoSql> {
     SqlStore::new(DoSql(sql.clone()))
 }
 /// A marker for one commit. Random, so a rolled-back commit's marker never
@@ -131,7 +131,8 @@ pub(crate) fn write_workspace(
     // Hand back the workspace with retention applied: the one copy a save makes,
     // since the cache keeps the committed state as well.
     *workspace = tracked.workspace.clone();
-    crate::data::sync_run_data(sql, workspace, crate::now())?;
+    let remote = store.remote_active_ids().map_err(store_error)?;
+    crate::data::sync_run_data(sql, workspace, &remote, crate::now())?;
     let affects_webhooks = written
         .upserts
         .iter()
@@ -336,6 +337,24 @@ impl WorkflowWorkspace {
     ) -> Result<()> {
         // No callback I/O inside the transaction. Retention runs in the commit,
         // before lifecycle cleanup, so pruned runs cannot retain data scopes.
+        self.commit_and_hand_off(workspace, stage).await?;
+        // Arm recovery before any effect is attempted. A failed transaction must
+        // leave a durable wake-up, including when this save runs in an alarm.
+        self.arm_workspace_alarm(workspace).await?;
+        self.flush_data_tasks(workspace)?;
+        // Runs now waiting (their data tasks done) move to run objects.
+        if workspace.offload_waiting().map_err(internal)? {
+            self.commit_and_hand_off(workspace, |_| Ok(())).await?;
+        }
+        self.arm_workspace_alarm(workspace).await
+    }
+    /// Commit the workspace, then hand the run trees it moved out to their run
+    /// objects and forward control requests for remote runs.
+    async fn commit_and_hand_off(
+        &self,
+        workspace: &mut Workspace,
+        stage: impl FnOnce(&SqlStorage) -> Result<()> + 'static,
+    ) -> Result<()> {
         let mut candidate = workspace.clone();
         let cache = self.cache.clone();
         let handoff;
@@ -356,11 +375,7 @@ impl WorkflowWorkspace {
                 console_error!("Forwarding {action} to run {run} failed: {error}");
             }
         }
-        // Arm recovery before any effect is attempted. A failed transaction must
-        // leave a durable wake-up, including when this save runs in an alarm.
-        self.arm_workspace_alarm(workspace).await?;
-        self.flush_data_tasks(workspace)?;
-        self.arm_workspace_alarm(workspace).await
+        Ok(())
     }
     /// Hand a run tree (newest run first, root last) to its run object, which
     /// creates it if it isn't there yet.
