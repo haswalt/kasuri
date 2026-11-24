@@ -2,7 +2,7 @@
 
 A visual workflow builder with a React/Vite frontend and a Rust backend compiled to WebAssembly. Run the same Rust Worker on Cloudflare or self-host it with the open-source workerd runtime.
 
-> **Self-hosting is single-node.** The Docker, Compose and Kubernetes packages run one workerd process with all workspace state in SQLite on one local volume. Scale it up with more CPU, memory and disk, not by adding replicas: replicas cannot share the volume, and separate volumes become separate installations. On Cloudflare each workspace runs as its own Durable Object, so workspaces spread across machines automatically. On both platforms a single workspace runs at most 5 active runs at a time. See [scaling and availability](docs/self-hosting.md#scaling-and-availability), and the proposed [workspace sharding design](docs/self-host-sharding.md) for scaling out.
+> **Self-hosting is single-node.** The Docker, Compose and Kubernetes packages run one workerd process with all workspace state in SQLite on one local volume. Scale it up with more CPU, memory and disk, not by adding replicas: replicas cannot share the volume, and separate volumes become separate installations. On Cloudflare each workspace runs as its own Durable Object, so workspaces spread across machines automatically. On both platforms a single workspace runs as one Durable Object, so its runs share one thread and one storage budget. See [scaling and availability](docs/self-hosting.md#scaling-and-availability), and the proposed [workspace sharding design](docs/self-host-sharding.md) for scaling out.
 
 <!-- deploy-button:start -->
 [![Deploy to Cloudflare](https://deploy.workers.cloudflare.com/button)](https://deploy.workers.cloudflare.com/?url=https://github.com/haswalt/kasuri)

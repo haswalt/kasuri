@@ -22,6 +22,35 @@ use workflow_engine::{Dispatch, Limits, NodeState, Run, RunStatus};
 use workflow_schema::Workflow;
 
 pub const MAX_STATE_BYTES: usize = 1_500_000;
+/// New runs start only while stored state is below this share of
+/// `MAX_STATE_BYTES`, leaving the rest for active runs to finish.
+pub const ADMISSION_STATE_BYTES: usize = MAX_STATE_BYTES / 4 * 3;
+/// Parses the host's `MAX_ACTIVE_RUNS` setting: empty, `0` or `unlimited` mean no
+/// count limit; otherwise a positive integer. Anything else is a configuration error.
+pub fn parse_max_active_runs(value: &str) -> Result<Option<usize>, String> {
+    match value.trim() {
+        "" | "0" | "unlimited" => Ok(None),
+        text => text
+            .parse::<usize>()
+            .map(Some)
+            .map_err(|_| "MAX_ACTIVE_RUNS must be a positive integer, 0 or unlimited".into()),
+    }
+}
+/// Encoded JSON size without building the string.
+fn encoded_len(value: &impl Serialize) -> usize {
+    struct Count(usize);
+    impl std::io::Write for Count {
+        fn write(&mut self, bytes: &[u8]) -> std::io::Result<usize> {
+            self.0 += bytes.len();
+            Ok(bytes.len())
+        }
+        fn flush(&mut self) -> std::io::Result<()> {
+            Ok(())
+        }
+    }
+    let mut count = Count(0);
+    serde_json::to_writer(&mut count, value).map_or(usize::MAX, |_| count.0)
+}
 pub const MAX_BODY_BYTES: usize = 131_072;
 #[derive(Debug)]
 pub struct ApiError {
@@ -444,6 +473,10 @@ pub struct WebhookEvent {
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Workspace {
+    /// Host-configured cap on concurrently active runs; `None` (the default) sets
+    /// no count limit. Not persisted: hosts apply their configuration after load.
+    #[serde(skip)]
+    pub max_active_runs: Option<usize>,
     /// Internal management credentials and receipts. Never included in API snapshots.
     #[serde(default)]
     pub management: Value,
@@ -487,6 +520,43 @@ impl Workspace {
             record.backfill();
         }
         self
+    }
+    /// Whether another run (or child run) may start now. Runs are not limited by
+    /// count unless the host configures `max_active_runs`. Active runs can never be
+    /// pruned, so new work is refused once state that retention cannot reclaim
+    /// passes `ADMISSION_STATE_BYTES`: the remaining budget is kept for active runs
+    /// to record progress and finish, and the workspace can always still be saved.
+    pub(crate) fn admit_run(&self, count_open_responses: bool) -> Result<(), ApiError> {
+        if let Some(limit) = self.max_active_runs {
+            let active = self
+                .runs
+                .iter()
+                .filter(|r| {
+                    (count_open_responses && r.webhook_response.as_ref().is_some_and(|w| w.open()))
+                        || r.status()
+                            .is_ok_and(|s| matches!(s, RunStatus::Running | RunStatus::Paused))
+                })
+                .count();
+            if active >= limit {
+                return Err(error(
+                    429,
+                    "Wait for an active run to finish before starting another",
+                ));
+            }
+        }
+        // Terminal runs that retention may prune do not count: the save after a
+        // start reclaims them if needed. Index 0 (newest) is never pruned.
+        let reclaimable: usize = (1..self.runs.len())
+            .filter(|i| self.retention_removable(*i))
+            .map(|i| encoded_len(&self.runs[i]) + 1)
+            .sum();
+        if encoded_len(self).saturating_sub(reclaimable) > ADMISSION_STATE_BYTES {
+            return Err(error(
+                429,
+                "Workspace storage is nearly full; wait for active runs to finish before starting another",
+            ));
+        }
+        Ok(())
     }
     pub fn checkpoint(&mut self) -> Result<String, ApiError> {
         loop {
@@ -868,22 +938,7 @@ impl Workspace {
         }
         Self::executable(doc)?;
         let invocation_targets = self.invocation_targets(&doc.graph)?;
-        if self
-            .runs
-            .iter()
-            .filter(|r| {
-                r.webhook_response.as_ref().is_some_and(|w| w.open())
-                    || r.status()
-                        .is_ok_and(|s| matches!(s, RunStatus::Running | RunStatus::Paused))
-            })
-            .count()
-            >= 5
-        {
-            return Err(error(
-                429,
-                "Wait for an active run to finish before starting another",
-            ));
-        }
+        self.admit_run(true)?;
         let run = Run::new(id, doc.graph.clone(), input, now, Limits::default())
             .map_err(|e| error(400, e.to_string()))?;
         let mut record = RunRecord {

@@ -23,6 +23,7 @@ import { checkMcpDiscovery } from './mcp-discovery-checks.mjs'
 import { checkDataTransfer } from './data-transfer-checks.mjs'
 import { checkExpressions } from './expression-checks.mjs'
 import { checkInputBindings } from './input-binding-checks.mjs'
+import { checkRunLimits } from './run-limit-checks.mjs'
 import { checkItems } from './items-checks.mjs'
 import { checkParallel } from './parallel-checks.mjs'
 import { checkInvocations } from './invocation-checks.mjs'
@@ -84,6 +85,7 @@ function start(policy = {}) {
         PUBLIC_ORIGIN: '',
         HTTP_ALLOWED_HOSTS: '',
         HTTP_PRIVATE_HOSTS: '',
+        MAX_ACTIVE_RUNS: '',
         HTTP_SECRETS: JSON.stringify({
           api_password: 'super-private-password',
           api_key: 'private-api-key',
@@ -203,6 +205,11 @@ try {
     })
     await healthy(origin)
     await checkRestrictedHttp(origin)
+    await checkRunLimits(origin, 'test:runtime-check', null)
+    await stop()
+    start({ MAX_ACTIVE_RUNS: '2' })
+    await healthy(origin)
+    await checkRunLimits(origin, 'test:runtime-check', 2)
     await stop()
     start({ BASIC_AUTH: '' })
     await healthy(origin)

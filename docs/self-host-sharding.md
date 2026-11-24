@@ -15,7 +15,7 @@ Goals:
 
 Non-goals for this design:
 
-- Scaling a single workspace. A workspace is still one Durable Object on one shard, with the existing limit of 5 active runs, 8 in-flight HTTP calls and single-threaded execution.
+- Scaling a single workspace. A workspace is still one Durable Object on one shard, with one storage budget (and `MAX_ACTIVE_RUNS` if set), 8 in-flight HTTP calls and single-threaded execution.
 - Moving workspaces between shards automatically or while they are live.
 - Failover. If a shard is down, its workspaces are unavailable until it restarts with its volume.
 - Shared storage, distributed locks or work queues.
@@ -95,7 +95,7 @@ Nothing changes inside a shard. Each shard runs the alarms of its own Durable Ob
 
 ## Limits that remain
 
-- **Per-workspace limits:** a single busy workspace is still capped by one Durable Object (5 active runs, 8 in-flight HTTP calls, one thread). Sharding only raises the total across workspaces.
+- **Per-workspace limits:** a single busy workspace is still capped by one Durable Object (one storage budget, 8 in-flight HTTP calls, one thread). Sharding only raises the total across workspaces.
 - **Co-located sessions:** all workspaces of one session share a shard.
 - **No rebalancing:** a hot shard can be closed to new sessions but not emptied. Moving a workspace changes its ID, and therefore its URLs and credentials, so it is an export and import, not a move.
 - **No failover:** losing a shard means downtime for its workspaces until it is restarted with its volume.

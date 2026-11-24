@@ -10,6 +10,7 @@ services:
       PUBLIC_ORIGIN: ${PUBLIC_ORIGIN:-}
       HTTP_ALLOWED_HOSTS: ${HTTP_ALLOWED_HOSTS:-}
       HTTP_PRIVATE_HOSTS: ${HTTP_PRIVATE_HOSTS:-}
+      MAX_ACTIVE_RUNS: ${MAX_ACTIVE_RUNS:-}
       HTTP_SECRETS: ${HTTP_SECRETS:-}
       BASIC_AUTH_FILE: /run/secrets/basic_auth
     volumes:

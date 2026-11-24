@@ -137,7 +137,24 @@ impl WorkflowWorkspace {
         }
     }
 
+    /// The committed workspace with this host's run limits applied.
     pub(crate) fn load(&self) -> Result<Workspace> {
+        let mut workspace = self.load_stored()?;
+        workspace.max_active_runs = self.max_active_runs()?;
+        Ok(workspace)
+    }
+    /// `MAX_ACTIVE_RUNS` from the environment: unset, empty, `0` or `unlimited`
+    /// set no count limit. An invalid value fails requests rather than silently
+    /// falling back to a different limit.
+    fn max_active_runs(&self) -> Result<Option<usize>> {
+        let value = self
+            .env
+            .var("MAX_ACTIVE_RUNS")
+            .map(|v| v.to_string())
+            .unwrap_or_default();
+        workflow_service::parse_max_active_runs(&value).map_err(internal)
+    }
+    fn load_stored(&self) -> Result<Workspace> {
         let sql = self.state.storage().sql();
         sql.exec(CREATE_RECORDS, None)?;
         #[derive(Deserialize)]
