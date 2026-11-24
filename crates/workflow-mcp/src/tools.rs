@@ -963,8 +963,11 @@ pub fn call_with_data(
 
         if mutation { json!({"id":v["id"],"workflowId":v["workflowId"],"version":v["version"],"revision":v["revision"],"status":v["status"],"detailsTool":if name.starts_with("runs_"){"runs_get"}else{"workflows_get"}}) } else { v }
     });
-    // These payloads are compiled public contracts/fixtures, never workspace/user data.
-    // Key-based credential redaction would corrupt schemas (e.g. password properties).
+    // These payloads are compiled public contracts/fixtures and never read workspace
+    // data. connectors_get also echoes the structure of the caller's own request
+    // (mapping keys, pointers, declared schemas) back to that caller; literal mapping
+    // values are reduced to types and never returned. Key-based credential redaction
+    // would corrupt schemas (e.g. password properties), so it is not applied here.
     let public = matches!(
         name,
         "workflows_schema_get"
