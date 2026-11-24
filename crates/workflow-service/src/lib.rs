@@ -417,6 +417,22 @@ pub struct WebhookRegistration {
     pub endpoint_id: String,
     pub token_hash: String,
 }
+/// What a webhook delivery needs to authenticate, derived from the live published
+/// trigger. Hosts persist these next to the workspace records so requests with bad
+/// credentials can be rejected without loading the whole workspace.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct WebhookAuth {
+    pub workflow_id: String,
+    pub endpoint_id: String,
+    pub token_hash: String,
+    /// `active`, `inactive` (not published or no Webhook trigger) or `missing`
+    /// (no live document), matching the full delivery path's 404 responses.
+    pub state: String,
+    pub authentication: String,
+    pub query_parameter: String,
+    pub signing_secret: String,
+}
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct WebhookEvent {
     pub endpoint_id: String,
@@ -1419,6 +1435,41 @@ impl Workspace {
             token_hash,
         });
         self.webhook_info(id)
+    }
+    /// Authentication descriptors for every registered endpoint. Defaults match
+    /// the delivery path: omitted authentication is bearer, the query parameter is
+    /// `key`, and an omitted signing secret alias is empty.
+    pub fn webhook_auth(&self) -> Vec<WebhookAuth> {
+        self.webhooks
+            .iter()
+            .map(|registration| {
+                let doc = self.live_document(&registration.workflow_id).ok();
+                let trigger = doc
+                    .as_ref()
+                    .and_then(|d| d.graph.nodes.iter().find(|n| n.kind == "Webhook"));
+                let state = match (&doc, trigger) {
+                    (None, _) => "missing",
+                    (Some(d), Some(_)) if d.status == Publication::Active => "active",
+                    _ => "inactive",
+                };
+                let text = |key: &str, default: &str| {
+                    trigger
+                        .and_then(|t| t.config.get(key))
+                        .and_then(Value::as_str)
+                        .unwrap_or(default)
+                        .to_string()
+                };
+                WebhookAuth {
+                    workflow_id: registration.workflow_id.clone(),
+                    endpoint_id: registration.endpoint_id.clone(),
+                    token_hash: registration.token_hash.clone(),
+                    state: state.into(),
+                    authentication: text("authentication", "bearer"),
+                    query_parameter: text("queryParameter", "key"),
+                    signing_secret: text("signingSecret", ""),
+                }
+            })
+            .collect()
     }
     pub fn receive_webhook(
         &mut self,

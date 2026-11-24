@@ -34,6 +34,110 @@ impl Drop for DisconnectObserver {
     }
 }
 impl WorkflowWorkspace {
+    /// The committed auth descriptor for an endpoint: `None` when the table has not
+    /// been written yet (fall back to the full path), `Some(None)` when the endpoint
+    /// is not registered.
+    fn committed_webhook_auth(
+        &self,
+        endpoint: &str,
+        legacy_workflow: Option<&str>,
+    ) -> Result<Option<Option<workflow_service::WebhookAuth>>> {
+        #[derive(serde::Deserialize)]
+        struct Exists {
+            present: u32,
+        }
+        let sql = self.state.storage().sql();
+        let present = sql
+            .exec(
+                "SELECT count(*) AS present FROM sqlite_master WHERE type='table' AND name='webhook_auth'",
+                None,
+            )?
+            .one::<Exists>()?
+            .present;
+        if present == 0 {
+            return Ok(None);
+        }
+        #[derive(serde::Deserialize)]
+        struct Row {
+            body: String,
+        }
+        let rows = sql
+            .exec(
+                "SELECT body FROM webhook_auth WHERE endpoint_id=?",
+                Some(vec![endpoint.into()]),
+            )?
+            .to_array::<Row>()?;
+        let found = rows
+            .iter()
+            .filter_map(|row| serde_json::from_str::<workflow_service::WebhookAuth>(&row.body).ok())
+            .find(|auth| legacy_workflow.is_none_or(|id| auth.workflow_id == id));
+        Ok(Some(found))
+    }
+    /// Verify a delivery's credentials for one trigger configuration.
+    fn authenticate_delivery(
+        &self,
+        req: &Request,
+        body: &[u8],
+        mode: &str,
+        token_hash: &str,
+        query_parameter: &str,
+        signing_secret: &str,
+    ) -> Result<bool> {
+        Ok(match mode {
+            "none" => true,
+            "query" => {
+                let url = req.url()?;
+                let values: Vec<_> = url
+                    .query_pairs()
+                    .filter(|(key, _)| key == query_parameter)
+                    .collect();
+                values.len() == 1 && connectors_webhook::token(&values[0].1, token_hash)
+            }
+            "bearer" => bearer(
+                &req.headers().get("Authorization")?.unwrap_or_default(),
+                token_hash,
+            ),
+            mode @ ("hmac" | "hmac_sha256") => {
+                let raw = self
+                    .env
+                    .secret("HTTP_SECRETS")
+                    .map(|s| s.to_string())
+                    .or_else(|_| self.env.var("HTTP_SECRETS").map(|s| s.to_string()))
+                    .unwrap_or_default();
+                let secrets: std::collections::BTreeMap<String, String> =
+                    serde_json::from_str(&raw).unwrap_or_default();
+                let timestamp = req.headers().get("X-Kasuri-Timestamp")?.unwrap_or_default();
+                let supplied = req.headers().get("X-Kasuri-Signature")?.unwrap_or_default();
+                secrets.get(signing_secret).is_some_and(|secret| {
+                    if mode == "hmac" {
+                        let event = req
+                            .headers()
+                            .get("X-Kasuri-Event-Id")
+                            .ok()
+                            .flatten()
+                            .unwrap_or_default();
+                        verify_signature(
+                            secret.as_bytes(),
+                            &timestamp,
+                            &event,
+                            body,
+                            &supplied,
+                            now() / 1000,
+                        )
+                    } else {
+                        verify_signature_v2(
+                            secret.as_bytes(),
+                            &timestamp,
+                            body,
+                            &supplied,
+                            now() / 1000,
+                        )
+                    }
+                })
+            }
+            _ => false,
+        })
+    }
     pub(crate) fn authorize_session(&self, token: &str) -> Result<bool> {
         if token.len() != 64 || !token.bytes().all(|b| b.is_ascii_hexdigit()) {
             return Ok(false);
@@ -175,6 +279,27 @@ impl WorkflowWorkspace {
             }
             body.extend(chunk);
         }
+        // Reject unknown endpoints and bad credentials from the committed auth table
+        // before loading the workspace, so failed requests stay cheap. Accepted
+        // deliveries are authenticated again below against the loaded workspace.
+        if let Some(auth) = self.committed_webhook_auth(endpoint, legacy_workflow)? {
+            match auth.as_ref().map(|a| a.state.as_str()) {
+                None | Some("missing") => return api_error(404, "Webhook not found"),
+                Some("active") => {}
+                Some(_) => return api_error(404, "Webhook is not active"),
+            }
+            let auth = auth.unwrap();
+            if !self.authenticate_delivery(
+                &req,
+                &body,
+                &auth.authentication,
+                &auth.token_hash,
+                &auth.query_parameter,
+                &auth.signing_secret,
+            )? {
+                return api_error(401, "Webhook authentication failed");
+            }
+        }
         // Reload after all network/body awaits. Authentication headers never enter workflow input.
         let mut workspace = self.load()?;
         let registration = match workspace.webhooks.iter().find(|w| {
@@ -196,76 +321,22 @@ impl WorkflowWorkspace {
         let Some(trigger) = trigger else {
             return api_error(404, "Webhook is not active");
         };
-        let authenticated = match trigger
-            .config
-            .get("authentication")
-            .and_then(Value::as_str)
-            .unwrap_or("bearer")
-        {
-            "none" => true,
-            "query" => {
-                let parameter = trigger
-                    .config
-                    .get("queryParameter")
-                    .and_then(Value::as_str)
-                    .unwrap_or("key");
-                let url = req.url()?;
-                let values: Vec<_> = url
-                    .query_pairs()
-                    .filter(|(key, _)| key == parameter)
-                    .collect();
-                values.len() == 1
-                    && connectors_webhook::token(&values[0].1, &registration.token_hash)
-            }
-            "bearer" => bearer(
-                &req.headers().get("Authorization")?.unwrap_or_default(),
-                &registration.token_hash,
-            ),
-            mode @ ("hmac" | "hmac_sha256") => {
-                let alias = trigger
-                    .config
-                    .get("signingSecret")
-                    .and_then(Value::as_str)
-                    .unwrap_or_default();
-                let raw = self
-                    .env
-                    .secret("HTTP_SECRETS")
-                    .map(|s| s.to_string())
-                    .or_else(|_| self.env.var("HTTP_SECRETS").map(|s| s.to_string()))
-                    .unwrap_or_default();
-                let secrets: std::collections::BTreeMap<String, String> =
-                    serde_json::from_str(&raw).unwrap_or_default();
-                let timestamp = req.headers().get("X-Kasuri-Timestamp")?.unwrap_or_default();
-                let supplied = req.headers().get("X-Kasuri-Signature")?.unwrap_or_default();
-                secrets.get(alias).is_some_and(|secret| {
-                    if mode == "hmac" {
-                        let event = req
-                            .headers()
-                            .get("X-Kasuri-Event-Id")
-                            .ok()
-                            .flatten()
-                            .unwrap_or_default();
-                        verify_signature(
-                            secret.as_bytes(),
-                            &timestamp,
-                            &event,
-                            &body,
-                            &supplied,
-                            now() / 1000,
-                        )
-                    } else {
-                        verify_signature_v2(
-                            secret.as_bytes(),
-                            &timestamp,
-                            &body,
-                            &supplied,
-                            now() / 1000,
-                        )
-                    }
-                })
-            }
-            _ => false,
+        let text = |key: &str, default: &str| {
+            trigger
+                .config
+                .get(key)
+                .and_then(Value::as_str)
+                .unwrap_or(default)
+                .to_string()
         };
+        let authenticated = self.authenticate_delivery(
+            &req,
+            &body,
+            &text("authentication", "bearer"),
+            &registration.token_hash,
+            &text("queryParameter", "key"),
+            &text("signingSecret", ""),
+        )?;
         if !authenticated {
             return api_error(401, "Webhook authentication failed");
         }
