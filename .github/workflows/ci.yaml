@@ -62,6 +62,9 @@ jobs:
       - run: pnpm install --frozen-lockfile
       - run: pnpm build:selfhost
       - run: pnpm test:runtime
+      # Many runs at once, some with 50 KB of state: all finish, and cancels apply.
+      - run: node scripts/scale-check.mjs --runs 300 --no-latency
+      - run: node scripts/scale-check.mjs --runs 100 --size 51200 --no-latency
   container:
     runs-on: ubuntu-latest
     timeout-minutes: 30

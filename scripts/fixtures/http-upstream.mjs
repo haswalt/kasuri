@@ -10,6 +10,8 @@ export default {async fetch(request){
   const data=name==='private-dns.example'?'127.0.0.1':name==='mixed-dns.example'&&type===28?'fe80::1':type===1?'1.1.1.1':'2606:4700:4700::1111'
   return Response.json({Status:0,Answer:[{type,data}]})
  }
+ // The upstream's clock, for load measurements (scripts/scale-check.mjs).
+ if(url.pathname==='/clock')return Response.json({now:Date.now()})
  if(url.pathname==='/item-worker'){
   const id=url.searchParams.get('id');const attempt=(itemAttempts.get(id)||0)+1;itemAttempts.set(id,attempt)
   if(id==='retry'&&attempt===1)return new Response('retry',{status:429})

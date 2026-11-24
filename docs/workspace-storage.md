@@ -208,7 +208,7 @@ Before Queues carry work, runs move out of the workspace onto **one Durable Obje
 - **Eligible runs:** every top-level run except simulations that use data operations, directly or in a workflow they may invoke (`execution::eligible`); those keep their data snapshot in the workspace. A run that invokes other workflows moves with its children as one run tree (see "Run trees"). Data operations and webhook responses are covered in "Data and webhook responses (B4)".
 - **Starting:** the workspace starts the run as always. After the save has performed the data tasks due, the host calls `Workspace::offload_waiting`, which moves out runs that are now waiting (not on a data task, with no HTTP request in flight from the workspace); the next commit rewrites their rows as index rows (`ws_runs`, `remote = 1`, archived so they are never loaded into memory), keeping their place in the list, then the host calls the run object, which creates the run (`execution::start`) and sets its alarm. Starting is idempotent by run ID.
 - **Stepping:** the run object's alarm processes the current version (`execution::begin`), performs a claimed HTTP task with the worker's existing HTTP executor, and applies the outcome (`execution::finish`). The alarm is the run's single live message: the latest scheduled time wins.
-- **Index reports:** after every save, the run object reports `{version, columns, body}` to the workspace, which updates the index row in one statement, ignoring reports older than the row's version. Lists, details, MCP reads, admission (`MAX_ACTIVE_RUNS`) and retention read the index, which lags the run by at most one report. The workspace never loads these runs.
+- **Index reports:** after every save, the run object reports `{version, columns, body}` to the workspace (in the background, so a busy workspace never holds up the next step; the final report is awaited before the run object deletes its storage), which updates the index row in one statement, ignoring reports older than the row's version. Lists, details, MCP reads, admission (`MAX_ACTIVE_RUNS`) and retention read the index, which lags the run by at most one report. The workspace never loads these runs.
 - **Control:** pause, resume and cancel on a remote run are forwarded to its run object, which applies them with compare-and-swap and reports.
 - **Finishing:** once a run is terminal and its final report is acknowledged, the run object deletes its storage. The index row is then an ordinary archived run, kept by retention.
 
@@ -339,6 +339,27 @@ Acceptance:
 - **Concurrency:** 200 concurrently active runs with 50 KB outputs each succeed, which is impossible today, and remain cancellable.
 - **Migration:** workspaces from every existing format (legacy row, record generations, with and without `webhook_auth`) migrate. A failure injected mid-migration leaves the old layout intact.
 - **Scale (stage 2):** 1,000 concurrently active runs in one workspace with median step latency within 2× of a single isolated run, and webhook acceptance latency independent of active-run count.
+
+### Measured on workerd
+
+`scripts/scale-check.mjs` starts N runs at once in one workspace (each waits 3 s, then makes an HTTP call), cancels 10 while they wait, and measures each run's *lateness*: when its HTTP step ran, by the upstream's clock, beyond its wait, counted from when its start was acknowledged. CI runs it (300 runs, and 100 with 50 KB inputs) checking only that every run finishes and every cancel applies.
+
+workerd runs every Durable Object of a worker on one isolate, so these figures are one machine's CPU shared by the workspace and every run object; on Cloudflare each run object is a separate isolate. Measured on one CI-class machine:
+
+| Runs | Input | Mode | Single run lateness | Concurrent median / p95 | Start acknowledged (median / p95) |
+| --- | --- | --- | --- | --- | --- |
+| 200 | small | objects | −0.1 s | −0.1 s / 0.0 s | 0.3 s / 0.4 s |
+| 200 | 50 KB | objects | −0.1 s | 1.5 s / 2.3 s | 0.8 s / 2.1 s |
+| 1,000 | small | objects | −0.1 s | 0.6 s / 1.2 s | 0.8 s / 1.2 s |
+| 1,000 | small | queues | 1.0 s | 0.2 s / 0.6 s | 0.6 s / 1.3 s |
+| 200 | 50 KB | queues | 1.0 s | 0.6 s / 1.1 s | 0.6 s / 4.8 s |
+
+(Negative lateness: the step ran before the start's acknowledgement reached the client. A single queued run is about 1 s late because of the consumer's batch timeout and whole-second delays.)
+
+- **Large state:** 200 concurrently active runs with 50 KB inputs all finish and stay cancellable. Before stage 2, the 6 MB memory budget admitted about 85.
+- **1,000 runs:** all finish in both modes. Queues mode meets the latency target; objects mode on workerd does not (0.6 s median against a single run's 0), because a thousand run objects and the workspace share one thread there.
+- **Not yet measured:** webhook acceptance latency against active-run count.
+- **Next bottleneck:** starting runs. Every start goes through the workspace (admission, two commits, the run object start), about 30 starts a second with this workload on one workerd thread; the start acknowledgement column shows it queueing. Reports no longer hold up steps (they are sent in the background, except the final one).
 - **Recovery (stage 2):** duplicating, reordering and dropping-then-redelivering every message, killing consumers mid-step and restarting the workspace object never loses a run or repeats a completed effect.
 - **Regression:** the full `pnpm test:runtime` suite passes unchanged, including storage atomicity, restart persistence and webhook response windows.
 - **Change tracking:** every operation in the native suites matches a fresh reload after commit.
