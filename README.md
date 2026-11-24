@@ -1,66 +1,154 @@
 # Kasuri
 
-A visual workflow builder with a React/Vite frontend and a Rust backend compiled to WebAssembly. Run the same Rust Worker on Cloudflare or self-host it with the open-source workerd runtime.
-
-> **Self-hosting is single-node.** The Docker, Compose and Kubernetes packages run one workerd process with all workspace state in SQLite on one local volume. Scale it up with more CPU, memory and disk, not by adding replicas: replicas cannot share the volume, and separate volumes become separate installations. On Cloudflare each workspace runs as its own Durable Object, so workspaces spread across machines automatically. On both platforms a single workspace runs as one Durable Object, so its runs share one thread and one storage budget. See [scaling and availability](docs/self-hosting.md#scaling-and-availability), and the proposed [workspace sharding design](docs/self-host-sharding.md) for scaling out.
-
 <!-- deploy-button:start -->
 [![Deploy to Cloudflare](https://deploy.workers.cloudflare.com/button)](https://deploy.workers.cloudflare.com/?url=https://github.com/haswalt/kasuri)
 <!-- deploy-button:end -->
 
-There is no hosted demo. New installations start with an empty, persistent workspace.
+[![Build and test](https://github.com/haswalt/kasuri/actions/workflows/ci.yaml/badge.svg?branch=develop)](https://github.com/haswalt/kasuri/actions/workflows/ci.yaml)
 
-## Local development
+Kasuri is a visual workflow automation platform that runs on Cloudflare. You build workflows on a canvas in the browser, trigger them manually, on a schedule or from webhooks, and watch every run step by step. The execution engine is written in Rust and compiled to WebAssembly, and it runs on Cloudflare Workers and Durable Objects. The same build can also be self-hosted with the open-source [workerd](https://github.com/cloudflare/workerd) runtime.
 
-Use Node.js 24+, pnpm (pinned in `package.json`) and Rust. The build helper installs/checks the pinned Rust toolchain, Wasm target and official `worker-build` CLI.
+There is no hosted demo: every installation is your own, and starts with an empty workspace.
+
+## Features
+
+- **Visual editor.** Drag nodes onto a canvas, connect them, and configure each step with guided forms.
+- **Durable execution.** Runs survive restarts. Waits, retries and schedules are persisted, and each step's input and output can be inspected.
+- **Simulation.** Simulate a workflow against the real engine with virtual time and isolated data, without calling external services.
+- **Triggers.** Manual runs, cron schedules (timezone-aware), and webhooks with bearer, query-key or HMAC authentication.
+- **27 built-in connectors.** Data mapping, expressions, conditions and routing, parallel branches, item loops, HTTP requests, persistent data tables and calling other workflows.
+- **Publication and history.** Drafts are separate from published revisions, so editing never changes what is running. Past revisions can be restored.
+- **Agent access.** A built-in [MCP](https://modelcontextprotocol.io) server lets AI agents build, validate, simulate and run workflows with scoped, revocable credentials.
+- **Isolated workspaces.** Workflows, runs, data and credentials are separated per workspace.
+
+## Quick start
+
+### Deploy to Cloudflare
+
+Select **Deploy to Cloudflare** above, or deploy from a clone with Wrangler. See [Cloudflare deployment](docs/deployment.md) for configuration, authentication and limits, and [one-click deployment](docs/cloudflare-one-click.md) for how the button works.
+
+### Run locally
+
+Requirements: Node.js 24 or later, [pnpm](https://pnpm.io) (the version is pinned in `package.json`) and [Rust](https://rustup.rs). The build installs the pinned Rust toolchain, WebAssembly target and `worker-build` if they are missing.
 
 ```sh
 pnpm install
 pnpm dev
 ```
 
-Open the local URL printed by Wrangler. For frontend-only development, run `pnpm dev:web` alongside the Worker.
+Open the URL Wrangler prints. For frontend-only work, run `pnpm dev:web` alongside it.
 
-```sh
-pnpm build:selfhost
-pnpm test
-pnpm deploy:check
-```
+| Command | What it does |
+| --- | --- |
+| `pnpm dev` | Build and run the Worker and UI locally with Wrangler |
+| `pnpm test` | Run the web, Rust and runtime test suites |
+| `pnpm build:selfhost` | Build the self-hosted package into `dist/` |
+| `pnpm deploy:check` | Package the Worker without publishing it |
+| `pnpm deploy` | Publish to your Cloudflare account |
 
-`deploy:check` packages the Worker without publishing it. `pnpm deploy` publishes to your own Cloudflare account. See [Cloudflare setup](docs/deployment.md), [one-click deployment](docs/cloudflare-one-click.md), and [Docker/Kubernetes self-hosting](docs/self-hosting.md).
+### Self-host
+
+Docker, Docker Compose and Kubernetes packages are included. See [self-hosting](docs/self-hosting.md) for setup, persistence, upgrades and outbound HTTP configuration.
+
+Self-hosted installations run as a **single node**: one workerd process with all state on one volume. They scale up, not out. See [scaling and availability](docs/self-hosting.md#scaling-and-availability), and the proposed [workspace sharding design](docs/self-host-sharding.md).
+
+## Building workflows
+
+Start with the [example workflows](examples/README.md). They cover every connector, need no accounts or API keys, and can be imported from **Workflows → Import JSON**.
+
+| Category | Connectors | Guide |
+| --- | --- | --- |
+| Triggers | Manual Trigger, Schedule, Webhook, Execute Workflow Trigger | [Webhooks](docs/webhooks.md), [Calling workflows](docs/workflow-invocation.md) |
+| Shaping data | Map / Transform, Expressions, JSON Utilities, Parse Body, Validate Schema, Request Context | [Expressions and routing](docs/expressions.md), [Parsing](docs/parsing.md), [Validation](docs/validation.md) |
+| Flow control | IF / Condition, Switch / Router, Merge, Wait / Delay, Error Handler | [Conditions](docs/conditions.md), [Expressions and routing](docs/expressions.md) |
+| Parallelism and items | Split / Parallel, Join, Filter, Sort, Split / Batch, Aggregate, Each / Loop | [Parallel branches](docs/parallel.md), [Item processing](docs/items.md) |
+| Integration | HTTP Request, Execute Workflow, Respond to Webhook | [Connectors](docs/connectors.md), [Webhooks](docs/webhooks.md) |
+| Persistent data | Data Tables, Context Store | [Data storage](docs/data-storage.md), [Import and export](docs/data-transfer.md) |
+
+The [connector reference](docs/connectors.md) describes every connector's configuration, and the [workflow engine](docs/workflow-engine.md) explains how runs execute.
+
+## Agents and automation
+
+Agents connect to each workspace's MCP endpoint with scoped bearer tokens or OAuth (with PKCE). Reading, editing, simulation, publication, execution and run control are separate permissions. See [connecting agents](docs/mcp.md).
+
+Programs can also use the versioned [HTTP management API](docs/http-api.md).
 
 ## Architecture
 
-Try the [importable example workflows](examples/README.md) after installing Kasuri. They cover every supported connector, range from simple to combined scenarios, and include live public API examples with offline simulation fixtures.
+```text
+Browser / agents / webhook senders
+        │
+        ▼
+Worker (Rust → Wasm)       authentication and routing
+        │
+        ▼
+Workspace Durable Object   workflows, runs, schedules, data (SQLite)
+        │
+        ▼
+Workflow engine            deterministic execution, retries, waits, checkpoints
+```
 
-- `apps/web`: React editor, draggable nodes, curved connections, run inspector and simulation controls.
-- `packages/contracts`: frontend TypeScript types for JSON API responses.
-- `crates/workflow-schema`: graph contracts and validation, including canvas positions.
-- `crates/connector-sdk`: typed connector manifests and execution contracts.
-- `crates/connectors-core`: pure core connectors, including filtering and sorting.
-- `crates/connectors-webhook`: inbound event authentication and signature verification.
-- `crates/connectors-http`: HTTP request configuration, outbound policy and response handling.
-- `crates/workflow-engine`: deterministic graph execution, retries, waits and checkpoints.
-- `crates/workflow-service`: Rust workspace application, run management and timezone-aware cron scheduling.
-- `crates/workflow-worker`: Rust HTTP handlers, session cookies, authentication, asset serving, SQLite Durable Objects and alarms using `workers-rs`.
-- `deploy/workerd`: configuration for running the same Wasm Worker outside Cloudflare.
+All backend logic is Rust. Cloudflare's `worker-build` only generates the JavaScript glue that loads the WebAssembly module; there is no Node server.
 
-Cloudflare's official `worker-build` generates JavaScript bindings and a module entrypoint for the Wasm binary. This is generated tooling output; all backend application logic is Rust. There is no TypeScript API or Node server. See [Cloudflare's Rust documentation](https://developers.cloudflare.com/workers/languages/rust/).
+| Path | Purpose |
+| --- | --- |
+| `apps/web` | React editor, run inspector and simulation controls |
+| `packages/contracts` | TypeScript types for API responses |
+| `crates/workflow-schema` | Workflow graph format and validation |
+| `crates/workflow-engine` | Graph execution, retries, waits and checkpoints |
+| `crates/workflow-expressions` | Expression and input binding evaluation |
+| `crates/workflow-service` | Workspaces, publication, runs and scheduling |
+| `crates/workflow-worker` | HTTP handlers, authentication, Durable Objects and alarms |
+| `crates/workflow-mcp` | MCP server, credentials and OAuth |
+| `crates/workflow-data` | Data Tables and Context Store |
+| `crates/connector-sdk` | Connector manifest and execution contracts |
+| `crates/connectors-*` | Built-in connectors (core, HTTP, webhook, data, validation) |
+| `deploy/` | workerd configuration and Kubernetes manifests |
 
-## Current capabilities
+## Documentation
 
-Manual, optionally authenticated webhook and cron triggers; mapping, conditions, merge, delay, JSON utilities and error handling. Run executes durable waits; Simulate advances virtual time through the same Rust engine. Publishing a schedule registers a persistent alarm. Webhook endpoints support public access, bearer/query keys and timestamped HMAC signatures. Business-event deduplication is explicit workflow logic using atomic data claims; see [webhook setup](docs/webhooks.md). OAuth and SaaS adapters are not implemented. Data Tables and Context Store provide transactional persistent data and isolated simulation snapshots. HTTP Request supports public HTTPS APIs by default, Basic auth through named secrets, and custom headers; Filter and Sort process response arrays. See [connector setup and examples](docs/connectors.md).
+**Using Kasuri**
 
-An HttpOnly cookie identifies a browser ownership session with a separate random session token. The workspace menu creates, renames and switches isolated workspaces; the URL selects a workspace per tab, without changing the cookie. Existing Personal workspaces remain accessible. Workflows, runs, MCP credentials and webhook endpoints are isolated per workspace. Clearing the cookie loses access to all workspaces owned by that session. This is capability-based ownership, not user accounts or shared team membership. Protect private deployments with Cloudflare Access or the optional Basic authentication binding. External credential storage, account permissions and production operations remain future work.
+- [Example workflows](examples/README.md)
+- [Connector reference](docs/connectors.md)
+- [Webhooks](docs/webhooks.md), [Conditions](docs/conditions.md), [Expressions and routing](docs/expressions.md)
+- [Parallel branches](docs/parallel.md), [Item processing](docs/items.md), [Calling workflows](docs/workflow-invocation.md)
+- [Parsing](docs/parsing.md), [Validation](docs/validation.md)
+- [Data storage](docs/data-storage.md), [Data import and export](docs/data-transfer.md)
 
-## Agent management through MCP
+**Running Kasuri**
 
-Kasuri exposes a Rust/Wasm MCP endpoint for agents to build and manage workflows, simulate or execute runs, and read retained audit records. The MCP portal creates revocable, scoped bearer credentials and approves OAuth connections using PKCE. Read, edit, simulation, publication, execution and run control are separate permissions. See [connection and authorization setup](docs/mcp.md) and the [remaining MCP requirements](docs/agent-mcp.md). This inbound endpoint is separate from the planned MCP Client workflow connector. [Agentic connector requirements](docs/agentic-connectors.md) include Cloudflare AI Gateway and Cloudflare MCP Portals as model-routing and tool-access options.
+- [Cloudflare deployment](docs/deployment.md), [One-click deployment](docs/cloudflare-one-click.md)
+- [Self-hosting](docs/self-hosting.md)
 
-Completed changes use Conventional Commits; see [contributing](CONTRIBUTING.md) for setup, checks and pull request conventions. See [engine details](docs/workflow-engine.md).
+**Integrating**
 
-The [UI implementation notes](docs/ui-implementation.md) describe the design handoff, implemented screens and remaining backend dependencies. See [styling the UI](docs/styling.md) for Panda CSS tokens and recipes.
+- [Connecting agents (MCP)](docs/mcp.md)
+- [HTTP management API](docs/http-api.md)
 
-The [internal platform implementation plan](docs/internal-platform-plan.md) covers reported product issues, publication/history/workspace semantics, flexible webhooks, Data Tables, parallel/items, expressions/Code and workflow composition. External service connectors are excluded from that implementation sequence.
+**Internals and design**
 
-The [HTTP management API v2](docs/http-api.md) requires edit versions for existing workflow updates, publication/activation and execution requests. This removes the previous unversioned-write compatibility bypass; older REST integrations must fetch and submit workflow versions.
+- [Workflow engine](docs/workflow-engine.md)
+- [UI implementation](docs/ui-implementation.md), [Styling](docs/styling.md)
+- [Scalable workspace storage and execution](docs/workspace-storage.md) (proposal)
+- [Self-hosted workspace sharding](docs/self-host-sharding.md) (proposal)
+- [Third-party platform authentication](docs/platform-auth.md) (planned)
+- [Agent management requirements](docs/agent-mcp.md), [Agentic connectors](docs/agentic-connectors.md) (planned)
+- [Internal platform plan](docs/internal-platform-plan.md)
+
+## Project status
+
+Kasuri is under active development. Current limitations:
+
+- **No user accounts.** A browser cookie identifies who owns which workspaces; clearing it loses access to them. Protect private installations with [Cloudflare Access](https://developers.cloudflare.com/cloudflare-one/policies/access/) or the optional Basic authentication. Third-party sign-in is [planned](docs/platform-auth.md).
+- **Workspace capacity.** Each workspace runs as one Durable Object, with a 1.5 MB state budget. See [concurrent runs](docs/deployment.md#concurrent-runs) and the [storage redesign](docs/workspace-storage.md).
+- **No SaaS connectors yet.** Integrations use HTTP Request. OAuth-based connectors are not implemented.
+- **Self-hosting is single-node.** See [above](#self-host).
+
+## Contributing
+
+Contributions are welcome. [CONTRIBUTING.md](CONTRIBUTING.md) covers setup, the checks CI runs, and how commits and pull requests are named.
+
+## Security
+
+Please report vulnerabilities privately through [GitHub security advisories](https://github.com/haswalt/kasuri/security/advisories/new), not in public issues.
