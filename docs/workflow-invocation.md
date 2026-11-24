@@ -18,7 +18,7 @@ Simulations create simulated children only. Their clocks advance virtually, thei
 
 All invocation is workspace-local. MCP execution, publication, resume and detailed reads inspect the complete pinned/reachable graph set for dataset permissions, so a parent cannot hide a child's `data_read`/`data_write` requirements. Old credentials do not gain access by calling a child. There is no cross-workspace workflow-ID lookup.
 
-Initial bounds: depth four, sixteen child runs per root tree (a persisted cumulative budget), sixteen distinct target selections, the existing five active-run workspace limit, and existing graph/checkpoint/value budgets. Recursive invocation is rejected before creating the root run. The invoking node's timeout bounds awaited completion; background runs use their own normal run/node deadlines. These are bounded DAG invocations, not loops.
+Initial bounds: depth four, sixteen child runs per root tree (a persisted cumulative budget), sixteen distinct target selections, the workspace's run admission (its storage budget, and `MAX_ACTIVE_RUNS` if set), and existing graph/checkpoint/value budgets. Recursive invocation is rejected before creating the root run. The invoking node's timeout bounds awaited completion; background runs use their own normal run/node deadlines. These are bounded DAG invocations, not loops.
 
 ## Examples
 

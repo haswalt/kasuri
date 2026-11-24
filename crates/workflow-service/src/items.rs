@@ -324,16 +324,7 @@ impl Workspace {
                 if item.status != Status::Pending || active >= limit {
                     continue;
                 }
-                if self
-                    .runs
-                    .iter()
-                    .filter(|r| {
-                        r.status()
-                            .is_ok_and(|s| matches!(s, RunStatus::Running | RunStatus::Paused))
-                    })
-                    .count()
-                    >= 5
-                {
+                if self.admit_run(false).is_err() {
                     break;
                 }
                 let mut item_task = task.clone();

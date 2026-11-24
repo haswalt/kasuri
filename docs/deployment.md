@@ -38,7 +38,11 @@ Enter `username:password`. The health endpoint is unauthenticated for probes. Do
 | GET | `/api/runs/:id` | Inspect a run and node outputs |
 | POST | `/api/runs/:id/pause`, `/resume`, `/cancel` | Control a run |
 
-The Rust service bounds JSON bodies to 128 KiB and persisted workspace checkpoints to 1.5 MB. It retains up to 100 runs, pruning older terminal runs when needed, and allows five active runs per workspace. These are application safeguards independent of Cloudflare account quotas. See Rust source for graph/engine budgets.
+The Rust service bounds JSON bodies to 128 KiB and persisted workspace checkpoints to 1.5 MB. It retains up to 100 runs, pruning older terminal runs when needed. These are application safeguards independent of Cloudflare account quotas.
+
+### Concurrent runs
+
+Runs are not limited by count by default. Active runs can never be pruned, so a workspace stops starting new runs, Execute Workflow children and Each items once the state that retention cannot reclaim reaches 75% of the 1.5 MB budget. The remaining budget keeps the workspace writable while active runs finish; refused starts return `429`, and Each items wait and retry. To cap concurrency as well, set `MAX_ACTIVE_RUNS` to a positive integer (as a Worker variable on Cloudflare, or in the environment when self-hosting). Empty, `0` or `unlimited` mean no count limit. Running and paused runs, and runs holding an open webhook response, count as active. An invalid value fails requests with a configuration error rather than silently using another limit. See Rust source for graph/engine budgets.
 
 Scheduling uses five-field cron expressions and IANA timezones. Missed occurrences coalesce to one run after downtime. Pausing a workflow removes its next cron occurrence; pausing a run removes its wait alarm until resumed. The current core connectors have no external side effects.
 

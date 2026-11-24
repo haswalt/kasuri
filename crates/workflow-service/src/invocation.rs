@@ -478,18 +478,10 @@ impl Workspace {
                 } else {
                     16
                 }
-            || self
-                .runs
-                .iter()
-                .filter(|r| {
-                    r.status()
-                        .is_ok_and(|s| matches!(s, RunStatus::Running | RunStatus::Paused))
-                })
-                .count()
-                >= 5
         {
             return Err(error(429, "Child run budget exceeded"));
         }
+        self.admit_run(false)?;
         let id = format!(
             "child-{:x}",
             Sha256::digest(task.idempotency_key.as_bytes())

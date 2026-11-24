@@ -15,6 +15,7 @@ const config :Workerd.Config = (
         (name = "PUBLIC_ORIGIN", fromEnvironment = "PUBLIC_ORIGIN"),
         (name = "HTTP_ALLOWED_HOSTS", fromEnvironment = "HTTP_ALLOWED_HOSTS"),
         (name = "HTTP_PRIVATE_HOSTS", fromEnvironment = "HTTP_PRIVATE_HOSTS"),
+        (name = "MAX_ACTIVE_RUNS", fromEnvironment = "MAX_ACTIVE_RUNS"),
         (name = "HTTP_SECRETS", fromEnvironment = "HTTP_SECRETS")
       ],
       durableObjectNamespaces = [(className = "WorkflowWorkspace", uniqueKey = "workspaces", enableSql = true)],
