@@ -3,7 +3,7 @@ name = "connectors-webhook"
 version.workspace = true
 edition.workspace = true
 [dependencies]
-sha2 = "0.10"
+sha2 = "0.11"
 hmac = "0.12"
 subtle = "2"
 serde_json.workspace = true
