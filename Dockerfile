@@ -5,6 +5,8 @@ RUN rustup target add wasm32-unknown-unknown \
  && cargo install worker-build --version 0.9.0 --locked
 COPY Cargo.toml Cargo.lock ./
 COPY crates ./crates
+# workflow-mcp compiles the public example workflows into the Worker binary.
+COPY examples ./examples
 RUN worker-build crates/workflow-worker --release --no-opt --locked
 
 FROM node:24-bookworm-slim AS application
