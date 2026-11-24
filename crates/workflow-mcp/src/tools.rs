@@ -474,7 +474,11 @@ fn execute(
             let kind = required(args, "kind")?;
             let version = args
                 .get("version")
-                .map(|v| v.as_u64().and_then(|n| u32::try_from(n).ok()))
+                .map(|v| {
+                    v.as_u64()
+                        .filter(|n| *n >= 1)
+                        .and_then(|n| u32::try_from(n).ok())
+                })
                 .unwrap_or(Some(1))
                 .ok_or_else(|| err("invalid_arguments", "Use a positive connector version"))?;
             let empty = serde_json::Map::new();

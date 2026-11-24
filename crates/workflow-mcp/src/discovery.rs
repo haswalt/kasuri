@@ -2,6 +2,14 @@
 use serde_json::{Value, json};
 include!(concat!(env!("OUT_DIR"), "/examples.rs"));
 pub fn examples() -> Vec<Value> {
+    public_examples().to_vec()
+}
+/// Compiled fixtures never change at runtime; parse them once per process.
+fn public_examples() -> &'static [Value] {
+    static EXAMPLES_CACHE: std::sync::OnceLock<Vec<Value>> = std::sync::OnceLock::new();
+    EXAMPLES_CACHE.get_or_init(parse_examples)
+}
+fn parse_examples() -> Vec<Value> {
     let scenarios: Vec<Value> =
         serde_json::from_str(include_str!("../../../examples/scenarios.json"))
             .expect("Public example scenarios");
@@ -27,12 +35,31 @@ fn input_ports(kind: &str) -> Value {
         json!(["input"])
     }
 }
+/// Up to three public example configurations for one connector kind and version.
+/// Nodes without an explicit version use the schema default of 1.
+fn usage(examples: &[Value], kind: &str, version: u32) -> Value {
+    let usage: Vec<Value> = examples
+        .iter()
+        .flat_map(|e| {
+            e["workflow"]["nodes"]
+                .as_array()
+                .into_iter()
+                .flatten()
+                .filter(move |n| {
+                    n["type"] == kind && n["version"].as_u64().unwrap_or(1) == u64::from(version)
+                })
+                .map(|n| json!({"exampleId":e["id"],"nodeId":n["id"],"config":n["config"]}))
+        })
+        .take(3)
+        .collect();
+    Value::Array(usage)
+}
 pub fn connectors() -> Value {
-    let examples = examples();
+    let examples = public_examples();
     let connectors:Vec<Value>=workflow_service::manifests().into_iter().map(|m|{
-  let usage:Vec<Value>=examples.iter().flat_map(|e|e["workflow"]["nodes"].as_array().into_iter().flatten().filter(|n|n["type"]==m.kind).map(|n|json!({"exampleId":e["id"],"nodeId":n["id"],"config":n["config"]}))).take(3).collect();
+  let usage=usage(examples,&m.kind,m.version);
   let contract=workflow_service::contracts::describe(&m.kind,&serde_json::Map::new());
-  let mut value=serde_json::to_value(&m).unwrap();value["description"]=contract["description"].clone();value["runtimeContractsTool"]=json!("connectors_get");value["documentationUrl"]=contract["documentationUrl"].clone();value["inputPorts"]=input_ports(&m.kind);value["examples"]=json!(usage);value["constraints"]=json!(["Use workflows_validate for topology, dynamic ports and runtime-specific configuration checks.","Runtime data contracts can depend on configuration; workflows_examples_get includes exact synthetic inputs and asserted outputs."]);value
+  let mut value=serde_json::to_value(&m).unwrap();value["description"]=contract["description"].clone();value["runtimeContractsTool"]=json!("connectors_get");value["documentationUrl"]=contract["documentationUrl"].clone();value["inputPorts"]=input_ports(&m.kind);value["examples"]=usage;value["constraints"]=json!(["Use workflows_validate for topology, dynamic ports and runtime-specific configuration checks.","Runtime data contracts can depend on configuration; workflows_examples_get includes exact synthetic inputs and asserted outputs."]);value
  }).collect();
     json!({"connectors":connectors})
 }
@@ -51,12 +78,6 @@ pub fn connector(
         manifest[key] = value.clone();
     }
     manifest["inputPorts"] = input_ports(kind);
-    manifest["examples"] = connectors()["connectors"]
-        .as_array()
-        .unwrap()
-        .iter()
-        .find(|m| m["kind"] == kind)
-        .unwrap()["examples"]
-        .clone();
+    manifest["examples"] = usage(public_examples(), kind, version);
     Some(manifest)
 }

@@ -401,6 +401,22 @@ fn connector_inspection_describes_runtime_values_without_reading_workspace_data(
         json!({"kind":"Aggregate","config":{"operation":"sum","arrayPointer":"/items"}}),
     );
     assert_eq!(sum["outputSchema"]["type"], "number");
+    assert!(
+        sum["examples"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .all(|e| e["config"].is_object())
+    );
+    assert_eq!(
+        sum["examples"],
+        workflow_mcp::discovery::connectors()["connectors"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|c| c["kind"] == "Aggregate")
+            .unwrap()["examples"]
+    );
     assert_eq!(sum["selectedInput"]["pointer"], "/items");
     assert!(sum["inputSchema"].as_object().unwrap().is_empty());
     let http = data(
@@ -495,4 +511,36 @@ fn connector_inspection_describes_runtime_values_without_reading_workspace_data(
     }
     assert!(ws.workflows.is_empty());
     assert!(ws.runs.is_empty());
+}
+
+#[test]
+fn connector_inspection_rejects_invalid_versions_as_arguments() {
+    let mut ws = Workspace::default();
+    let mut auth = Auth::default();
+    let token = grant(&mut auth, "reader");
+    for version in [json!(0), json!(-1), json!("1"), json!(u64::MAX)] {
+        let result = call(
+            &mut ws,
+            &mut auth,
+            &token,
+            "connectors_get",
+            json!({"kind":"Aggregate","version":version}),
+        );
+        assert_eq!(result["isError"], true, "{version}");
+        assert_eq!(
+            result["structuredContent"]["code"], "invalid_arguments",
+            "{version}"
+        );
+    }
+    let missing = call(
+        &mut ws,
+        &mut auth,
+        &token,
+        "connectors_get",
+        json!({"kind":"Aggregate","version":99}),
+    );
+    assert_eq!(
+        missing["structuredContent"]["code"],
+        "unsupported_connector"
+    );
 }
