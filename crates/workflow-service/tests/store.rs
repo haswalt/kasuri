@@ -1,30 +1,60 @@
 //! The per-entity store must reproduce the workspace exactly, and write only what
 //! an operation changed.
 use serde_json::{Value, json};
+use std::rc::Rc;
 use std::{fs, path::PathBuf};
+use workflow_service::Archive;
 use workflow_service::Workspace;
-use workflow_service::store::sql::{SqlExec, SqlStore, SqlValue, legacy};
+use workflow_service::store::sql::{FORMAT_VERSION, SqlExec, SqlStore, SqlValue, legacy};
 use workflow_service::store::{
-    ChangeSet, Collection, MemoryStore, RunQueries, Store, StoreError, Tracked,
+    ChangeSet, Collection, MemoryStore, RunArchive, RunQueries, Store, StoreError, Tracked,
 };
 
 /// Every test runs against each store implementation.
-trait TestStore: Store + RunQueries<Error = StoreError> {
+trait TestStore: Store + RunQueries<Error = StoreError> + RunArchive {
     fn fresh() -> Self;
+    /// A reader of this store's runs, as a host attaches to a loaded workspace.
+    fn archive(&self) -> Archive;
 }
 impl TestStore for MemoryStore {
     fn fresh() -> Self {
         MemoryStore::default()
     }
+    fn archive(&self) -> Archive {
+        // A copy is current until the next commit, after which `cycle` attaches
+        // a new one.
+        Archive::new(Rc::new(self.clone()))
+    }
 }
 /// A real SQLite database, standing in for Durable Object SQLite.
 /// When `plans` is set, every query's plan is recorded before it runs.
 /// When `fail_after` is set, statements fail once that many more have run, to
-/// inject a failure part-way through an operation.
+/// inject a failure part-way through an operation. `uri` names a shared
+/// in-memory database, so a second connection (the run archive) sees the same
+/// data.
 struct Sqlite {
+    uri: String,
     connection: rusqlite::Connection,
     plans: std::cell::RefCell<Option<Vec<String>>>,
     fail_after: std::cell::Cell<Option<usize>>,
+}
+static NEXT_DATABASE: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
+impl Sqlite {
+    fn open(uri: &str) -> Self {
+        use rusqlite::OpenFlags;
+        Sqlite {
+            uri: uri.into(),
+            connection: rusqlite::Connection::open_with_flags(
+                uri,
+                OpenFlags::default()
+                    | OpenFlags::SQLITE_OPEN_URI
+                    | OpenFlags::SQLITE_OPEN_SHARED_CACHE,
+            )
+            .unwrap(),
+            plans: Default::default(),
+            fail_after: Default::default(),
+        }
+    }
 }
 impl SqlExec for Sqlite {
     fn query(&self, sql: &str, params: Vec<SqlValue>) -> Result<Vec<Vec<SqlValue>>, StoreError> {
@@ -81,18 +111,13 @@ impl SqlExec for Sqlite {
 }
 /// A connection with no tables, for migrations.
 fn bare_sqlite() -> SqlStore<Sqlite> {
-    SqlStore::new(Sqlite {
-        connection: rusqlite::Connection::open_in_memory().unwrap(),
-        plans: Default::default(),
-        fail_after: Default::default(),
-    })
+    SqlStore::new(Sqlite::open(&format!(
+        "file:kasuri-{}?mode=memory&cache=shared",
+        NEXT_DATABASE.fetch_add(1, std::sync::atomic::Ordering::Relaxed)
+    )))
 }
 fn sqlite() -> SqlStore<Sqlite> {
-    let store = SqlStore::new(Sqlite {
-        connection: rusqlite::Connection::open_in_memory().unwrap(),
-        plans: Default::default(),
-        fail_after: Default::default(),
-    });
+    let store = bare_sqlite();
     store.create().unwrap();
     store
 }
@@ -100,13 +125,17 @@ impl TestStore for SqlStore<Sqlite> {
     fn fresh() -> Self {
         sqlite()
     }
+    fn archive(&self) -> Archive {
+        Archive::new(Rc::new(SqlStore::new(Sqlite::open(&self.sql().uri))))
+    }
 }
 
 /// Commit, reload from the store, and require the reload to equal the workspace
 /// that was committed. Returns the reloaded workspace and what was written.
 fn cycle<S: TestStore>(store: &mut S, tracked: &mut Tracked) -> (Tracked, ChangeSet) {
     let written = tracked.commit(store).unwrap();
-    let reloaded = Tracked::load(store).unwrap();
+    let mut reloaded = Tracked::load(store).unwrap();
+    reloaded.workspace.archive = store.archive();
     assert_eq!(
         serde_json::to_value(&reloaded.workspace).unwrap(),
         serde_json::to_value(&tracked.workspace).unwrap(),
@@ -146,13 +175,16 @@ fn assert_queries_match<S: TestStore>(store: &S, ws: &Workspace) {
             "active"
         );
     }
-    for limit in [0, 3, 100] {
-        assert_eq!(
-            store.run_summaries(limit).unwrap(),
-            ws.run_summaries(limit).unwrap(),
-            "summaries"
-        );
-    }
+    // The store lists archived runs too; the runs in memory appear in it in the
+    // same order and with the same entries.
+    let resident: Vec<String> = ws.runs.iter().map(|r| r.id_string().unwrap()).collect();
+    let stored: Vec<Value> = store
+        .run_summaries(usize::MAX)
+        .unwrap()
+        .into_iter()
+        .filter(|v| resident.iter().any(|id| v["id"] == id.as_str()))
+        .collect();
+    assert_eq!(stored, ws.run_summaries(usize::MAX).unwrap(), "summaries");
     let mut ids: Vec<String> = ws.runs.iter().map(|r| r.id_string().unwrap()).collect();
     ids.push("missing-run".into());
     for id in ids {
@@ -187,6 +219,15 @@ fn instant(id: &str) -> Value {
     doc["nodes"].as_array_mut().unwrap().pop();
     doc["edges"] = json!([]);
     doc
+}
+/// IDs of the newest `limit` stored runs, archived or not.
+fn listed<S: TestStore>(store: &S, limit: usize) -> Vec<String> {
+    store
+        .list_runs(limit, None, None)
+        .unwrap()
+        .into_iter()
+        .map(|v| v["id"].as_str().unwrap().to_string())
+        .collect()
 }
 fn only(changes: &ChangeSet, collection: Collection) -> bool {
     changes
@@ -314,14 +355,40 @@ fn newest_first_runs_keep_their_order_and_existing_rows<S: TestStore>() {
         );
         tracked = next;
     }
-    let ids: Vec<String> = tracked
-        .workspace
-        .runs
-        .iter()
-        .map(|r| r.id_string().unwrap())
-        .collect();
+    // Finished runs leave memory, and the stored list stays newest first.
+    assert!(tracked.workspace.runs.is_empty());
     let expected: Vec<String> = (0..30).rev().map(|i| format!("run-{i:02}")).collect();
-    assert_eq!(ids, expected, "newest first, as before");
+    assert_eq!(listed(&store, 100), expected, "newest first, as before");
+    // The workspace lists and reads them through its archive.
+    let snapshot = handle(
+        &mut tracked.workspace,
+        "GET",
+        "/api/workspace",
+        Value::Null,
+        30,
+        "",
+    );
+    let ids: Vec<&str> = snapshot["runs"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|r| r["id"].as_str().unwrap())
+        .collect();
+    assert_eq!(ids, expected);
+    let run = handle(
+        &mut tracked.workspace,
+        "GET",
+        "/api/runs/run-07",
+        Value::Null,
+        30,
+        "",
+    );
+    assert_eq!(run["status"], "succeeded");
+    let refused = tracked
+        .workspace
+        .handle("POST", "/api/runs/run-07/cancel", b"", 30, "")
+        .unwrap_err();
+    assert_eq!(refused.status, 409, "finished runs can't be controlled");
 }
 
 fn retention_and_audit_trimming_become_deletes<S: TestStore>() {
@@ -347,8 +414,15 @@ fn retention_and_audit_trimming_become_deletes<S: TestStore>() {
             &format!("run-{i:03}"),
         );
     }
+    // History keeps the newest 100 runs; finished runs don't stay in memory.
     let (mut tracked, _) = cycle(&mut store, &mut tracked);
-    assert_eq!(tracked.workspace.runs.len(), 100);
+    assert!(tracked.workspace.runs.is_empty());
+    let kept = listed(&store, 1000);
+    assert_eq!(kept.len(), 100);
+    assert_eq!(
+        (kept[0].as_str(), kept[99].as_str()),
+        ("run-104", "run-005")
+    );
     handle(
         &mut tracked.workspace,
         "POST",
@@ -357,10 +431,14 @@ fn retention_and_audit_trimming_become_deletes<S: TestStore>() {
         200,
         "run-new",
     );
-    let (tracked, written) = cycle(&mut store, &mut tracked);
-    assert_eq!(tracked.workspace.runs.len(), 100);
-    let deleted: Vec<_> = written.deletes.iter().map(|k| k.id.as_str()).collect();
-    assert_eq!(deleted, ["run-005"], "the oldest retained run is deleted");
+    let (tracked, _) = cycle(&mut store, &mut tracked);
+    let kept = listed(&store, 1000);
+    assert_eq!(kept.len(), 100);
+    assert_eq!(
+        (kept[0].as_str(), kept[99].as_str()),
+        ("run-new", "run-006"),
+        "the oldest run is pruned"
+    );
 
     // Audit retention (1,000 entries) removes the oldest rows.
     let mut tracked = tracked;
@@ -722,40 +800,36 @@ fn awaited_children_and_their_parents_are_indexed_as_protected<S: TestStore>() {
 }
 
 /// Retention during a commit, computed from per-entity sizes, removes exactly what
-/// whole-document retention (`Workspace::checkpoint`) removes.
+/// whole-document retention (`Workspace::checkpoint`) removes from what stays in
+/// memory. Finished runs leave memory anyway, so audit entries and active runs
+/// are what the budget still bounds.
 fn byte_retention_matches_whole_document_retention<S: TestStore>() {
     let mut store = S::fresh();
     let mut tracked = Tracked::load(&store).unwrap();
-    let mut doc = instant("flow");
-    doc["nodes"]
-        .as_array_mut()
-        .unwrap()
-        .push(json!({"id":"map","type":"Map / Transform","label":"Map","config":{"mapping":{"payload":"x".repeat(20_000)}}}));
-    doc["edges"] = json!([{"id":"e","source":"start","target":"map"}]);
     handle(
         &mut tracked.workspace,
         "PUT",
         "/api/workflows/flow",
-        doc,
+        workflow("flow", 60_000),
         0,
         "",
     );
     let (mut tracked, _) = cycle(&mut store, &mut tracked);
-    for i in 0..90 {
+    for i in 0..5 {
         handle(
             &mut tracked.workspace,
             "POST",
             "/api/runs",
-            json!({"workflowId":"flow","mode":"run","input":{}}),
+            json!({"workflowId":"flow","mode":"run","input":{"pad":"p".repeat(20_000)}}),
             i,
             &format!("run-{i:03}"),
         );
     }
-    for i in 0..300 {
+    for i in 0..400 {
         tracked.workspace.record_audit(
             "browser",
             "workflow.saved",
-            &"z".repeat(2_000),
+            &"z".repeat(4_000),
             "succeeded",
             100 + i,
             "",
@@ -764,19 +838,21 @@ fn byte_retention_matches_whole_document_retention<S: TestStore>() {
     let mut expected = tracked.workspace.clone();
     let text = expected.checkpoint().unwrap();
     assert!(text.len() <= workflow_service::MAX_STATE_BYTES);
-    assert!(expected.runs.len() < 90, "the budget forces runs out");
+    assert_eq!(expected.runs.len(), 5, "active runs are never removed");
+    assert!(
+        expected.audit.len() < 400,
+        "the budget forces audit entries out"
+    );
     let (tracked, written) = cycle(&mut store, &mut tracked);
     assert_eq!(
         serde_json::to_value(&tracked.workspace).unwrap(),
         serde_json::to_value(&expected).unwrap()
     );
     assert!(
-        written.deletes.is_empty()
-            || written
-                .deletes
-                .iter()
-                .all(|k| k.collection == Collection::Audit),
-        "runs removed in this commit were never stored"
+        written
+            .deletes
+            .iter()
+            .all(|k| k.collection == Collection::Audit)
     );
 }
 
@@ -825,6 +901,14 @@ macro_rules! for_each_store {
                 super::super::awaited_children_and_their_parents_are_indexed_as_protected::<$store>();
             }
             #[test]
+            fn list_filters_cover_archived_and_active_runs() {
+                super::super::list_filters_cover_archived_and_active_runs::<$store>();
+            }
+            #[test]
+            fn pruning_never_removes_runs_in_memory() {
+                super::super::pruning_never_removes_runs_in_memory::<$store>();
+            }
+            #[test]
             fn byte_retention_matches_whole_document_retention() {
                 super::super::byte_retention_matches_whole_document_retention::<$store>();
             }
@@ -846,7 +930,7 @@ fn sqlite_tables_record_their_format_and_commit() {
     );
     store.set_format().unwrap();
     store.set_commit("first").unwrap();
-    assert_eq!(store.format().unwrap(), Some(1));
+    assert_eq!(store.format().unwrap(), Some(FORMAT_VERSION));
     assert_eq!(store.commit().unwrap().as_deref(), Some("first"));
     store.drop_tables().unwrap();
     assert_eq!(store.format().unwrap(), None, "no tables at all");
@@ -920,6 +1004,16 @@ fn sqlite_run_queries_use_indexes() {
     store.run_protected("run-03").unwrap();
     let plans = store.sql().plans.borrow_mut().take().unwrap();
     assert_eq!(plans.len(), 6);
+    // Loading the runs held in memory, and listing one workflow's runs, read their
+    // own indexes in order.
+    *store.sql().plans.borrow_mut() = Some(Vec::new());
+    store.records(Collection::Run).unwrap();
+    store.list_runs(5, Some("flow"), None).unwrap();
+    let ordered = store.sql().plans.borrow_mut().take().unwrap();
+    for (plan, index) in ordered.iter().zip(["ws_runs_resident", "ws_runs_workflow"]) {
+        assert!(plan.contains(index), "{plan}");
+        assert!(!plan.contains("TEMP B-TREE"), "{plan}");
+    }
     for (index, plan) in plans.iter().enumerate() {
         let steps: Vec<&str> = plan.split("; ").collect();
         if index == 4 {
@@ -1039,7 +1133,7 @@ fn record_generations_migrate_into_tables() {
     store_generation(&store, &mut old);
     let tracked = legacy::migrate(&mut store).unwrap();
     same(&tracked.workspace, &old);
-    assert_eq!(store.format().unwrap(), Some(1));
+    assert_eq!(store.format().unwrap(), Some(FORMAT_VERSION));
     assert!(!table_exists(&store, "workspace_records"));
     same(&Tracked::load(&store).unwrap().workspace, &old);
     assert_queries_match(&store, &old);
@@ -1075,7 +1169,7 @@ fn a_new_database_migrates_to_an_empty_workspace() {
     let mut store = bare_sqlite();
     let tracked = legacy::migrate(&mut store).unwrap();
     assert!(tracked.workspace.workflows.is_empty() && tracked.workspace.runs.is_empty());
-    assert_eq!(store.format().unwrap(), Some(1));
+    assert_eq!(store.format().unwrap(), Some(FORMAT_VERSION));
 }
 
 #[test]
@@ -1140,4 +1234,246 @@ fn a_failure_part_way_through_migration_leaves_the_legacy_layout() {
         assert_eq!(store.format().unwrap(), None, "statement {at}");
         same(&legacy::read(store.sql()).unwrap().unwrap(), &old);
     }
+}
+
+/// The table layout (format 1) written before runs could be archived.
+const FORMAT_1_SCHEMA: &[&str] = &[
+    "CREATE TABLE IF NOT EXISTS ws_meta (key TEXT PRIMARY KEY, value TEXT NOT NULL)",
+    "CREATE TABLE IF NOT EXISTS ws_workflows (id TEXT PRIMARY KEY, ord INTEGER NOT NULL, body TEXT NOT NULL)",
+    "CREATE TABLE IF NOT EXISTS ws_revisions (id TEXT PRIMARY KEY, ord INTEGER NOT NULL, body TEXT NOT NULL)",
+    "CREATE TABLE IF NOT EXISTS ws_audit (id TEXT PRIMARY KEY, ord INTEGER NOT NULL, body TEXT NOT NULL)",
+    "CREATE TABLE IF NOT EXISTS ws_webhooks (id TEXT PRIMARY KEY, ord INTEGER NOT NULL, body TEXT NOT NULL)",
+    "CREATE TABLE IF NOT EXISTS ws_runs (id TEXT PRIMARY KEY, ord INTEGER NOT NULL, status TEXT NOT NULL, created_at INTEGER NOT NULL, wake_at INTEGER, response_open INTEGER NOT NULL, response_deadline INTEGER, parent_id TEXT, root_id TEXT, summary TEXT NOT NULL, body TEXT NOT NULL)",
+    "CREATE TABLE IF NOT EXISTS ws_run_awaits (child_id TEXT NOT NULL, run_id TEXT NOT NULL, PRIMARY KEY(child_id, run_id))",
+    "CREATE INDEX IF NOT EXISTS ws_runs_ord ON ws_runs(ord, id)",
+    "CREATE INDEX IF NOT EXISTS ws_runs_status ON ws_runs(status)",
+    "CREATE INDEX IF NOT EXISTS ws_runs_wake_at ON ws_runs(wake_at)",
+    "CREATE INDEX IF NOT EXISTS ws_runs_response ON ws_runs(response_open, response_deadline)",
+    "CREATE INDEX IF NOT EXISTS ws_runs_parent ON ws_runs(parent_id)",
+    "CREATE INDEX IF NOT EXISTS ws_runs_root ON ws_runs(root_id)",
+    "CREATE INDEX IF NOT EXISTS ws_run_awaits_run ON ws_run_awaits(run_id)",
+];
+
+#[test]
+fn format_1_tables_upgrade_in_place() {
+    // Write a workspace with a finished and an active run as format 1 stored it:
+    // every run in memory, no workflow or archived columns.
+    let mut ws = Workspace::default();
+    handle(
+        &mut ws,
+        "PUT",
+        "/api/workflows/wait",
+        workflow("wait", 5_000),
+        0,
+        "",
+    );
+    handle(
+        &mut ws,
+        "PUT",
+        "/api/workflows/flow",
+        instant("flow"),
+        0,
+        "",
+    );
+    handle(
+        &mut ws,
+        "POST",
+        "/api/runs",
+        json!({"workflowId":"flow","mode":"run","input":{}}),
+        1,
+        "done",
+    );
+    handle(
+        &mut ws,
+        "POST",
+        "/api/runs",
+        json!({"workflowId":"wait","mode":"run","input":{}}),
+        2,
+        "waiting",
+    );
+    let mut reference = sqlite();
+    let mut tracked = Tracked::load(&reference).unwrap();
+    tracked.workspace = ws.clone();
+    tracked.commit(&mut reference).unwrap();
+
+    let mut store = bare_sqlite();
+    for statement in FORMAT_1_SCHEMA {
+        exec(&store, statement, Vec::new());
+    }
+    for (key, value) in [
+        ("format", "1"),
+        ("workspace", &*Store::meta(&reference).unwrap().unwrap()),
+    ] {
+        exec(
+            &store,
+            "INSERT INTO ws_meta VALUES(?,?)",
+            vec![SqlValue::Text(key.into()), SqlValue::Text(value.into())],
+        );
+    }
+    for (order, record) in ws.runs.iter().enumerate() {
+        let summary = record.view(true).unwrap().to_string();
+        exec(
+            &store,
+            "INSERT INTO ws_runs(id,ord,status,created_at,wake_at,response_open,response_deadline,parent_id,root_id,summary,body) VALUES(?,?,?,?,?,0,NULL,NULL,NULL,?,?)",
+            vec![
+                SqlValue::Text(record.id_string().unwrap()),
+                SqlValue::Integer(order as i64),
+                SqlValue::Text(
+                    serde_json::to_value(record.status().unwrap())
+                        .unwrap()
+                        .as_str()
+                        .unwrap()
+                        .into(),
+                ),
+                SqlValue::Integer(record.created_at as i64),
+                record
+                    .wake_at
+                    .map_or(SqlValue::Null, |w| SqlValue::Integer(w as i64)),
+                SqlValue::Text(summary),
+                SqlValue::Text(serde_json::to_string(record).unwrap()),
+            ],
+        );
+    }
+    for workflow in &ws.workflows {
+        exec(
+            &store,
+            "INSERT INTO ws_workflows VALUES(?,?,?)",
+            vec![
+                SqlValue::Text(workflow.graph.id.clone()),
+                SqlValue::Integer(0),
+                SqlValue::Text(serde_json::to_string(workflow).unwrap()),
+            ],
+        );
+    }
+    assert_eq!(store.format().unwrap(), Some(1));
+    assert!(!store.current().unwrap());
+
+    assert!(store.upgrade().unwrap());
+    assert!(store.current().unwrap());
+    assert!(!store.upgrade().unwrap(), "upgrading twice changes nothing");
+    // Every run is still loaded until the next commit archives the finished one.
+    let mut tracked = Tracked::load(&store).unwrap();
+    assert_eq!(tracked.workspace.runs.len(), 2);
+    assert_eq!(
+        store.list_runs(10, Some("wait"), None).unwrap().len(),
+        1,
+        "workflow IDs backfilled"
+    );
+    tracked.commit(&mut store).unwrap();
+    let reloaded = Tracked::load(&store).unwrap();
+    let ids: Vec<String> = reloaded
+        .workspace
+        .runs
+        .iter()
+        .map(|r| r.id_string().unwrap())
+        .collect();
+    assert_eq!(ids, ["waiting"]);
+    assert_eq!(
+        store.stored_run("done").unwrap().unwrap().status().unwrap(),
+        workflow_engine::RunStatus::Succeeded
+    );
+}
+
+fn list_filters_cover_archived_and_active_runs<S: TestStore>() {
+    let mut store = S::fresh();
+    let mut tracked = Tracked::load(&store).unwrap();
+    handle(
+        &mut tracked.workspace,
+        "PUT",
+        "/api/workflows/wait",
+        workflow("wait", 5_000),
+        0,
+        "",
+    );
+    handle(
+        &mut tracked.workspace,
+        "PUT",
+        "/api/workflows/flow",
+        instant("flow"),
+        0,
+        "",
+    );
+    for (i, id) in ["wait", "flow", "wait", "flow", "flow"]
+        .into_iter()
+        .enumerate()
+    {
+        handle(
+            &mut tracked.workspace,
+            "POST",
+            "/api/runs",
+            json!({"workflowId":id,"mode":"run","input":{}}),
+            i as u64,
+            &format!("{id}-{i}"),
+        );
+    }
+    let (tracked, _) = cycle(&mut store, &mut tracked);
+    assert_eq!(
+        tracked.workspace.runs.len(),
+        2,
+        "the waiting runs stay in memory"
+    );
+    let ids = |workflow: Option<&str>, status: Option<&str>| -> Vec<String> {
+        tracked
+            .workspace
+            .list_runs(10, workflow, status)
+            .unwrap()
+            .into_iter()
+            .map(|v| v["id"].as_str().unwrap().to_string())
+            .collect()
+    };
+    assert_eq!(
+        ids(None, None),
+        ["flow-4", "flow-3", "wait-2", "flow-1", "wait-0"]
+    );
+    assert_eq!(ids(Some("flow"), None), ["flow-4", "flow-3", "flow-1"]);
+    assert_eq!(ids(None, Some("running")), ["wait-2", "wait-0"]);
+    assert_eq!(ids(Some("flow"), Some("running")), Vec::<String>::new());
+    assert_eq!(tracked.workspace.list_runs(2, None, None).unwrap().len(), 2);
+}
+
+fn pruning_never_removes_runs_in_memory<S: TestStore>() {
+    let mut store = S::fresh();
+    let mut tracked = Tracked::load(&store).unwrap();
+    handle(
+        &mut tracked.workspace,
+        "PUT",
+        "/api/workflows/wait",
+        workflow("wait", 50_000),
+        0,
+        "",
+    );
+    handle(
+        &mut tracked.workspace,
+        "PUT",
+        "/api/workflows/flow",
+        instant("flow"),
+        0,
+        "",
+    );
+    for i in 0..3 {
+        handle(
+            &mut tracked.workspace,
+            "POST",
+            "/api/runs",
+            json!({"workflowId":"wait","mode":"run","input":{}}),
+            i,
+            &format!("old-{i}"),
+        );
+    }
+    for i in 0..120 {
+        handle(
+            &mut tracked.workspace,
+            "POST",
+            "/api/runs",
+            json!({"workflowId":"flow","mode":"run","input":{}}),
+            10 + i,
+            &format!("new-{i:03}"),
+        );
+    }
+    let (tracked, _) = cycle(&mut store, &mut tracked);
+    let kept = listed(&store, 1000);
+    // The newest 100 runs, plus the three older runs that are still waiting.
+    assert_eq!(kept.len(), 103);
+    assert_eq!(&kept[100..], ["old-2", "old-1", "old-0"]);
+    assert_eq!(tracked.workspace.runs.len(), 3);
 }

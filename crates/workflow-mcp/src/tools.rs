@@ -665,20 +665,10 @@ fn execute(
             )
         }
         "runs_list" => {
-            let mut items = vec![];
-            for r in &ws.runs {
-                let v = r
-                    .view(true)
-                    .map_err(|_| err("internal", "Cannot read run"))?;
-                if args["workflowId"]
-                    .as_str()
-                    .is_some_and(|s| v["workflowId"] != s)
-                    || args["status"].as_str().is_some_and(|s| v["status"] != s)
-                {
-                    continue;
-                }
-                items.push(v)
-            }
+            // Every page `page` can return: the furthest cursor plus the largest limit.
+            let items = ws
+                .list_runs(10_100, args["workflowId"].as_str(), args["status"].as_str())
+                .map_err(|_| err("internal", "Cannot read runs"))?;
             page(items, args)
         }
         "runs_get" => {
@@ -852,32 +842,26 @@ pub fn call_with_data(
                     false,
                 )
             } else {
-                ws.runs
-                    .iter()
-                    .find_map(|r| {
+                args["runId"]
+                    .as_str()
+                    .and_then(|id| ws.find_run(id).ok().flatten())
+                    .and_then(|r| {
                         let checkpoint: Value = serde_json::from_str(&r.checkpoint).ok()?;
-                        if checkpoint["id"] == args["runId"] {
-                            Some((
-                                serde_json::from_value::<workflow_schema::Workflow>(
-                                    checkpoint["workflow"].clone(),
-                                )
-                                .ok(),
-                                r.mode == workflow_service::Mode::Simulation,
-                            ))
-                        } else {
-                            None
-                        }
+                        Some((
+                            serde_json::from_value::<workflow_schema::Workflow>(
+                                checkpoint["workflow"].clone(),
+                            )
+                            .ok(),
+                            r.mode == workflow_service::Mode::Simulation,
+                        ))
                     })
                     .unwrap_or((None, false))
             };
         if let Some(graph) = graph {
             let targets = if matches!(name, "runs_get" | "runs_resume") {
-                ws.runs
-                    .iter()
-                    .find(|r| {
-                        serde_json::from_str::<Value>(&r.checkpoint)
-                            .is_ok_and(|v| v["id"] == args["runId"])
-                    })
+                args["runId"]
+                    .as_str()
+                    .and_then(|id| ws.find_run(id).ok().flatten())
                     .map(|r| r.invocation_targets.clone())
                     .unwrap_or_default()
             } else {

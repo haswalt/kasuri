@@ -11,7 +11,11 @@
 //! through the host's `transactionSync`. Hosts must call [`Store::apply`],
 //! [`SqlStore::create`], [`SqlStore::set_commit`] and [`SqlStore::drop_tables`]
 //! inside one of their own transactions.
-use super::{ChangeSet, Collection, EntityKey, Record, RunColumns, RunQueries, Store, StoreError};
+use super::{
+    ChangeSet, Collection, EntityKey, Record, RunArchive, RunColumns, RunQueries, Store,
+    StoreError, decode_run,
+};
+use crate::RunRecord;
 use serde_json::Value;
 
 /// A value bound to, or read from, a SQL statement.
@@ -59,7 +63,8 @@ pub trait SqlExec {
 }
 
 /// The table layout version written to `ws_meta` once a workspace is stored here.
-pub const FORMAT_VERSION: i64 = 1;
+/// Version 2 added `ws_runs.workflow_id` and `ws_runs.archived`.
+pub const FORMAT_VERSION: i64 = 2;
 
 const SCHEMA: &[&str] = &[
     "CREATE TABLE IF NOT EXISTS ws_meta (key TEXT PRIMARY KEY, value TEXT NOT NULL)",
@@ -67,7 +72,7 @@ const SCHEMA: &[&str] = &[
     "CREATE TABLE IF NOT EXISTS ws_revisions (id TEXT PRIMARY KEY, ord INTEGER NOT NULL, body TEXT NOT NULL)",
     "CREATE TABLE IF NOT EXISTS ws_audit (id TEXT PRIMARY KEY, ord INTEGER NOT NULL, body TEXT NOT NULL)",
     "CREATE TABLE IF NOT EXISTS ws_webhooks (id TEXT PRIMARY KEY, ord INTEGER NOT NULL, body TEXT NOT NULL)",
-    "CREATE TABLE IF NOT EXISTS ws_runs (id TEXT PRIMARY KEY, ord INTEGER NOT NULL, status TEXT NOT NULL, created_at INTEGER NOT NULL, wake_at INTEGER, response_open INTEGER NOT NULL, response_deadline INTEGER, parent_id TEXT, root_id TEXT, summary TEXT NOT NULL, body TEXT NOT NULL)",
+    "CREATE TABLE IF NOT EXISTS ws_runs (id TEXT PRIMARY KEY, ord INTEGER NOT NULL, status TEXT NOT NULL, created_at INTEGER NOT NULL, wake_at INTEGER, response_open INTEGER NOT NULL, response_deadline INTEGER, parent_id TEXT, root_id TEXT, summary TEXT NOT NULL, body TEXT NOT NULL, workflow_id TEXT NOT NULL DEFAULT '', archived INTEGER NOT NULL DEFAULT 0)",
     "CREATE TABLE IF NOT EXISTS ws_run_awaits (child_id TEXT NOT NULL, run_id TEXT NOT NULL, PRIMARY KEY(child_id, run_id))",
     "CREATE INDEX IF NOT EXISTS ws_runs_ord ON ws_runs(ord, id)",
     "CREATE INDEX IF NOT EXISTS ws_runs_status ON ws_runs(status)",
@@ -76,6 +81,8 @@ const SCHEMA: &[&str] = &[
     "CREATE INDEX IF NOT EXISTS ws_runs_parent ON ws_runs(parent_id)",
     "CREATE INDEX IF NOT EXISTS ws_runs_root ON ws_runs(root_id)",
     "CREATE INDEX IF NOT EXISTS ws_run_awaits_run ON ws_run_awaits(run_id)",
+    "CREATE INDEX IF NOT EXISTS ws_runs_resident ON ws_runs(archived, ord, id)",
+    "CREATE INDEX IF NOT EXISTS ws_runs_workflow ON ws_runs(workflow_id, ord, id)",
 ];
 const TABLES: &[&str] = &[
     "ws_meta",
@@ -162,6 +169,32 @@ impl<E: SqlExec> SqlStore<E> {
             })
             .transpose()
     }
+    /// Whether the tables hold a workspace in the current layout version.
+    pub fn current(&self) -> Result<bool, StoreError> {
+        Ok(self.format()? == Some(FORMAT_VERSION))
+    }
+    /// Bring tables written in an older layout version up to date. Returns whether
+    /// anything changed. Run it inside the host's transaction.
+    pub fn upgrade(&self) -> Result<bool, StoreError> {
+        match self.format()? {
+            Some(1) => {
+                for statement in [
+                    "ALTER TABLE ws_runs ADD COLUMN workflow_id TEXT NOT NULL DEFAULT ''",
+                    "ALTER TABLE ws_runs ADD COLUMN archived INTEGER NOT NULL DEFAULT 0",
+                    "UPDATE ws_runs SET workflow_id=COALESCE(json_extract(summary,'$.workflowId'),'')",
+                ] {
+                    self.rows(statement, Vec::new())?;
+                }
+                self.create()?;
+                self.set_format()?;
+                Ok(true)
+            }
+            Some(FORMAT_VERSION) | None => Ok(false),
+            Some(other) => Err(StoreError::Invalid(format!(
+                "storage format {other} is newer than this release supports"
+            ))),
+        }
+    }
     /// Mark the tables as holding the workspace, in the current layout version.
     pub fn set_format(&self) -> Result<(), StoreError> {
         self.put_meta("format", &FORMAT_VERSION.to_string())
@@ -199,6 +232,7 @@ impl<E: SqlExec> SqlStore<E> {
             body,
             // Columns are derived from the body for queries; loading doesn't need them.
             columns: None,
+            archived: false,
         })
     }
     fn write_run(&self, record: &Record) -> Result<(), StoreError> {
@@ -206,7 +240,7 @@ impl<E: SqlExec> SqlStore<E> {
             StoreError::Invalid(format!("run {} has no indexed columns", record.key.id))
         })?;
         self.rows(
-            "INSERT OR REPLACE INTO ws_runs(id,ord,status,created_at,wake_at,response_open,response_deadline,parent_id,root_id,summary,body) VALUES(?,?,?,?,?,?,?,?,?,?,?)",
+            "INSERT OR REPLACE INTO ws_runs(id,ord,status,created_at,wake_at,response_open,response_deadline,parent_id,root_id,summary,body,workflow_id,archived) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?)",
             vec![
                 text(&record.key.id),
                 SqlValue::Integer(record.order),
@@ -219,13 +253,16 @@ impl<E: SqlExec> SqlStore<E> {
                 columns.root_id.as_deref().map_or(SqlValue::Null, text),
                 text(&columns.summary),
                 text(&record.body),
+                text(&columns.workflow_id),
+                SqlValue::Integer(record.archived.into()),
             ],
         )?;
         self.rows(
             "DELETE FROM ws_run_awaits WHERE run_id=?",
             vec![text(&record.key.id)],
         )?;
-        for child in &columns.awaits {
+        // Only runs in memory can protect children; archived runs have finished.
+        for child in columns.awaits.iter().filter(|_| !record.archived) {
             self.rows(
                 "INSERT OR IGNORE INTO ws_run_awaits(child_id,run_id) VALUES(?,?)",
                 vec![text(child), text(&record.key.id)],
@@ -240,9 +277,14 @@ impl<E: SqlExec> Store for SqlStore<E> {
         self.meta_value("workspace")
     }
     fn records(&self, collection: Collection) -> Result<Vec<Record>, StoreError> {
+        let resident = if collection == Collection::Run {
+            " WHERE archived=0"
+        } else {
+            ""
+        };
         self.rows(
             &format!(
-                "SELECT id,ord,body FROM {} ORDER BY ord,id",
+                "SELECT id,ord,body FROM {}{resident} ORDER BY ord,id",
                 table(collection)
             ),
             Vec::new(),
@@ -263,6 +305,22 @@ impl<E: SqlExec> Store for SqlStore<E> {
         .next()
         .map(|row| Self::record_row(key.collection, row))
         .transpose()
+    }
+    fn min_order(&self, collection: Collection) -> Result<Option<i64>, StoreError> {
+        self.first(
+            &format!("SELECT MIN(ord) FROM {}", table(collection)),
+            Vec::new(),
+        )?
+        .map(|v| v.integer())
+        .transpose()
+        .map(Option::flatten)
+    }
+    fn prune_runs(&mut self, keep: usize) -> Result<(), StoreError> {
+        self.rows(
+            "DELETE FROM ws_runs WHERE archived=1 AND id NOT IN (SELECT id FROM ws_runs ORDER BY ord,id LIMIT ?)",
+            vec![unsigned(keep as u64)],
+        )?;
+        Ok(())
     }
     /// Atomic only inside the host's transaction; see the module documentation.
     fn apply(&mut self, changes: &ChangeSet) -> Result<(), StoreError> {
@@ -300,6 +358,51 @@ impl<E: SqlExec> Store for SqlStore<E> {
             }
         }
         Ok(())
+    }
+}
+
+impl<E: SqlExec> RunArchive for SqlStore<E> {
+    fn stored_run(&self, id: &str) -> Result<Option<RunRecord>, StoreError> {
+        self.first("SELECT body FROM ws_runs WHERE id=?", vec![text(id)])?
+            .map(|body| decode_run(&body.text()?))
+            .transpose()
+    }
+    fn list_runs(
+        &self,
+        limit: usize,
+        workflow_id: Option<&str>,
+        status: Option<&str>,
+    ) -> Result<Vec<Value>, StoreError> {
+        let mut filters = Vec::new();
+        let mut params = Vec::new();
+        if let Some(workflow_id) = workflow_id {
+            filters.push("workflow_id=?");
+            params.push(text(workflow_id));
+        }
+        if let Some(status) = status {
+            filters.push("status=?");
+            params.push(text(status));
+        }
+        let filter = if filters.is_empty() {
+            String::new()
+        } else {
+            format!(" WHERE {}", filters.join(" AND "))
+        };
+        params.push(unsigned(limit as u64));
+        self.rows(
+            &format!("SELECT summary FROM ws_runs{filter} ORDER BY ord,id LIMIT ?"),
+            params,
+        )?
+        .into_iter()
+        .map(|row| {
+            let summary = row
+                .into_iter()
+                .next()
+                .ok_or_else(|| StoreError::Invalid("empty row".into()))?
+                .text()?;
+            serde_json::from_str(&summary).map_err(|e| StoreError::Invalid(e.to_string()))
+        })
+        .collect()
     }
 }
 
