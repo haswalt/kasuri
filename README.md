@@ -55,7 +55,7 @@ An HttpOnly cookie identifies a browser ownership session with a separate random
 
 Kasuri exposes a Rust/Wasm MCP endpoint for agents to build and manage workflows, simulate or execute runs, and read retained audit records. The MCP portal creates revocable, scoped bearer credentials and approves OAuth connections using PKCE. Read, edit, simulation, publication, execution and run control are separate permissions. See [connection and authorization setup](docs/mcp.md) and the [remaining MCP requirements](docs/agent-mcp.md). This inbound endpoint is separate from the planned MCP Client workflow connector. [Agentic connector requirements](docs/agentic-connectors.md) include Cloudflare AI Gateway and Cloudflare MCP Portals as model-routing and tool-access options.
 
-Completed changes use Conventional Commits. See [engine details](docs/workflow-engine.md).
+Completed changes use Conventional Commits; see [contributing](CONTRIBUTING.md) for setup, checks and pull request conventions. See [engine details](docs/workflow-engine.md).
 
 The [UI implementation notes](docs/ui-implementation.md) describe the design handoff, implemented screens and remaining backend dependencies. See [styling the UI](docs/styling.md) for Panda CSS tokens and recipes.
 

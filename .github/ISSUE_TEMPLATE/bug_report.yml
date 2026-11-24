@@ -1,0 +1,72 @@
+name: Bug report
+description: Something in Kasuri behaves incorrectly.
+title: "bug: "
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for reporting. Do not include secrets, webhook keys, MCP tokens or private data.
+        Report security vulnerabilities privately instead (see the security link when opening an issue).
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: What happened
+      description: What you saw, including error codes or messages.
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: What you expected
+    validations:
+      required: true
+  - type: textarea
+    id: reproduce
+    attributes:
+      label: Steps to reproduce
+      description: A minimal workflow (exported JSON with secrets removed) or API/MCP calls help most.
+      placeholder: |
+        1. Import the workflow below
+        2. Simulate with input {...}
+        3. Node "x" fails with ...
+    validations:
+      required: true
+  - type: dropdown
+    id: deployment
+    attributes:
+      label: Deployment
+      options:
+        - Cloudflare Workers
+        - Self-hosted (Docker / Compose)
+        - Self-hosted (Kubernetes)
+        - Self-hosted (workerd without Docker)
+        - Local development (pnpm dev)
+    validations:
+      required: true
+  - type: dropdown
+    id: area
+    attributes:
+      label: Area
+      multiple: true
+      options:
+        - Editor / UI
+        - Workflow engine and runs
+        - Connectors
+        - Webhooks
+        - Data Tables / Context Store
+        - MCP / agents
+        - HTTP management API
+        - Deployment / self-hosting
+        - Other
+  - type: input
+    id: version
+    attributes:
+      label: Version or commit
+      description: The commit SHA or release you are running.
+  - type: textarea
+    id: logs
+    attributes:
+      label: Logs or run details
+      description: Relevant run output or logs, with secrets removed.
+      render: text

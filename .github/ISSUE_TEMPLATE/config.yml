@@ -1,0 +1,8 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Report a security vulnerability
+    url: https://github.com/haswalt/kasuri/security/advisories/new
+    about: Report vulnerabilities privately. Do not open a public issue.
+  - name: Documentation
+    url: https://github.com/haswalt/kasuri/tree/develop/docs
+    about: Setup, connectors, webhooks, MCP and self-hosting guides.

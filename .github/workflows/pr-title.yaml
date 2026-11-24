@@ -9,8 +9,8 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 2
     steps:
-      # A squash merge uses the title as the commit subject, so the title must be a
-      # Conventional Commit header for the changelog.
+      # Pull requests are squash-merged with their title as the commit subject, so
+      # the title must be a Conventional Commit header for the changelog.
       # The title is passed through the environment, never interpolated into the script.
       - name: Check Conventional Commit title
         env:
