@@ -196,9 +196,14 @@ pub trait Store {
     fn min_order(&self, collection: Collection) -> Result<Option<i64>, StoreError>;
     /// Apply a change set atomically: all of it or none of it.
     fn apply(&mut self, changes: &ChangeSet) -> Result<(), StoreError>;
-    /// Delete archived runs that aren't among the newest `keep` runs. Runs held in
+    /// Delete archived runs that `retention` no longer keeps: beyond its count in
+    /// each of `workflows`, or older than its cutoffs in any workflow. Runs held in
     /// memory are never deleted. Part of a commit: atomic with `apply`.
-    fn prune_runs(&mut self, keep: usize) -> Result<(), StoreError>;
+    fn prune_runs(
+        &mut self,
+        retention: &RunRetention,
+        workflows: &[String],
+    ) -> Result<(), StoreError>;
 }
 
 /// Read access to every stored run, including archived ones the workspace no
@@ -284,15 +289,32 @@ impl Store for MemoryStore {
             .map(|(_, row)| row.order)
             .min())
     }
-    fn prune_runs(&mut self, keep: usize) -> Result<(), StoreError> {
-        let newest: Vec<EntityKey> = self
-            .run_columns()
-            .take(keep)
-            .map(|(key, _, _)| key.clone())
-            .collect();
-        self.records.retain(|key, row| {
-            key.collection != Collection::Run || !row.archived || newest.contains(key)
-        });
+    fn prune_runs(
+        &mut self,
+        retention: &RunRetention,
+        workflows: &[String],
+    ) -> Result<(), StoreError> {
+        let mut doomed: Vec<EntityKey> = Vec::new();
+        if let Some(keep) = retention.per_workflow {
+            for workflow in workflows {
+                doomed.extend(
+                    self.run_columns()
+                        .filter(|(_, _, c)| &c.workflow_id == workflow)
+                        .skip(keep)
+                        .map(|(key, _, _)| key.clone()),
+                );
+            }
+        }
+        doomed.extend(
+            self.run_columns()
+                .filter(|(_, _, c)| retention.expired(&c.status, c.created_at))
+                .map(|(key, _, _)| key.clone()),
+        );
+        for key in doomed {
+            if self.records.get(&key).is_some_and(|row| row.archived) {
+                self.records.remove(&key);
+            }
+        }
         Ok(())
     }
     fn apply(&mut self, changes: &ChangeSet) -> Result<(), StoreError> {
@@ -631,17 +653,28 @@ impl Tracked {
         Ok(changes)
     }
 
-    /// Commit the operation's changes to `store` and make them the new baseline.
-    /// Archiving a run also prunes stored history to the newest [`RUN_HISTORY`]
-    /// runs. Returns what was written.
+    /// Commit the operation's changes to `store` and make them the new baseline,
+    /// pruning stored run history by the workspace's [`RunRetention`]. Returns
+    /// what was written.
     pub fn commit(&mut self, store: &mut impl Store) -> Result<ChangeSet, StoreError> {
         let changes = self.changes()?;
         if changes.is_empty() {
             return Ok(changes);
         }
         store.apply(&changes)?;
-        if changes.upserts.iter().any(|r| r.archived) {
-            store.prune_runs(RUN_HISTORY)?;
+        // Count limits can only be newly exceeded in workflows whose runs were just
+        // archived; age limits are checked on every commit (an indexed lookup).
+        let mut workflows: Vec<String> = changes
+            .upserts
+            .iter()
+            .filter(|r| r.archived)
+            .filter_map(|r| r.columns.as_ref().map(|c| c.workflow_id.clone()))
+            .collect();
+        workflows.sort();
+        workflows.dedup();
+        let retention = self.workspace.retention;
+        if !workflows.is_empty() || retention.created_before.is_some() {
+            store.prune_runs(&retention, &workflows)?;
         }
         if let Some(meta) = &changes.meta {
             self.meta = Some(meta.clone());
@@ -664,9 +697,100 @@ impl Tracked {
     }
 }
 
-/// How many runs stored history keeps, newest first. Runs still in memory are
-/// always kept, even beyond this.
-pub const RUN_HISTORY: usize = 100;
+/// How long finished runs are kept as history, as configured for a host.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct RetentionPolicy {
+    /// Finished runs kept per workflow, newest first. `None` keeps any number.
+    pub per_workflow: Option<usize>,
+    /// Finished runs older than this (from when they were created) are deleted.
+    /// `None` keeps them however old.
+    pub max_age_ms: Option<u64>,
+    /// The same for failed runs, so they can be kept longer for investigation.
+    pub failed_max_age_ms: Option<u64>,
+}
+impl Default for RetentionPolicy {
+    fn default() -> Self {
+        Self {
+            per_workflow: Some(DEFAULT_RUN_HISTORY),
+            max_age_ms: None,
+            failed_max_age_ms: None,
+        }
+    }
+}
+/// Finished runs kept per workflow unless the host configures otherwise.
+pub const DEFAULT_RUN_HISTORY: usize = 100;
+const DAY_MS: u64 = 24 * 60 * 60 * 1000;
+impl RetentionPolicy {
+    /// Parse the host's settings: `RUN_HISTORY` (runs per workflow; empty for the
+    /// default, `0` or `unlimited` for no count limit), `RUN_HISTORY_DAYS` (empty,
+    /// `0` or `unlimited` for no age limit) and `FAILED_RUN_HISTORY_DAYS` (empty to
+    /// follow `RUN_HISTORY_DAYS`). Anything else is a configuration error.
+    pub fn parse(history: &str, days: &str, failed_days: &str) -> Result<Self, String> {
+        let number = |name: &str, value: &str| -> Result<Option<u64>, String> {
+            match value.trim() {
+                "0" | "unlimited" => Ok(None),
+                text => text
+                    .parse::<u64>()
+                    .map(Some)
+                    .map_err(|_| format!("{name} must be a positive integer, 0 or unlimited")),
+            }
+        };
+        let per_workflow = match history.trim() {
+            "" => Some(DEFAULT_RUN_HISTORY),
+            text => number("RUN_HISTORY", text)?.map(|n| n as usize),
+        };
+        let days_ms = |name: &str, value: &str| -> Result<Option<u64>, String> {
+            Ok(number(name, value)?.map(|d| d.saturating_mul(DAY_MS)))
+        };
+        let max_age_ms = match days.trim() {
+            "" => None,
+            text => days_ms("RUN_HISTORY_DAYS", text)?,
+        };
+        let failed_max_age_ms = match failed_days.trim() {
+            "" => max_age_ms,
+            text => days_ms("FAILED_RUN_HISTORY_DAYS", text)?,
+        };
+        Ok(Self {
+            per_workflow,
+            max_age_ms,
+            failed_max_age_ms,
+        })
+    }
+    /// The policy's cutoffs at `now`.
+    pub fn at(&self, now: u64) -> RunRetention {
+        RunRetention {
+            per_workflow: self.per_workflow,
+            created_before: self.max_age_ms.map(|age| now.saturating_sub(age)),
+            failed_created_before: self.failed_max_age_ms.map(|age| now.saturating_sub(age)),
+        }
+    }
+}
+/// A [`RetentionPolicy`] resolved to absolute cutoffs, carried by a loaded
+/// workspace and applied when it commits.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct RunRetention {
+    pub per_workflow: Option<usize>,
+    /// Finished runs created before this time are deleted.
+    pub created_before: Option<u64>,
+    /// Failed runs created before this time are deleted.
+    pub failed_created_before: Option<u64>,
+}
+impl Default for RunRetention {
+    fn default() -> Self {
+        RetentionPolicy::default().at(0)
+    }
+}
+impl RunRetention {
+    /// Whether a finished run with this status and creation time has expired.
+    pub fn expired(&self, status: &str, created_at: u64) -> bool {
+        let cutoff = if status == "failed" {
+            self.failed_created_before
+        } else {
+            self.created_before
+        };
+        cutoff.is_some_and(|before| created_at < before)
+    }
+}
 
 type Entities = Vec<(EntityKey, String)>;
 

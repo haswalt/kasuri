@@ -12,8 +12,8 @@
 //! [`SqlStore::create`], [`SqlStore::set_commit`] and [`SqlStore::drop_tables`]
 //! inside one of their own transactions.
 use super::{
-    ChangeSet, Collection, EntityKey, Record, RunArchive, RunColumns, RunQueries, Store,
-    StoreError, decode_run,
+    ChangeSet, Collection, EntityKey, Record, RunArchive, RunColumns, RunQueries, RunRetention,
+    Store, StoreError, decode_run,
 };
 use crate::RunRecord;
 use serde_json::Value;
@@ -63,8 +63,9 @@ pub trait SqlExec {
 }
 
 /// The table layout version written to `ws_meta` once a workspace is stored here.
-/// Version 2 added `ws_runs.workflow_id` and `ws_runs.archived`.
-pub const FORMAT_VERSION: i64 = 2;
+/// Version 2 added `ws_runs.workflow_id` and `ws_runs.archived`; version 3 the
+/// `ws_runs_age` index for age-based retention.
+pub const FORMAT_VERSION: i64 = 3;
 
 const SCHEMA: &[&str] = &[
     "CREATE TABLE IF NOT EXISTS ws_meta (key TEXT PRIMARY KEY, value TEXT NOT NULL)",
@@ -83,6 +84,7 @@ const SCHEMA: &[&str] = &[
     "CREATE INDEX IF NOT EXISTS ws_run_awaits_run ON ws_run_awaits(run_id)",
     "CREATE INDEX IF NOT EXISTS ws_runs_resident ON ws_runs(archived, ord, id)",
     "CREATE INDEX IF NOT EXISTS ws_runs_workflow ON ws_runs(workflow_id, ord, id)",
+    "CREATE INDEX IF NOT EXISTS ws_runs_age ON ws_runs(archived, created_at)",
 ];
 const TABLES: &[&str] = &[
     "ws_meta",
@@ -176,24 +178,32 @@ impl<E: SqlExec> SqlStore<E> {
     /// Bring tables written in an older layout version up to date. Returns whether
     /// anything changed. Run it inside the host's transaction.
     pub fn upgrade(&self) -> Result<bool, StoreError> {
-        match self.format()? {
-            Some(1) => {
-                for statement in [
-                    "ALTER TABLE ws_runs ADD COLUMN workflow_id TEXT NOT NULL DEFAULT ''",
-                    "ALTER TABLE ws_runs ADD COLUMN archived INTEGER NOT NULL DEFAULT 0",
-                    "UPDATE ws_runs SET workflow_id=COALESCE(json_extract(summary,'$.workflowId'),'')",
-                ] {
-                    self.rows(statement, Vec::new())?;
-                }
-                self.create()?;
-                self.set_format()?;
-                Ok(true)
-            }
-            Some(FORMAT_VERSION) | None => Ok(false),
-            Some(other) => Err(StoreError::Invalid(format!(
-                "storage format {other} is newer than this release supports"
-            ))),
+        let Some(mut format) = self.format()? else {
+            return Ok(false);
+        };
+        if format > FORMAT_VERSION {
+            return Err(StoreError::Invalid(format!(
+                "storage format {format} is newer than this release supports"
+            )));
         }
+        if format == FORMAT_VERSION {
+            return Ok(false);
+        }
+        if format == 1 {
+            for statement in [
+                "ALTER TABLE ws_runs ADD COLUMN workflow_id TEXT NOT NULL DEFAULT ''",
+                "ALTER TABLE ws_runs ADD COLUMN archived INTEGER NOT NULL DEFAULT 0",
+                "UPDATE ws_runs SET workflow_id=COALESCE(json_extract(summary,'$.workflowId'),'')",
+            ] {
+                self.rows(statement, Vec::new())?;
+            }
+            format = 2;
+        }
+        // Format 3 only adds indexes, which `create` makes for every version.
+        debug_assert!(format == 2);
+        self.create()?;
+        self.set_format()?;
+        Ok(true)
     }
     /// Mark the tables as holding the workspace, in the current layout version.
     pub fn set_format(&self) -> Result<(), StoreError> {
@@ -315,11 +325,32 @@ impl<E: SqlExec> Store for SqlStore<E> {
         .transpose()
         .map(Option::flatten)
     }
-    fn prune_runs(&mut self, keep: usize) -> Result<(), StoreError> {
-        self.rows(
-            "DELETE FROM ws_runs WHERE archived=1 AND id NOT IN (SELECT id FROM ws_runs ORDER BY ord,id LIMIT ?)",
-            vec![unsigned(keep as u64)],
-        )?;
+    fn prune_runs(
+        &mut self,
+        retention: &RunRetention,
+        workflows: &[String],
+    ) -> Result<(), StoreError> {
+        if let Some(keep) = retention.per_workflow {
+            for workflow in workflows {
+                // Rows past the newest `keep` of this workflow, through its index.
+                self.rows(
+                    "DELETE FROM ws_runs WHERE archived=1 AND id IN (SELECT id FROM ws_runs WHERE workflow_id=? ORDER BY ord,id LIMIT -1 OFFSET ?)",
+                    vec![text(workflow), unsigned(keep as u64)],
+                )?;
+            }
+        }
+        if let Some(before) = retention.created_before {
+            self.rows(
+                "DELETE FROM ws_runs WHERE archived=1 AND created_at<? AND status<>'failed'",
+                vec![unsigned(before)],
+            )?;
+        }
+        if let Some(before) = retention.failed_created_before {
+            self.rows(
+                "DELETE FROM ws_runs WHERE archived=1 AND created_at<? AND status='failed'",
+                vec![unsigned(before)],
+            )?;
+        }
         Ok(())
     }
     /// Atomic only inside the host's transaction; see the module documentation.

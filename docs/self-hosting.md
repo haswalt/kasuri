@@ -54,7 +54,7 @@ pnpm build:selfhost
 BASIC_AUTH='username:password' pnpm start
 ```
 
-The process runs from `dist/`, serves on port 8080 and stores data in the root `data/` directory. `dist/` contains the Wasm binary, generated module, assets and `workerd.capnp`. Distribute it with a compatible workerd binary if Node.js is unavailable on the destination. From that directory run `PUBLIC_ORIGIN= BASIC_AUTH= HTTP_ALLOWED_HOSTS= HTTP_PRIVATE_HOSTS= HTTP_SECRETS= MAX_ACTIVE_RUNS= workerd serve workerd.capnp`. The provided launchers supply an empty default for the optional workerd environment binding. The binary itself requires no Node.js runtime.
+The process runs from `dist/`, serves on port 8080 and stores data in the root `data/` directory. `dist/` contains the Wasm binary, generated module, assets and `workerd.capnp`. Distribute it with a compatible workerd binary if Node.js is unavailable on the destination. From that directory run `PUBLIC_ORIGIN= BASIC_AUTH= HTTP_ALLOWED_HOSTS= HTTP_PRIVATE_HOSTS= HTTP_SECRETS= MAX_ACTIVE_RUNS= RUN_HISTORY= RUN_HISTORY_DAYS= FAILED_RUN_HISTORY_DAYS= workerd serve workerd.capnp`. The provided launchers supply an empty default for the optional workerd environment binding. The binary itself requires no Node.js runtime.
 
 For a different address or storage path, use workerd's `--socket-addr http=127.0.0.1:8090` and `--directory-path storage=/absolute/data/path` options. Create the storage directory first.
 

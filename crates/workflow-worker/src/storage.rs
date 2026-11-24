@@ -198,10 +198,28 @@ impl WorkflowWorkspace {
     pub(crate) fn load(&self) -> Result<Workspace> {
         let mut workspace = self.load_stored()?;
         workspace.max_active_runs = self.max_active_runs()?;
+        workspace.retention = self.retention()?.at(crate::now());
         // Finished runs are read from storage on demand.
         workspace.archive =
             workflow_service::Archive::new(Rc::new(tables(&self.state.storage().sql())));
         Ok(workspace)
+    }
+    /// `RUN_HISTORY`, `RUN_HISTORY_DAYS` and `FAILED_RUN_HISTORY_DAYS` from the
+    /// environment. An invalid value fails requests rather than silently keeping
+    /// a different amount of history.
+    fn retention(&self) -> Result<workflow_service::store::RetentionPolicy> {
+        let var = |name: &str| {
+            self.env
+                .var(name)
+                .map(|v| v.to_string())
+                .unwrap_or_default()
+        };
+        workflow_service::store::RetentionPolicy::parse(
+            &var("RUN_HISTORY"),
+            &var("RUN_HISTORY_DAYS"),
+            &var("FAILED_RUN_HISTORY_DAYS"),
+        )
+        .map_err(internal)
     }
     /// `MAX_ACTIVE_RUNS` from the environment: unset, empty, `0` or `unlimited`
     /// set no count limit. An invalid value fails requests rather than silently
