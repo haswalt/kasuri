@@ -125,6 +125,8 @@ fn baseline(store: &mut SqlStore<DoSql>, cache: &WorkspaceCache) -> Result<Track
         remember(store, cache, tracked.clone())?;
         return Ok(tracked);
     }
+    // Tables from an older layout version are brought up to date in place.
+    store.upgrade().map_err(store_error)?;
     let token = store.commit().map_err(store_error)?;
     if let (Some(token), Some((cached, tracked))) = (&token, &*cache.borrow())
         && cached == token
@@ -196,6 +198,9 @@ impl WorkflowWorkspace {
     pub(crate) fn load(&self) -> Result<Workspace> {
         let mut workspace = self.load_stored()?;
         workspace.max_active_runs = self.max_active_runs()?;
+        // Finished runs are read from storage on demand.
+        workspace.archive =
+            workflow_service::Archive::new(Rc::new(tables(&self.state.storage().sql())));
         Ok(workspace)
     }
     /// `MAX_ACTIVE_RUNS` from the environment: unset, empty, `0` or `unlimited`
@@ -212,10 +217,11 @@ impl WorkflowWorkspace {
     fn load_stored(&self) -> Result<Workspace> {
         let sql = self.state.storage().sql();
         let mut store = tables(&sql);
-        if store.format().map_err(store_error)?.is_some() {
+        if store.current().map_err(store_error)? {
             return Ok(baseline(&mut store, &self.cache)?.workspace);
         }
-        // Migrate a workspace saved by an earlier release (or start a new one).
+        // Migrate a workspace saved by an earlier release (or start a new one), or
+        // upgrade tables from an older layout version.
         let cache = self.cache.clone();
         self.sql_transaction(move |sql| Ok(baseline(&mut tables(&sql), &cache)?.workspace))
             .inspect_err(|error| console_error!("Workspace migration to tables failed: {error}"))

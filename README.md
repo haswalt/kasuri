@@ -141,7 +141,7 @@ All backend logic is Rust. Cloudflare's `worker-build` only generates the JavaSc
 Kasuri is under active development. Current limitations:
 
 - **No user accounts.** A browser cookie identifies who owns which workspaces; clearing it loses access to them. Protect private installations with [Cloudflare Access](https://developers.cloudflare.com/cloudflare-one/policies/access/) or the optional Basic authentication. Third-party sign-in is [planned](docs/platform-auth.md).
-- **Workspace capacity.** Each workspace runs as one Durable Object, with a 1.5 MB state budget. See [concurrent runs](docs/deployment.md#concurrent-runs) and the [storage redesign](docs/workspace-storage.md).
+- **Workspace capacity.** Each workspace runs as one Durable Object. Finished runs are stored as history (the newest 100) outside memory; workflows, active runs and audit entries share a 1.5 MB in-memory budget. See [concurrent runs](docs/deployment.md#concurrent-runs) and the [storage redesign](docs/workspace-storage.md).
 - **No SaaS connectors yet.** Integrations use HTTP Request. OAuth-based connectors are not implemented.
 - **Self-hosting is single-node.** See [above](#self-host).
 

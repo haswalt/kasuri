@@ -23,6 +23,24 @@ pub use webhook_response::{Reply as WebhookReply, ResponseWindow};
 use workflow_engine::{Dispatch, Limits, NodeState, Run, RunStatus};
 use workflow_schema::Workflow;
 
+/// Where a workspace reads the stored runs it doesn't hold in memory.
+#[derive(Clone, Default)]
+pub struct Archive(Option<std::rc::Rc<dyn store::RunArchive>>);
+impl Archive {
+    pub fn new(archive: std::rc::Rc<dyn store::RunArchive>) -> Self {
+        Self(Some(archive))
+    }
+}
+impl std::fmt::Debug for Archive {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(if self.0.is_some() {
+            "Archive(attached)"
+        } else {
+            "Archive(none)"
+        })
+    }
+}
+
 pub const MAX_STATE_BYTES: usize = 1_500_000;
 /// New runs start only while stored state is below this share of
 /// `MAX_STATE_BYTES`, leaving the rest for active runs to finish.
@@ -479,6 +497,11 @@ pub struct Workspace {
     /// no count limit. Not persisted: hosts apply their configuration after load.
     #[serde(skip)]
     pub max_active_runs: Option<usize>,
+    /// Stored runs that aren't held in `runs`: finished runs nothing in memory
+    /// depends on. Attached by the host after loading; without one, the
+    /// workspace's runs are all there is.
+    #[serde(skip)]
+    pub archive: Archive,
     /// Internal management credentials and receipts. Never included in API snapshots.
     #[serde(default)]
     pub management: Value,
@@ -607,6 +630,52 @@ impl Workspace {
         }
         Ok(())
     }
+    /// Whether the run at `index` can leave memory: it has finished, no active run
+    /// depends on it, and it holds no open webhook response.
+    pub fn run_archivable(&self, index: usize) -> bool {
+        self.retention_removable(index)
+    }
+    /// A run by ID, from memory or, if it has been archived, from the store.
+    pub fn find_run(&self, id: &str) -> Result<Option<std::borrow::Cow<'_, RunRecord>>, ApiError> {
+        if let Some(record) = self.runs.iter().find(|r| r.matches_id(id)) {
+            return Ok(Some(std::borrow::Cow::Borrowed(record)));
+        }
+        match &self.archive.0 {
+            Some(archive) => Ok(archive
+                .stored_run(id)
+                .map_err(|e| error(500, e.to_string()))?
+                .map(std::borrow::Cow::Owned)),
+            None => Ok(None),
+        }
+    }
+    /// List entries for the newest `limit` runs, archived ones included, newest
+    /// first, optionally of one workflow and status.
+    pub fn list_runs(
+        &self,
+        limit: usize,
+        workflow_id: Option<&str>,
+        status: Option<&str>,
+    ) -> Result<Vec<Value>, ApiError> {
+        if let Some(archive) = &self.archive.0 {
+            return archive
+                .list_runs(limit, workflow_id, status)
+                .map_err(|e| error(500, e.to_string()));
+        }
+        let mut items = Vec::new();
+        for record in &self.runs {
+            if items.len() >= limit {
+                break;
+            }
+            let view = record.view(true)?;
+            if workflow_id.is_some_and(|w| view["workflowId"] != w)
+                || status.is_some_and(|s| view["status"] != s)
+            {
+                continue;
+            }
+            items.push(view);
+        }
+        Ok(items)
+    }
     /// A terminal run that no active parent or awaiting caller depends on.
     fn retention_removable(&self, index: usize) -> bool {
         !self.invocation_protected(index)
@@ -632,7 +701,7 @@ impl Workspace {
     }
     pub fn snapshot(&self) -> Result<Value, ApiError> {
         Ok(
-            json!({"apiVersion":2,"editPreconditionsRequired":true,"workflows":self.workflows.iter().filter(|w|w.archived_at.is_none()).collect::<Vec<_>>(),"runs":self.run_summaries(100)?,"connectors":manifests()}),
+            json!({"apiVersion":2,"editPreconditionsRequired":true,"workflows":self.workflows.iter().filter(|w|w.archived_at.is_none()).collect::<Vec<_>>(),"runs":self.list_runs(100,None,None)?,"connectors":manifests()}),
         )
     }
     fn index(&self, id: &str) -> Result<usize, ApiError> {
@@ -1421,11 +1490,19 @@ impl Workspace {
             return Ok((200, serde_json::to_value(doc).unwrap()));
         }
         if parts[1] == "runs" {
-            let index = self
-                .runs
-                .iter()
-                .position(|r| r.matches_id(id))
-                .ok_or_else(|| error(404, "Run not found"))?;
+            let Some(index) = self.runs.iter().position(|r| r.matches_id(id)) else {
+                // Archived runs have finished: they can be read, not controlled.
+                let record = self
+                    .find_run(id)?
+                    .ok_or_else(|| error(404, "Run not found"))?;
+                return match (method, parts.len()) {
+                    ("GET", 3) => Ok((200, record.view(false)?)),
+                    ("POST", 4) if matches!(parts[3], "pause" | "resume" | "cancel") => {
+                        Err(error(409, "Run has already finished"))
+                    }
+                    _ => Err(error(404, "Route not found")),
+                };
+            };
             if method == "GET" && parts.len() == 3 {
                 return Ok((200, self.runs[index].view(false)?));
             }
@@ -1801,7 +1878,7 @@ impl Workspace {
             let due_at = draft.next_scheduled_at.unwrap();
             let doc = self.live_document(&draft.graph.id)?;
             let id = format!("cron-{}-{}-{due_at}", doc.graph.id, doc.graph.revision);
-            if !self.runs.iter().any(|r| r.matches_id(&id)) {
+            if self.find_run(&id)?.is_none() {
                 let trigger = doc
                     .graph
                     .nodes

@@ -320,7 +320,8 @@ impl DurableObject for WorkflowWorkspace {
                     .as_str()
                     .filter(|_| value["workflowId"].is_string())
                 {
-                    if let Some(record) = workspace.runs.iter().find(|r| r.matches_id(id)) {
+                    // The run may have finished during the save and been archived.
+                    if let Some(record) = workspace.find_run(id).map_err(internal)? {
                         value = record.view(false).map_err(internal)?;
                     }
                 }

@@ -382,12 +382,16 @@ impl WorkflowWorkspace {
         match workspace.receive_webhook_context(id, endpoint, payload, now(), &run_id, context) {
             Ok(value) => {
                 self.save(&mut workspace).await?;
-                if workspace.runs.iter().any(|r| {
-                    r.webhook_response
-                        .as_ref()
-                        .is_some_and(|w| w.deadline_ms.is_some())
-                        && r.matches_id(&run_id)
-                }) {
+                // The run may already have finished and been archived.
+                if workspace
+                    .find_run(&run_id)
+                    .map_err(crate::internal)?
+                    .is_some_and(|r| {
+                        r.webhook_response
+                            .as_ref()
+                            .is_some_and(|w| w.deadline_ms.is_some())
+                    })
+                {
                     self.keep_webhook_response(&run_id, req.signal()).await
                 } else {
                     let mut response = Response::from_json(&value)?.with_status(202);

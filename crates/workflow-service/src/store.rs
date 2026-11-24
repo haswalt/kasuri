@@ -64,6 +64,9 @@ pub struct Record {
     pub order: i64,
     pub body: String,
     pub columns: Option<RunColumns>,
+    /// A finished run that nothing in memory depends on any more. It stays stored
+    /// (for run lists, details and history) but is not loaded with the workspace.
+    pub archived: bool,
 }
 
 /// Indexed facts about a run, derived from its [`RunRecord`] whenever the run is
@@ -72,6 +75,8 @@ pub struct Record {
 pub struct RunColumns {
     /// Engine status (`running`, `paused`, `succeeded`, `failed`, `cancelled`).
     pub status: String,
+    /// The workflow the run belongs to.
+    pub workflow_id: String,
     pub created_at: u64,
     /// When the run next needs the engine (a wait, retry or deadline).
     pub wake_at: Option<u64>,
@@ -90,8 +95,13 @@ pub struct RunColumns {
 impl RunColumns {
     pub fn of(record: &RunRecord) -> Result<Self, ApiError> {
         let window = record.webhook_response.as_ref().filter(|w| w.open());
+        let summary = record.view(true)?;
         Ok(Self {
             status: status_text(record.status()?),
+            workflow_id: summary["workflowId"]
+                .as_str()
+                .unwrap_or_default()
+                .to_owned(),
             created_at: record.created_at,
             wake_at: record.wake_at,
             response_open: window.is_some(),
@@ -104,7 +114,7 @@ impl RunColumns {
                 .filter(|c| c.awaited && !c.collected)
                 .map(|c| c.run_id.clone())
                 .collect(),
-            summary: record.view(true)?.to_string(),
+            summary: summary.to_string(),
         })
     }
     fn active(&self) -> bool {
@@ -177,19 +187,58 @@ impl std::fmt::Display for StoreError {
 pub trait Store {
     /// The metadata entity, or `None` for a workspace that has never been saved.
     fn meta(&self) -> Result<Option<String>, StoreError>;
-    /// Every record of a collection, sorted by ascending `order`.
+    /// Every record of a collection that is loaded with the workspace, sorted by
+    /// ascending `order`. Archived runs are not included.
     fn records(&self, collection: Collection) -> Result<Vec<Record>, StoreError>;
-    /// One record by key.
+    /// One record by key, archived or not.
     fn record(&self, key: &EntityKey) -> Result<Option<Record>, StoreError>;
+    /// The lowest order key in a collection, archived records included.
+    fn min_order(&self, collection: Collection) -> Result<Option<i64>, StoreError>;
     /// Apply a change set atomically: all of it or none of it.
     fn apply(&mut self, changes: &ChangeSet) -> Result<(), StoreError>;
+    /// Delete archived runs that aren't among the newest `keep` runs. Runs held in
+    /// memory are never deleted. Part of a commit: atomic with `apply`.
+    fn prune_runs(&mut self, keep: usize) -> Result<(), StoreError>;
+}
+
+/// Read access to every stored run, including archived ones the workspace no
+/// longer holds in memory. Hosts attach one to the workspace they load.
+pub trait RunArchive {
+    /// A stored run by ID, archived or not, as last committed.
+    fn stored_run(&self, id: &str) -> Result<Option<RunRecord>, StoreError>;
+    /// List entries (`RunRecord::view(true)`) for the newest `limit` stored runs,
+    /// optionally of one workflow and status, newest first.
+    fn list_runs(
+        &self,
+        limit: usize,
+        workflow_id: Option<&str>,
+        status: Option<&str>,
+    ) -> Result<Vec<Value>, StoreError>;
 }
 
 /// An in-memory [`Store`] for tests and hosts without durable storage.
 #[derive(Clone, Debug, Default)]
 pub struct MemoryStore {
     meta: Option<String>,
-    records: BTreeMap<EntityKey, (i64, String, Option<RunColumns>)>,
+    records: BTreeMap<EntityKey, Stored>,
+}
+#[derive(Clone, Debug)]
+struct Stored {
+    order: i64,
+    body: String,
+    columns: Option<RunColumns>,
+    archived: bool,
+}
+impl Stored {
+    fn record(&self, key: &EntityKey) -> Record {
+        Record {
+            key: key.clone(),
+            order: self.order,
+            body: self.body.clone(),
+            columns: self.columns.clone(),
+            archived: self.archived,
+        }
+    }
 }
 impl MemoryStore {
     fn run_columns(&self) -> impl Iterator<Item = (&EntityKey, i64, &RunColumns)> {
@@ -197,7 +246,7 @@ impl MemoryStore {
             .records
             .iter()
             .filter(|(key, _)| key.collection == Collection::Run)
-            .filter_map(|(key, (order, _, columns))| columns.as_ref().map(|c| (key, *order, c)))
+            .filter_map(|(key, row)| row.columns.as_ref().map(|c| (key, row.order, c)))
             .collect();
         runs.sort_by(|a, b| a.1.cmp(&b.1).then_with(|| a.0.cmp(b.0)));
         runs.into_iter()
@@ -218,24 +267,33 @@ impl Store for MemoryStore {
         let mut records: Vec<Record> = self
             .records
             .iter()
-            .filter(|(key, _)| key.collection == collection)
-            .map(|(key, (order, body, columns))| Record {
-                key: key.clone(),
-                order: *order,
-                body: body.clone(),
-                columns: columns.clone(),
-            })
+            .filter(|(key, row)| key.collection == collection && !row.archived)
+            .map(|(key, row)| row.record(key))
             .collect();
         records.sort_by(|a, b| a.order.cmp(&b.order).then_with(|| a.key.cmp(&b.key)));
         Ok(records)
     }
     fn record(&self, key: &EntityKey) -> Result<Option<Record>, StoreError> {
-        Ok(self.records.get(key).map(|(order, body, columns)| Record {
-            key: key.clone(),
-            order: *order,
-            body: body.clone(),
-            columns: columns.clone(),
-        }))
+        Ok(self.records.get(key).map(|row| row.record(key)))
+    }
+    fn min_order(&self, collection: Collection) -> Result<Option<i64>, StoreError> {
+        Ok(self
+            .records
+            .iter()
+            .filter(|(key, _)| key.collection == collection)
+            .map(|(_, row)| row.order)
+            .min())
+    }
+    fn prune_runs(&mut self, keep: usize) -> Result<(), StoreError> {
+        let newest: Vec<EntityKey> = self
+            .run_columns()
+            .take(keep)
+            .map(|(key, _, _)| key.clone())
+            .collect();
+        self.records.retain(|key, row| {
+            key.collection != Collection::Run || !row.archived || newest.contains(key)
+        });
+        Ok(())
     }
     fn apply(&mut self, changes: &ChangeSet) -> Result<(), StoreError> {
         // Nothing here can fail part-way, so applying in place is atomic.
@@ -248,12 +306,52 @@ impl Store for MemoryStore {
         for record in &changes.upserts {
             self.records.insert(
                 record.key.clone(),
-                (record.order, record.body.clone(), record.columns.clone()),
+                Stored {
+                    order: record.order,
+                    body: record.body.clone(),
+                    columns: record.columns.clone(),
+                    archived: record.archived,
+                },
             );
         }
         Ok(())
     }
 }
+impl RunArchive for MemoryStore {
+    fn stored_run(&self, id: &str) -> Result<Option<RunRecord>, StoreError> {
+        let key = EntityKey {
+            collection: Collection::Run,
+            id: id.to_owned(),
+        };
+        self.records
+            .get(&key)
+            .map(|row| decode_run(&row.body))
+            .transpose()
+    }
+    fn list_runs(
+        &self,
+        limit: usize,
+        workflow_id: Option<&str>,
+        status: Option<&str>,
+    ) -> Result<Vec<Value>, StoreError> {
+        self.run_columns()
+            .filter(|(_, _, c)| workflow_id.is_none_or(|w| c.workflow_id == w))
+            .filter(|(_, _, c)| status.is_none_or(|s| c.status == s))
+            .take(limit)
+            .map(|(_, _, c)| {
+                serde_json::from_str(&c.summary).map_err(|e| StoreError::Invalid(e.to_string()))
+            })
+            .collect()
+    }
+}
+/// Decode a stored run body.
+pub(crate) fn decode_run(body: &str) -> Result<RunRecord, StoreError> {
+    let mut record: RunRecord =
+        serde_json::from_str(body).map_err(|e| StoreError::Invalid(format!("run: {e}")))?;
+    record.backfill();
+    Ok(record)
+}
+
 impl RunQueries for MemoryStore {
     type Error = StoreError;
     fn next_run_wake(&self) -> Result<Option<u64>, StoreError> {
@@ -359,6 +457,9 @@ pub struct Tracked {
     pub workspace: Workspace,
     meta: Option<String>,
     baseline: HashMap<EntityKey, (i64, String)>,
+    /// The lowest stored run order, archived runs included. New runs (always the
+    /// newest) take keys below it.
+    run_floor: Option<i64>,
 }
 impl Tracked {
     /// Load a workspace from its records. An empty store yields an empty workspace.
@@ -391,16 +492,58 @@ impl Tracked {
             workspace,
             meta,
             baseline,
+            run_floor: store.min_order(Collection::Run)?,
         })
     }
 
-    /// Apply retention, then return the rows that differ from what was loaded.
-    /// The tracked baseline is not changed.
+    /// Archive finished runs, apply retention, then return the rows that differ
+    /// from what was loaded. The tracked baseline is not changed.
     ///
-    /// Each entity is encoded once. Retention works from those encoded sizes, so
-    /// the whole workspace is never encoded as one document.
+    /// A finished run that no run in memory depends on is written with
+    /// `archived` set and removed from the workspace: it stays stored for lists and
+    /// details, but later loads don't read it. Each entity is encoded once, and
+    /// retention works from those encoded sizes, so the whole workspace is never
+    /// encoded as one document.
     pub fn changes(&mut self) -> Result<ChangeSet, StoreError> {
         let (mut meta, mut collections) = split(&self.workspace)?;
+        let mut changes = ChangeSet::default();
+        let mut seen = HashMap::new();
+        let invalid = |e: ApiError| StoreError::Invalid(e.message);
+
+        // Runs take their keys over the whole list first, so a run created and
+        // archived in this same operation still sorts as the newest.
+        let mut run_orders = HashMap::new();
+        if let Some((_, entities)) = collections.iter_mut().find(|(c, _)| *c == Collection::Run) {
+            let orders = assign_orders(entities, &self.baseline, self.run_floor);
+            let archive: Vec<bool> = (0..entities.len())
+                .map(|index| self.workspace.run_archivable(index))
+                .collect();
+            let mut resident = Vec::with_capacity(entities.len());
+            for (index, ((key, body), order)) in entities.drain(..).zip(orders).enumerate() {
+                if archive[index] {
+                    let columns = RunColumns::of(&self.workspace.runs[index]).map_err(invalid)?;
+                    seen.insert(key.clone(), ());
+                    changes.upserts.push(Record {
+                        key,
+                        order,
+                        body,
+                        columns: Some(columns),
+                        archived: true,
+                    });
+                } else {
+                    run_orders.insert(key.clone(), order);
+                    resident.push((key, body));
+                }
+            }
+            *entities = resident;
+            let mut index = 0;
+            self.workspace.runs.retain(|_| {
+                index += 1;
+                !archive[index - 1]
+            });
+        }
+
+        // Retention over what stays in memory.
         let total = encoded_total(&meta, &collections);
         let sizes = |collection: Collection, collections: &[(Collection, Entities)]| {
             collections
@@ -416,7 +559,7 @@ impl Tracked {
                 &sizes(Collection::Run, &collections),
                 &sizes(Collection::Audit, &collections),
             )
-            .map_err(|e| StoreError::Invalid(e.message))?;
+            .map_err(invalid)?;
         if self.workspace.runs.len() != runs || self.workspace.audit.len() != audit {
             // Drop the entities retention removed; the rest are already encoded.
             let kept = |collection: Collection| -> Result<HashMap<String, ()>, StoreError> {
@@ -446,13 +589,13 @@ impl Tracked {
             // Retention never changes metadata, but re-derive it to be certain.
             meta = split_meta(&self.workspace)?;
         }
-        let mut changes = ChangeSet {
-            meta: (self.meta.as_deref() != Some(meta.as_str())).then_some(meta),
-            ..ChangeSet::default()
-        };
-        let mut seen = HashMap::new();
+        changes.meta = (self.meta.as_deref() != Some(meta.as_str())).then_some(meta);
+
         for (collection, entities) in collections {
-            let orders = assign_orders(&entities, &self.baseline);
+            let orders: Vec<i64> = match collection {
+                Collection::Run => entities.iter().map(|(key, _)| run_orders[key]).collect(),
+                _ => assign_orders(&entities, &self.baseline, None),
+            };
             for (index, ((key, body), order)) in entities.into_iter().zip(orders).enumerate() {
                 let unchanged = self
                     .baseline
@@ -462,10 +605,9 @@ impl Tracked {
                 if !unchanged {
                     // Run columns are derived only for runs being written.
                     let columns = match collection {
-                        Collection::Run => Some(
-                            RunColumns::of(&self.workspace.runs[index])
-                                .map_err(|e| StoreError::Invalid(e.message))?,
-                        ),
+                        Collection::Run => {
+                            Some(RunColumns::of(&self.workspace.runs[index]).map_err(invalid)?)
+                        }
                         _ => None,
                     };
                     changes.upserts.push(Record {
@@ -473,6 +615,7 @@ impl Tracked {
                         order,
                         body,
                         columns,
+                        archived: false,
                     });
                 }
             }
@@ -489,13 +632,17 @@ impl Tracked {
     }
 
     /// Commit the operation's changes to `store` and make them the new baseline.
-    /// Returns what was written.
+    /// Archiving a run also prunes stored history to the newest [`RUN_HISTORY`]
+    /// runs. Returns what was written.
     pub fn commit(&mut self, store: &mut impl Store) -> Result<ChangeSet, StoreError> {
         let changes = self.changes()?;
         if changes.is_empty() {
             return Ok(changes);
         }
         store.apply(&changes)?;
+        if changes.upserts.iter().any(|r| r.archived) {
+            store.prune_runs(RUN_HISTORY)?;
+        }
         if let Some(meta) = &changes.meta {
             self.meta = Some(meta.clone());
         }
@@ -503,12 +650,23 @@ impl Tracked {
             self.baseline.remove(key);
         }
         for record in &changes.upserts {
-            self.baseline
-                .insert(record.key.clone(), (record.order, record.body.clone()));
+            if record.archived {
+                self.baseline.remove(&record.key);
+            } else {
+                self.baseline
+                    .insert(record.key.clone(), (record.order, record.body.clone()));
+            }
+            if record.key.collection == Collection::Run {
+                self.run_floor = Some(self.run_floor.map_or(record.order, |f| f.min(record.order)));
+            }
         }
         Ok(changes)
     }
 }
+
+/// How many runs stored history keeps, newest first. Runs still in memory are
+/// always kept, even beyond this.
+pub const RUN_HISTORY: usize = 100;
 
 type Entities = Vec<(EntityKey, String)>;
 
@@ -612,7 +770,11 @@ fn encoded_total(meta: &str, collections: &[(Collection, Entities)]) -> usize {
 /// existing key where possible. New entities take keys between their neighbours.
 /// If stored entities were reordered, or there is no room between neighbours,
 /// the whole collection is renumbered.
-fn assign_orders(entities: &Entities, baseline: &HashMap<EntityKey, (i64, String)>) -> Vec<i64> {
+fn assign_orders(
+    entities: &Entities,
+    baseline: &HashMap<EntityKey, (i64, String)>,
+    floor: Option<i64>,
+) -> Vec<i64> {
     let existing: Vec<Option<i64>> = entities
         .iter()
         .map(|(key, _)| baseline.get(key).map(|(order, _)| *order))
@@ -623,7 +785,7 @@ fn assign_orders(entities: &Entities, baseline: &HashMap<EntityKey, (i64, String
     while index < existing.len() {
         if let Some(order) = existing[index] {
             if previous.is_some_and(|p| p >= order) {
-                return renumber(entities.len());
+                return renumber(entities.len(), floor);
             }
             orders.push(order);
             previous = Some(order);
@@ -637,6 +799,13 @@ fn assign_orders(entities: &Entities, baseline: &HashMap<EntityKey, (i64, String
         }
         let count = (index - start) as i64;
         let next = existing.get(index).copied().flatten();
+        // Leading new entities also sort before every stored entity, including
+        // ones not loaded (archived runs).
+        let next = match (previous, next, floor) {
+            (None, Some(next), Some(floor)) => Some(next.min(floor)),
+            (None, None, Some(floor)) => Some(floor),
+            _ => next,
+        };
         let keys: Option<Vec<i64>> = match (previous, next) {
             (None, None) => Some((1..=count).map(|i| i * ORDER_SPACING).collect()),
             (Some(low), None) => (1..=count)
@@ -655,7 +824,7 @@ fn assign_orders(entities: &Entities, baseline: &HashMap<EntityKey, (i64, String
                 previous = keys.last().copied().or(previous);
                 orders.extend(keys);
             }
-            None => return renumber(entities.len()),
+            None => return renumber(entities.len(), floor),
         }
     }
     orders
@@ -663,8 +832,15 @@ fn assign_orders(entities: &Entities, baseline: &HashMap<EntityKey, (i64, String
 fn encode<T: serde::Serialize>(value: &T) -> Result<String, StoreError> {
     serde_json::to_string(value).map_err(|e| StoreError::Invalid(e.to_string()))
 }
-fn renumber(len: usize) -> Vec<i64> {
-    (1..=len as i64).map(|i| i * ORDER_SPACING).collect()
+/// Fresh keys for a whole collection, below `floor` when there is one.
+fn renumber(len: usize, floor: Option<i64>) -> Vec<i64> {
+    let len = len as i64;
+    match floor {
+        Some(floor) => (0..len)
+            .map(|i| floor.saturating_sub((len - i).saturating_mul(ORDER_SPACING)))
+            .collect(),
+        None => (1..=len).map(|i| i * ORDER_SPACING).collect(),
+    }
 }
 
 #[cfg(test)]
@@ -705,7 +881,7 @@ mod tests {
     fn new_entities_take_keys_without_moving_stored_ones() {
         let stored = baseline(&[("b", 100), ("c", 200)]);
         // Prepended, appended and inserted between stored entities.
-        let orders = assign_orders(&entities(&["a", "b", "x", "c", "d"]), &stored);
+        let orders = assign_orders(&entities(&["a", "b", "x", "c", "d"]), &stored, None);
         assert!(increasing(&orders), "{orders:?}");
         assert_eq!((orders[1], orders[3]), (100, 200), "stored keys unchanged");
     }
@@ -714,11 +890,14 @@ mod tests {
     fn reordered_or_crowded_collections_are_renumbered() {
         let stored = baseline(&[("a", 1), ("b", 2)]);
         // Reordered stored entities.
-        assert_eq!(assign_orders(&entities(&["b", "a"]), &stored), renumber(2));
+        assert_eq!(
+            assign_orders(&entities(&["b", "a"]), &stored, None),
+            renumber(2, None)
+        );
         // No integer room between 1 and 2 for a new entity.
         assert_eq!(
-            assign_orders(&entities(&["a", "x", "b"]), &stored),
-            renumber(3)
+            assign_orders(&entities(&["a", "x", "b"]), &stored, None),
+            renumber(3, None)
         );
     }
 
@@ -775,10 +954,31 @@ mod tests {
     }
 
     #[test]
+    fn new_runs_sort_before_runs_that_are_not_loaded() {
+        // "b" is loaded at 100; an archived run (not loaded) sits at 40.
+        let stored = baseline(&[("b", 100)]);
+        let orders = assign_orders(&entities(&["new", "b"]), &stored, Some(40));
+        assert!(orders[0] < 40 && orders[1] == 100, "{orders:?}");
+        // With nothing loaded, new runs still sort first.
+        let orders = assign_orders(&entities(&["x", "y"]), &HashMap::new(), Some(40));
+        assert!(orders[0] < orders[1] && orders[1] < 40, "{orders:?}");
+        // Renumbering keeps the whole collection below the floor.
+        let orders = assign_orders(
+            &entities(&["b", "a"]),
+            &baseline(&[("a", 1), ("b", 2)]),
+            Some(-5),
+        );
+        assert!(
+            orders.iter().all(|o| *o < -5) && orders[0] < orders[1],
+            "{orders:?}"
+        );
+    }
+
+    #[test]
     fn empty_and_all_new_collections_get_spaced_keys() {
-        assert!(assign_orders(&entities(&[]), &HashMap::new()).is_empty());
+        assert!(assign_orders(&entities(&[]), &HashMap::new(), None).is_empty());
         assert_eq!(
-            assign_orders(&entities(&["a", "b"]), &HashMap::new()),
+            assign_orders(&entities(&["a", "b"]), &HashMap::new(), None),
             vec![ORDER_SPACING, 2 * ORDER_SPACING]
         );
     }

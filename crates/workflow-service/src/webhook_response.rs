@@ -109,11 +109,22 @@ impl Workspace {
         now: u64,
         disconnected: bool,
     ) -> Result<Reply, ApiError> {
-        let record = self
-            .runs
-            .iter_mut()
-            .find(|r| r.matches_id(id))
-            .ok_or_else(|| error(404, "Run not found"))?;
+        let Some(record) = self.runs.iter_mut().find(|r| r.matches_id(id)) else {
+            // An archived run's window has already closed, so its reply only needs
+            // reading: nothing about it changes.
+            let mut record = self
+                .find_run(id)?
+                .ok_or_else(|| error(404, "Run not found"))?
+                .into_owned();
+            record.settle_response(now)?;
+            return Ok(match record.webhook_response.map(|w| w.delivery) {
+                Some(Delivery::TimedOut) => Reply::TimedOut,
+                Some(Delivery::Disconnected) => Reply::Disconnected,
+                Some(Delivery::NoResponse) => Reply::NoResponse,
+                Some(Delivery::Failed) => Reply::Failed,
+                _ => Reply::Unavailable,
+            });
+        };
         record.settle_response(now)?;
         let Some(window) = &mut record.webhook_response else {
             return Ok(Reply::Unavailable);
