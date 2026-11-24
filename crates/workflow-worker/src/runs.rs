@@ -1,10 +1,11 @@
-//! Run objects: one Durable Object per run executed outside the workspace (see
-//! "First deployment: run objects" in `docs/workspace-storage.md`).
+//! Run objects: one Durable Object per run tree (a top-level run and the child
+//! runs it invokes) executed outside the workspace (see "First deployment: run
+//! objects" in `docs/workspace-storage.md`).
 //!
-//! The object stores its run with a version and reports every save to its
-//! workspace's index. Once the run has finished and the workspace has accepted
-//! the final report, the object deletes its storage. How the run advances depends
-//! on `RUN_EXECUTION`:
+//! The object stores its tree with one version and reports the runs each save
+//! changed to its workspace's index. Once every run has finished and the
+//! workspace has accepted the final report, the object deletes its storage. How
+//! the tree advances depends on `RUN_EXECUTION`:
 //!
 //! - `objects`: the object's alarm is the run's single live message. It advances
 //!   the run with `workflow_service::execution` and performs claimed HTTP tasks
@@ -18,35 +19,107 @@ use crate::{api_error, internal, now};
 use serde::{Deserialize, Serialize};
 use serde_json::json;
 use std::cell::Cell;
+use std::collections::HashMap;
 use worker::*;
-use workflow_service::execution::{
-    self, RunStatus, RunStore, SaveError, Step, WorkBus, WorkMessage,
-};
+use workflow_service::execution::{self, RunStore, RunTree, SaveError, Step, WorkBus, WorkMessage};
 use workflow_service::{ApiError, RunRecord};
 
+/// The root run, with the tree's version (0 for a placeholder not yet started).
 const CREATE: &str = "CREATE TABLE IF NOT EXISTS run (id TEXT PRIMARY KEY, workspace TEXT NOT NULL, version INTEGER NOT NULL, body TEXT NOT NULL)";
+/// The root's descendants, in creation order (rowid), each with the tree version
+/// that last changed it.
+const CREATE_CHILD: &str = "CREATE TABLE IF NOT EXISTS child (id TEXT PRIMARY KEY, version INTEGER NOT NULL, body TEXT NOT NULL)";
+/// The newest tree version the workspace has accepted a report for.
+const CREATE_REPORTED: &str = "CREATE TABLE IF NOT EXISTS reported (version INTEGER NOT NULL)";
 /// How long to wait before retrying an unacknowledged final report.
 const REPORT_RETRY_MS: u64 = 5_000;
 
-/// The run, in this object's SQLite storage.
+/// The run tree, in this object's SQLite storage.
 struct ObjectRun(SqlStorage);
 #[derive(Deserialize)]
 struct Row {
+    id: String,
     body: String,
     version: f64,
     workspace: String,
 }
+#[derive(Deserialize)]
+struct ChildRow {
+    id: String,
+    body: String,
+    version: f64,
+}
 impl ObjectRun {
-    fn row(&self) -> std::result::Result<Option<Row>, ApiError> {
+    fn exec<T: serde::de::DeserializeOwned>(
+        &self,
+        sql: &str,
+        params: Vec<SqlStorageValue>,
+    ) -> std::result::Result<Vec<T>, ApiError> {
         self.0
-            .exec(CREATE, None)
-            .and_then(|_| {
-                self.0
-                    .exec("SELECT body, version, workspace FROM run", None)
-            })
-            .and_then(|c| c.to_array::<Row>())
-            .map(|rows| rows.into_iter().next())
+            .exec(sql, Some(params))
+            .and_then(|c| c.to_array::<T>())
             .map_err(|e| failure(e.to_string()))
+    }
+    fn create(&self) -> std::result::Result<(), ApiError> {
+        for sql in [CREATE, CREATE_CHILD, CREATE_REPORTED] {
+            self.0.exec(sql, None).map_err(|e| failure(e.to_string()))?;
+        }
+        Ok(())
+    }
+    /// The root row: the tree's ID, workspace and version.
+    fn row(&self) -> std::result::Result<Option<Row>, ApiError> {
+        self.create()?;
+        Ok(self
+            .exec("SELECT id, body, version, workspace FROM run", vec![])?
+            .into_iter()
+            .next())
+    }
+    /// The root's descendants, newest first (workspace order).
+    fn children(&self) -> std::result::Result<Vec<ChildRow>, ApiError> {
+        self.create()?;
+        self.exec(
+            "SELECT id, body, version FROM child ORDER BY rowid DESC",
+            vec![],
+        )
+    }
+    fn reported(&self) -> std::result::Result<u64, ApiError> {
+        self.create()?;
+        #[derive(Deserialize)]
+        struct Reported {
+            version: f64,
+        }
+        Ok(self
+            .exec::<Reported>("SELECT version FROM reported", vec![])?
+            .first()
+            .map_or(0, |r| r.version as u64))
+    }
+    /// Reports can finish out of order; keep the newest.
+    fn set_reported(&self, version: u64) -> std::result::Result<(), ApiError> {
+        if self.reported()? >= version {
+            return Ok(());
+        }
+        self.exec::<serde_json::Value>("DELETE FROM reported", vec![])?;
+        self.exec::<serde_json::Value>(
+            "INSERT INTO reported(version) VALUES(?)",
+            vec![(version as i64).into()],
+        )?;
+        Ok(())
+    }
+    /// The tree as stored, with its version and workspace.
+    fn tree(&self) -> std::result::Result<Option<(RunTree, Row)>, ApiError> {
+        let Some(row) = self.row()? else {
+            return Ok(None);
+        };
+        if row.version as u64 == 0 {
+            return Ok(None);
+        }
+        let mut runs = self
+            .children()?
+            .into_iter()
+            .map(|c| serde_json::from_str(&c.body).map_err(|e| failure(e.to_string())))
+            .collect::<std::result::Result<Vec<RunRecord>, ApiError>>()?;
+        runs.push(serde_json::from_str(&row.body).map_err(|e| failure(e.to_string()))?);
+        Ok(Some((RunTree::new(runs), row)))
     }
 }
 fn failure(message: impl Into<String>) -> ApiError {
@@ -57,37 +130,56 @@ fn failure(message: impl Into<String>) -> ApiError {
     }
 }
 impl RunStore for ObjectRun {
-    fn load(&self, _run: &str) -> std::result::Result<Option<(RunRecord, u64)>, ApiError> {
-        self.row()?
-            .map(|row| {
-                serde_json::from_str(&row.body)
-                    .map(|record| (record, row.version as u64))
-                    .map_err(|e| failure(e.to_string()))
-            })
-            .transpose()
+    fn load(&self, _root: &str) -> std::result::Result<Option<(RunTree, u64)>, ApiError> {
+        Ok(self.tree()?.map(|(tree, row)| (tree, row.version as u64)))
     }
     fn save(
         &self,
-        run: &str,
-        record: &RunRecord,
+        root: &str,
+        tree: &RunTree,
         expected: Option<u64>,
     ) -> std::result::Result<u64, SaveError> {
-        let body = serde_json::to_string(record).map_err(|e| SaveError::Failed(e.to_string()))?;
-        let current = self
-            .row()
-            .map_err(|e| SaveError::Failed(e.message))?
-            .map(|row| row.version as u64);
+        let failed = |e: ApiError| SaveError::Failed(e.message);
+        let encode =
+            |r: &RunRecord| serde_json::to_string(r).map_err(|e| SaveError::Failed(e.to_string()));
+        let current = self.row().map_err(failed)?.map(|row| row.version as u64);
         if current != expected {
             return Err(SaveError::Conflict);
         }
         let version = expected.unwrap_or(0) + 1;
-        // The workspace column is written at creation, below.
+        let root_record = tree.root().map_err(failed)?;
+        // The workspace column is written at creation, below. Every save bumps the
+        // root's version; a child row is rewritten only when it changed.
         self.0
             .exec(
                 "UPDATE run SET body=?, version=? WHERE id=?",
-                vec![body.into(), (version as i64).into(), run.into()],
+                vec![
+                    encode(root_record)?.into(),
+                    (version as i64).into(),
+                    root.into(),
+                ],
             )
             .map_err(|e| SaveError::Failed(e.to_string()))?;
+        let stored: HashMap<String, String> = self
+            .children()
+            .map_err(failed)?
+            .into_iter()
+            .map(|c| (c.id, c.body))
+            .collect();
+        // Oldest first, so new children take rowids in creation order.
+        for record in tree.runs.iter().rev().filter(|r| r.parent.is_some()) {
+            let id = record.id_string().map_err(failed)?;
+            let body = encode(record)?;
+            if stored.get(&id) == Some(&body) {
+                continue;
+            }
+            self.0
+                .exec(
+                    "INSERT INTO child(id, version, body) VALUES(?, ?, ?) ON CONFLICT(id) DO UPDATE SET version=excluded.version, body=excluded.body",
+                    vec![id.into(), (version as i64).into(), body.into()],
+                )
+                .map_err(|e| SaveError::Failed(e.to_string()))?;
+        }
         Ok(version)
     }
 }
@@ -106,14 +198,22 @@ impl WorkBus for Alarm {
     }
 }
 
+/// A tree to start: its runs newest first (root last), or (from an earlier
+/// release) a single run.
 #[derive(Deserialize)]
 struct Start {
     workspace: String,
-    record: RunRecord,
+    #[serde(default)]
+    record: Option<RunRecord>,
+    #[serde(default)]
+    runs: Vec<RunRecord>,
 }
 #[derive(Deserialize)]
 struct Control {
     action: String,
+    /// The run in the tree; the root if absent.
+    #[serde(default)]
+    run: Option<String>,
 }
 #[derive(Deserialize)]
 struct Begin {
@@ -121,11 +221,16 @@ struct Begin {
 }
 #[derive(Serialize, Deserialize)]
 struct Finish {
+    /// The run in the tree that claimed the task; the root if absent.
+    #[serde(default)]
+    run: Option<String>,
     task: String,
     outcome: connector_sdk::Outcome,
 }
 #[derive(Serialize, Deserialize)]
 struct Claimed {
+    #[serde(default)]
+    run: Option<String>,
     task: Option<connector_sdk::Task>,
 }
 /// A queue message: this run has work at this version.
@@ -138,8 +243,14 @@ pub struct Envelope {
 /// The longest delay a queue message can have (24 hours); longer waits use the
 /// run object's alarm.
 const QUEUE_MAX_DELAY_MS: u64 = 24 * 60 * 60 * 1000;
+/// The runs of a tree that changed since the last accepted report.
 #[derive(Serialize)]
 struct Report<'a> {
+    root: &'a str,
+    runs: Vec<Reported<'a>>,
+}
+#[derive(Serialize)]
+struct Reported<'a> {
     run: &'a str,
     version: u64,
     body: &'a str,
@@ -160,7 +271,11 @@ impl DurableObject for WorkflowRun {
             (Method::Post, "/start") => {
                 let start: Start = req.json().await?;
                 let runs = self.runs();
-                let id = start.record.id_string().map_err(internal)?;
+                let tree = RunTree::new(match start.record {
+                    Some(record) => vec![record],
+                    None => start.runs,
+                });
+                let id = tree.root_id().map_err(internal)?;
                 let sql = self.state.storage().sql();
                 sql.exec(CREATE, None)?;
                 sql.exec(
@@ -174,11 +289,9 @@ impl DurableObject for WorkflowRun {
                     .map_err(internal)?
                     .is_some_and(|row| row.version as u64 == 0);
                 if fresh {
-                    let record = start.record;
                     // `start` creates with expected `None`; the placeholder is
                     // version 0, so save over it explicitly.
-                    execution::start(&Placeholder(&runs), &alarm, record, now())
-                        .map_err(internal)?;
+                    execution::start(&Placeholder(&runs), &alarm, tree, now()).map_err(internal)?;
                 }
                 self.settle(&alarm).await?;
                 Response::from_json(&json!({"ok": true}))
@@ -189,9 +302,15 @@ impl DurableObject for WorkflowRun {
                 let Some(row) = self.runs().row().map_err(internal)? else {
                     return api_error(404, "Run not found");
                 };
-                let record: RunRecord = serde_json::from_str(&row.body).map_err(internal)?;
-                let id = record.id_string().map_err(internal)?;
-                match execution::control(&self.runs(), &alarm, &id, &control.action, now()) {
+                let run = control.run.unwrap_or_else(|| row.id.clone());
+                match execution::control(
+                    &self.runs(),
+                    &alarm,
+                    &row.id,
+                    &run,
+                    &control.action,
+                    now(),
+                ) {
                     Ok((record, _)) => {
                         self.settle(&alarm).await?;
                         Response::from_json(&record.view(false).map_err(internal)?)
@@ -203,24 +322,30 @@ impl DurableObject for WorkflowRun {
                 let begin: Begin = req.json().await?;
                 let runs = self.runs();
                 let alarm = Alarm::default();
+                let none = Claimed {
+                    run: None,
+                    task: None,
+                };
                 let Some(row) = runs.row().map_err(internal)? else {
-                    return Response::from_json(&Claimed { task: None });
+                    return Response::from_json(&none);
                 };
                 if row.version as u64 == 0 {
-                    return Response::from_json(&Claimed { task: None });
+                    return Response::from_json(&none);
                 }
-                let record: RunRecord = serde_json::from_str(&row.body).map_err(internal)?;
                 let message = WorkMessage {
-                    run: record.id_string().map_err(internal)?,
+                    run: row.id,
                     version: begin.version,
                 };
-                let task =
+                let claimed =
                     match execution::begin(&runs, &alarm, &message, now()).map_err(internal)? {
-                        Step::Done(_) => None,
-                        Step::Perform { task, .. } => Some(task),
+                        Step::Done(_) => none,
+                        Step::Perform { run, task } => Claimed {
+                            run: Some(run),
+                            task: Some(task),
+                        },
                     };
                 self.settle(&alarm).await?;
-                Response::from_json(&Claimed { task })
+                Response::from_json(&claimed)
             }
             (Method::Post, "/finish") => {
                 let finish: Finish = req.json().await?;
@@ -229,10 +354,17 @@ impl DurableObject for WorkflowRun {
                 let Some(row) = runs.row().map_err(internal)? else {
                     return Response::from_json(&json!({"ok": true}));
                 };
-                let record: RunRecord = serde_json::from_str(&row.body).map_err(internal)?;
-                let id = record.id_string().map_err(internal)?;
-                execution::finish(&runs, &alarm, &id, &finish.task, finish.outcome, now())
-                    .map_err(internal)?;
+                let run = finish.run.unwrap_or_else(|| row.id.clone());
+                execution::finish(
+                    &runs,
+                    &alarm,
+                    &row.id,
+                    &run,
+                    &finish.task,
+                    finish.outcome,
+                    now(),
+                )
+                .map_err(internal)?;
                 self.settle(&alarm).await?;
                 Response::from_json(&json!({"ok": true}))
             }
@@ -266,9 +398,8 @@ impl DurableObject for WorkflowRun {
                 if row.version as u64 == 0 {
                     break;
                 }
-                let record: RunRecord = serde_json::from_str(&row.body).map_err(internal)?;
                 let message = WorkMessage {
-                    run: record.id_string().map_err(internal)?,
+                    run: row.id,
                     version: row.version as u64,
                 };
                 match execution::begin(&runs, &alarm, &message, now()).map_err(internal)? {
@@ -296,8 +427,10 @@ impl DurableObject for WorkflowRun {
                     Either::Right(_) => None,
                 }
             };
-            if let Some((run, task, outcome)) = event {
-                execution::finish(&runs, &alarm, &run, &task.id, outcome, now())
+            if let Some((run, task, outcome)) = event
+                && let Some(row) = runs.row().map_err(internal)?
+            {
+                execution::finish(&runs, &alarm, &row.id, &run, &task.id, outcome, now())
                     .map_err(internal)?;
             }
         }
@@ -309,13 +442,13 @@ impl DurableObject for WorkflowRun {
 /// Saves over the version-0 placeholder row for the first save.
 struct Placeholder<'a>(&'a ObjectRun);
 impl RunStore for Placeholder<'_> {
-    fn load(&self, run: &str) -> std::result::Result<Option<(RunRecord, u64)>, ApiError> {
+    fn load(&self, run: &str) -> std::result::Result<Option<(RunTree, u64)>, ApiError> {
         self.0.load(run)
     }
     fn save(
         &self,
         run: &str,
-        record: &RunRecord,
+        record: &RunTree,
         expected: Option<u64>,
     ) -> std::result::Result<u64, SaveError> {
         self.0.save(run, record, expected.or(Some(0)))
@@ -326,22 +459,15 @@ impl WorkflowRun {
     fn runs(&self) -> ObjectRun {
         ObjectRun(self.state.storage().sql())
     }
-    /// After a step: report the saved run to the workspace, then arm the alarm
-    /// for the next message, or, once the run has finished and the workspace has
-    /// the final report, delete this object's storage.
+    /// After a step: report the saved tree to the workspace, then arm the alarm
+    /// for the next message, or, once every run has finished and the workspace
+    /// has the final report, delete this object's storage.
     async fn settle(&self, alarm: &Alarm) -> Result<()> {
-        let Some(row) = self.runs().row().map_err(internal)? else {
+        let Some((tree, row)) = self.runs().tree().map_err(internal)? else {
             return Ok(());
         };
-        if row.version as u64 == 0 {
-            return Ok(());
-        }
-        let record: RunRecord = serde_json::from_str(&row.body).map_err(internal)?;
-        let reported = self.report(&row, &record).await;
-        let finished = !matches!(
-            record.status().map_err(internal)?,
-            RunStatus::Running | RunStatus::Paused
-        );
+        let reported = self.report(&row).await;
+        let finished = !tree.active().map_err(internal)?;
         let storage = self.state.storage();
         if finished {
             if reported {
@@ -359,7 +485,7 @@ impl WorkflowRun {
                 // Queue delays are whole seconds: round up, never deliver early.
                 let message = MessageBuilder::new(Envelope {
                     workspace: row.workspace.clone(),
-                    run: record.id_string().map_err(internal)?,
+                    run: row.id.clone(),
                     version: row.version as u64,
                 })
                 .delay_seconds(delay.div_ceil(1000) as u32)
@@ -391,26 +517,44 @@ impl WorkflowRun {
         .map_err(internal)?
             == crate::storage::RunExecution::Queues)
     }
-    /// Report the stored run as it is now.
+    /// Report the stored tree as it is now.
     async fn report_current(&self) {
         if let Ok(Some(row)) = self.runs().row()
             && row.version > 0.0
-            && let Ok(record) = serde_json::from_str::<RunRecord>(&row.body)
         {
-            self.report(&row, &record).await;
+            self.report(&row).await;
         }
     }
-    /// Send the run's current state to its workspace's index. Reports are
+    /// Send the runs that changed since the last accepted report to the
+    /// workspace's index: always the root, and children saved since. Reports are
     /// idempotent there (ignored unless newer), so a failed one is simply
-    /// superseded by the next.
-    async fn report(&self, row: &Row, record: &RunRecord) -> bool {
-        let Ok(id) = record.id_string() else {
+    /// superseded by the next, which includes everything it had.
+    async fn report(&self, row: &Row) -> bool {
+        let runs = self.runs();
+        let (Ok(children), Ok(since)) = (runs.children(), runs.reported()) else {
             return false;
         };
+        let version = row.version as u64;
         let body = Report {
-            run: &id,
-            version: row.version as u64,
-            body: &row.body,
+            root: &row.id,
+            // Oldest first: a child's parent is in the index before the child.
+            runs: std::iter::once(Reported {
+                run: &row.id,
+                version,
+                body: &row.body,
+            })
+            .chain(
+                children
+                    .iter()
+                    .rev()
+                    .filter(|c| c.version as u64 > since)
+                    .map(|c| Reported {
+                        run: &c.id,
+                        version: c.version as u64,
+                        body: &c.body,
+                    }),
+            )
+            .collect(),
         };
         let send = async {
             let namespace = self.env.durable_object("WORKSPACES")?;
@@ -421,7 +565,8 @@ impl WorkflowRun {
             let request = Request::new_with_init("https://workspace/internal/runs/report", &init)?;
             stub.fetch_with_request(request).await
         };
-        matches!(send.await, Ok(response) if response.status_code() == 200)
+        let accepted = matches!(send.await, Ok(response) if response.status_code() == 200);
+        accepted && runs.set_reported(version).is_ok()
     }
 }
 
@@ -457,6 +602,7 @@ pub(crate) async fn consume(envelope: &Envelope, env: &Env) -> Result<()> {
     };
     let outcome = crate::http::execute(&task, env).await;
     let finish = Finish {
+        run: claimed.run,
         task: task.id,
         outcome,
     };

@@ -102,7 +102,8 @@ fn commit_token() -> String {
 /// requests to forward, once the transaction has committed.
 #[derive(Default)]
 pub(crate) struct Handoff {
-    pub(crate) start: Vec<RunRecord>,
+    /// Run trees to start, each newest run first (root last).
+    pub(crate) start: Vec<Vec<RunRecord>>,
     pub(crate) control: Vec<(String, String)>,
 }
 /// Returns what the caller must hand to run objects after the commit.
@@ -118,12 +119,15 @@ pub(crate) fn write_workspace(
     // rolls back and the caller discards its candidate.
     tracked.workspace = std::mem::take(workspace);
     let written = tracked.commit(&mut store).map_err(store_error)?;
-    let offloaded = written
-        .upserts
-        .iter()
-        .filter(|record| record.remote)
-        .map(|record| serde_json::from_str(&record.body).map_err(internal))
-        .collect::<Result<Vec<RunRecord>>>()?;
+    // Written root first, then its children oldest first.
+    let mut offloaded: Vec<Vec<RunRecord>> = Vec::new();
+    for record in written.upserts.iter().filter(|record| record.remote) {
+        let record: RunRecord = serde_json::from_str(&record.body).map_err(internal)?;
+        match (&record.parent, offloaded.last_mut()) {
+            (Some(_), Some(tree)) => tree.insert(0, record),
+            _ => offloaded.push(vec![record]),
+        }
+    }
     // Hand back the workspace with retention applied: the one copy a save makes,
     // since the cache keeps the committed state as well.
     *workspace = tracked.workspace.clone();
@@ -342,8 +346,8 @@ impl WorkflowWorkspace {
         })?;
         // Their index rows are committed; now hand them to their run objects. A
         // failed start is retried from the index (see `restart_remote_runs`).
-        for record in handoff.start {
-            if let Err(error) = self.start_remote(record).await {
+        for tree in handoff.start {
+            if let Err(error) = self.start_remote(tree).await {
                 console_error!("Starting a run object failed; it will be retried: {error}");
             }
         }
@@ -358,9 +362,14 @@ impl WorkflowWorkspace {
         self.flush_data_tasks(workspace)?;
         self.arm_workspace_alarm(workspace).await
     }
-    /// Hand a run to its run object, which creates it if it isn't there yet.
-    pub(crate) async fn start_remote(&self, record: RunRecord) -> Result<()> {
-        let id = record.id_string().map_err(internal)?;
+    /// Hand a run tree (newest run first, root last) to its run object, which
+    /// creates it if it isn't there yet.
+    pub(crate) async fn start_remote(&self, runs: Vec<RunRecord>) -> Result<()> {
+        let id = runs
+            .last()
+            .ok_or_else(|| internal("empty run tree"))?
+            .id_string()
+            .map_err(internal)?;
         let workspace = self.state.id().to_string();
         let namespace = self.env.durable_object("RUNS")?;
         let stub = namespace
@@ -368,7 +377,7 @@ impl WorkflowWorkspace {
             .get_stub()?;
         let mut init = RequestInit::new();
         init.with_method(Method::Post).with_body(Some(
-            serde_json::to_string(&serde_json::json!({"workspace": workspace, "record": record}))?
+            serde_json::to_string(&serde_json::json!({"workspace": workspace, "runs": runs}))?
                 .into(),
         ));
         let response = stub
@@ -389,49 +398,63 @@ impl WorkflowWorkspace {
         let unstarted = tables(&self.state.storage().sql())
             .unstarted_remote_runs(before)
             .map_err(store_error)?;
-        for record in unstarted {
-            if let Err(error) = self.start_remote(record).await {
+        for tree in unstarted {
+            if let Err(error) = self.start_remote(tree).await {
                 console_error!("Retrying a run object start failed: {error}");
             }
         }
         Ok(())
     }
-    /// Forward a control request for a remote run to its run object, if `id` is a
-    /// remote run that is still active. Returns its response.
+    /// Forward a control request for a remote run to its tree's run object, if
+    /// `id` is a remote run that is still active. Returns its response.
     pub(crate) async fn control_remote(&self, id: &str, action: &str) -> Result<Option<Response>> {
-        if !tables(&self.state.storage().sql())
-            .remote_active_run(id)
+        let Some(root) = tables(&self.state.storage().sql())
+            .remote_active_root(id)
             .map_err(store_error)?
-        {
+        else {
             return Ok(None);
-        }
+        };
         let workspace = self.state.id().to_string();
         let stub = self
             .env
             .durable_object("RUNS")?
-            .id_from_name(&format!("{workspace}/{id}"))?
+            .id_from_name(&format!("{workspace}/{root}"))?
             .get_stub()?;
         let mut init = RequestInit::new();
         init.with_method(Method::Post).with_body(Some(
-            serde_json::json!({"action": action}).to_string().into(),
+            serde_json::json!({"action": action, "run": id})
+                .to_string()
+                .into(),
         ));
         Ok(Some(
             stub.fetch_with_request(Request::new_with_init("https://run/control", &init)?)
                 .await?,
         ))
     }
-    /// Apply a run object's report to the run's index row. Older reports are
-    /// ignored, so reports may arrive late or twice.
-    pub(crate) fn apply_run_report(&self, run: &str, version: u64, body: &str) -> Result<()> {
-        let record: RunRecord = serde_json::from_str(body).map_err(internal)?;
-        let columns = workflow_service::store::RunColumns::of(&record).map_err(internal)?;
-        let (run, body) = (run.to_owned(), body.to_owned());
+    /// Apply a run object's report to its tree's index rows, in one transaction.
+    /// Older reports are ignored, so reports may arrive late or twice.
+    pub(crate) fn apply_run_report(
+        &self,
+        root: &str,
+        runs: Vec<(String, u64, String)>,
+    ) -> Result<()> {
+        let runs = runs
+            .into_iter()
+            .map(|(run, version, body)| {
+                let record: RunRecord = serde_json::from_str(&body).map_err(internal)?;
+                let columns = workflow_service::store::RunColumns::of(&record).map_err(internal)?;
+                Ok((run, version, body, columns))
+            })
+            .collect::<Result<Vec<_>>>()?;
+        let root = root.to_owned();
         self.sql_transaction(move |sql| {
             let mut store = tables(&sql);
-            workflow_service::store::Store::apply_report(
-                &mut store, &run, version, &body, &columns,
-            )
-            .map_err(store_error)?;
+            for (run, version, body, columns) in &runs {
+                workflow_service::store::Store::apply_report(
+                    &mut store, &root, run, *version, body, columns,
+                )
+                .map_err(store_error)?;
+            }
             Ok(())
         })
     }

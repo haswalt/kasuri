@@ -274,13 +274,28 @@ impl DurableObject for WorkflowWorkspace {
         // paths to a workspace.
         if path == "/internal/runs/report" && req.method() == Method::Post {
             #[derive(serde::Deserialize)]
-            struct Report {
+            struct Run {
                 run: String,
                 version: u64,
                 body: String,
             }
-            let report: Report = req.json().await?;
-            self.apply_run_report(&report.run, report.version, &report.body)?;
+            // A tree's changed runs; or (from an earlier release) a single run.
+            #[derive(serde::Deserialize)]
+            #[serde(untagged)]
+            enum Report {
+                Tree { root: String, runs: Vec<Run> },
+                Run(Run),
+            }
+            let (root, runs) = match req.json().await? {
+                Report::Tree { root, runs } => (root, runs),
+                Report::Run(run) => (run.run.clone(), vec![run]),
+            };
+            self.apply_run_report(
+                &root,
+                runs.into_iter()
+                    .map(|r| (r.run, r.version, r.body))
+                    .collect(),
+            )?;
             return Response::from_json(&json!({"ok": true}));
         }
         if mcp::public_workspace(&path).is_some() {

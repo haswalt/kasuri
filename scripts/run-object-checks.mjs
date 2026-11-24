@@ -98,5 +98,38 @@ export async function checkRunObjects(origin, credentials, data, mode, restart) 
   const cancelled = await settled(held.id)
   assert.equal(cancelled.status, 'cancelled')
   await api(`runs/${held.id}/cancel`, 'POST', undefined, 409)
-  console.log(`Passed (${mode}): waiting runs execute in run objects, survive restarts, accept control requests and are deleted once finished; instant runs answer from the workspace.`)
+
+  // A run and the children it invokes move out together, into one run object:
+  // Each over four items, two at a time, so later children are created there and
+  // reach the index through reports.
+  const worker = { ...wait, id: 'object-worker', name: 'Object worker', nodes: [{ id: 'start', type: 'Execute Workflow Trigger', label: 'Item', config: { outputNodeId: 'fetch' } }, { ...wait.nodes[1], config: { delayMs: 700 } }, wait.nodes[2]], edges: wait.edges }
+  const each = { ...wait, id: 'object-each', name: 'Object each', nodes: [wait.nodes[0], { id: 'items', type: 'Map / Transform', label: 'Items', config: { mapping: { items: [1, 2, 3, 4] } } }, { id: 'each', type: 'Each / Loop', label: 'Each', config: { workflowId: worker.id, arrayPointer: '/items', concurrency: 2, failurePolicy: 'collect' } }], edges: [{ id: 'a', source: 'start', target: 'items' }, { id: 'b', source: 'items', target: 'each' }] }
+  for (const doc of [worker, each]) {
+    await api('workflows/' + doc.id, 'PUT', doc)
+    await api('workflows/' + doc.id + '/publish', 'POST')
+  }
+  const tree = await api('runs', 'POST', { workflowId: each.id, mode: 'run', input: {} })
+  assert.equal(tree.status, 'running')
+  assert.equal(indexed(tree.id)?.remote, 1, 'the root is remote')
+  const firstChildren = tree.children.map(c => c.runId)
+  assert.equal(firstChildren.length, 2, 'the first two items started with it')
+  for (const id of firstChildren) {
+    assert.equal(indexed(id)?.remote, 1, 'children are remote too')
+    assert.equal(query('SELECT id FROM child WHERE id=?', id).length, 1, 'stored in the root\'s run object')
+  }
+  assert.equal(query('SELECT id FROM run WHERE id=?', firstChildren[0]).length, 0, 'no run object of their own')
+  // A control request for a child reaches it through the root's run object.
+  const cancelledChild = await api(`runs/${firstChildren[0]}/cancel`, 'POST')
+  assert.equal(cancelledChild.status, 'cancelled')
+  const finishedTree = await settled(tree.id)
+  assert.equal(finishedTree.status, 'succeeded', JSON.stringify(finishedTree))
+  const items = finishedTree.children.map(c => c.runId)
+  assert.equal(items.length, 4, 'all four items ran')
+  for (let i = 0; i < 50 && inObject(tree.id); i++) await sleep(100)
+  assert.ok(!inObject(tree.id), 'the tree\'s run object is deleted once every run finished')
+  const listed = (await api('workspace')).runs.map(r => r.id)
+  for (const id of items) assert.ok(listed.includes(id), 'children created in the run object are listed')
+  assert.ok(items.slice(2).every(id => indexed(id)?.remote === 1), 'and indexed from reports')
+  assert.equal((await api('runs/' + firstChildren[0])).status, 'cancelled')
+  console.log(`Passed (${mode}): waiting runs execute in run objects with the children they invoke, survive restarts, accept control requests (children's through their root) and are deleted once finished; instant runs answer from the workspace.`)
 }

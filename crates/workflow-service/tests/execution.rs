@@ -7,22 +7,22 @@ use std::cell::{Cell, RefCell};
 use std::collections::HashMap;
 use std::{fs, path::PathBuf};
 use workflow_service::execution::{
-    self, Progress, RunStore, SaveError, Step, WorkBus, WorkMessage,
+    self, Progress, RunStatus, RunStore, RunTree, SaveError, Step, WorkBus, WorkMessage,
 };
 use workflow_service::{ApiError, Mode, RunRecord, Workspace};
 
-/// Runs stored as JSON, as a real store would, with a version per run.
+/// Run trees stored as JSON, as a real store would, with a version per tree.
 #[derive(Default)]
 struct MemoryRuns(RefCell<HashMap<String, (String, u64)>>);
 impl RunStore for MemoryRuns {
-    fn load(&self, run: &str) -> Result<Option<(RunRecord, u64)>, ApiError> {
+    fn load(&self, run: &str) -> Result<Option<(RunTree, u64)>, ApiError> {
         Ok(self
             .0
             .borrow()
             .get(run)
             .map(|(body, version)| (serde_json::from_str(body).unwrap(), *version)))
     }
-    fn save(&self, run: &str, record: &RunRecord, expected: Option<u64>) -> Result<u64, SaveError> {
+    fn save(&self, run: &str, record: &RunTree, expected: Option<u64>) -> Result<u64, SaveError> {
         let mut runs = self.0.borrow_mut();
         let current = runs.get(run).map(|(_, v)| *v);
         if current != expected {
@@ -72,7 +72,17 @@ enum Chaos {
     Crash,
 }
 
-fn queue_run(ws: &Workspace, workflow: &str, mode: Mode, chaos: Chaos) -> Value {
+/// Every run of a tree as the API shows it, by ID.
+fn views<'a>(runs: impl Iterator<Item = &'a RunRecord>) -> Vec<Value> {
+    let mut views: Vec<Value> = runs.map(|r| r.view(false).unwrap()).collect();
+    views.sort_by_key(|v| v["id"].as_str().unwrap().to_owned());
+    views
+}
+fn tree(record: RunRecord) -> RunTree {
+    RunTree::new(vec![record])
+}
+
+fn queue_run(ws: &Workspace, workflow: &str, mode: Mode, chaos: Chaos) -> Vec<Value> {
     let store = MemoryRuns::default();
     let bus = MemoryBus::default();
     let doc = ws.live_document(workflow).unwrap();
@@ -86,7 +96,7 @@ fn queue_run(ws: &Workspace, workflow: &str, mode: Mode, chaos: Chaos) -> Value 
             json!({"trigger": "manual"}),
         )
         .unwrap();
-    execution::start(&store, &bus, record, 0).unwrap();
+    execution::start(&store, &bus, tree(record), 0).unwrap();
     let mut crashed = false;
     let mut seed = match chaos {
         Chaos::Shuffle(seed) => seed,
@@ -128,18 +138,27 @@ fn queue_run(ws: &Workspace, workflow: &str, mode: Mode, chaos: Chaos) -> Value 
                         crashed = true;
                         continue;
                     }
-                    execution::finish(&store, &bus, &run, &task.id, perform(&task), now).unwrap();
+                    execution::finish(
+                        &store,
+                        &bus,
+                        &message.run,
+                        &run,
+                        &task.id,
+                        perform(&task),
+                        now,
+                    )
+                    .unwrap();
                 }
             }
         }
     }
     assert!(bus.queue.borrow().is_empty(), "the run settled");
-    let (record, _) = store.load("queued").unwrap().unwrap();
-    record.view(false).unwrap()
+    let (tree, _) = store.load("queued").unwrap().unwrap();
+    views(tree.runs.iter())
 }
 
 /// The reference: the same run executed by the workspace.
-fn workspace_run(ws: &mut Workspace, workflow: &str, mode: Mode, crash: bool) -> Value {
+fn workspace_run(ws: &mut Workspace, workflow: &str, mode: Mode, crash: bool) -> Vec<Value> {
     let doc = ws.live_document(workflow).unwrap();
     let record = ws
         .new_run_record(
@@ -163,19 +182,20 @@ fn workspace_run(ws: &mut Workspace, workflow: &str, mode: Mode, crash: bool) ->
             ws.complete_external(&run, &task.id, perform(&task), now)
                 .unwrap();
         }
-        let view = ws
-            .handle("GET", "/api/runs/queued", b"", now, "")
-            .unwrap()
-            .1;
-        if view["status"] != "running" {
-            return view;
+        // Until every run of the tree, background children included, settles.
+        if !ws
+            .runs
+            .iter()
+            .any(|r| r.status().unwrap() == RunStatus::Running)
+        {
+            return views(ws.runs.iter());
         }
         match ws.next_alarm() {
             Some(at) => {
                 now = now.max(at);
                 ws.alarm(now).unwrap();
             }
-            None => return view,
+            None => return views(ws.runs.iter()),
         }
     }
     panic!("the workspace run never settled");
@@ -201,8 +221,42 @@ fn publish(ws: &mut Workspace, doc: &Value) {
     }
 }
 
+/// A workspace with every case published, those invoking others after their
+/// targets.
+fn published() -> Workspace {
+    let mut ws = Workspace::default();
+    let mut remaining = cases();
+    while !remaining.is_empty() {
+        let before = remaining.len();
+        remaining.retain(|doc| {
+            let id = doc["id"].as_str().unwrap();
+            let mut trial = ws.clone();
+            let ok = [
+                ("PUT", format!("/api/workflows/{id}"), doc.to_string()),
+                (
+                    "POST",
+                    format!("/api/workflows/{id}/publish"),
+                    String::new(),
+                ),
+            ]
+            .into_iter()
+            .all(|(method, path, body)| {
+                trial.handle(method, &path, body.as_bytes(), 0, "").is_ok()
+            });
+            if ok {
+                ws = trial;
+            }
+            !ok
+        });
+        if remaining.len() == before {
+            break;
+        }
+    }
+    ws
+}
+
 /// Every published example that can run on queues, plus workflows exercising
-/// HTTP, waits and parallel branches.
+/// HTTP, waits, parallel branches and child workflows.
 fn cases() -> Vec<Value> {
     let mut cases: Vec<Value> = read("scenarios.json")
         .as_array()
@@ -221,37 +275,90 @@ fn cases() -> Vec<Value> {
                  node("left","HTTP Request",json!({"url":"https://fixture.example/l"})),node("right","HTTP Request",json!({"url":"https://fixture.example/r"})),
                  node("join","Join",json!({"policy":"all"}))],
         "edges":[edge("a","start","split"),edge("b","split","left"),edge("c","split","right"),edge("d","left","join"),edge("e","right","join")]}));
+    let child = |id: &str, nodes: Vec<Value>, output: &str| {
+        let mut all = vec![
+            json!({"id":"start","type":"Execute Workflow Trigger","label":"start","config":{"outputNodeId":output}}),
+        ];
+        let edges: Vec<Value> = std::iter::once("start".to_owned())
+            .chain(nodes.iter().map(|n| n["id"].as_str().unwrap().to_owned()))
+            .collect::<Vec<_>>()
+            .windows(2)
+            .enumerate()
+            .map(|(i, w)| edge(&format!("e{i}"), &w[0], &w[1]))
+            .collect();
+        all.extend(nodes);
+        json!({"schemaVersion":1,"id":id,"name":id,"status":"draft","updatedAt":"","nodes":all,"edges":edges})
+    };
+    let parent = |id: &str, last: Value| {
+        json!({"schemaVersion":1,"id":id,"name":id,"status":"draft","updatedAt":"",
+        "nodes":[node("start","Manual Trigger",json!({})),node("prepare","Map / Transform",json!({"mapping":{"items":[{"n":1},{"n":2},{"n":3},{"n":4},{"n":5}]}})),last],
+        "edges":[edge("a","start","prepare"),edge("b","prepare","x")]})
+    };
+    // A child that waits and calls HTTP; a parent awaiting one, and one starting
+    // another in the background; Each over it.
+    cases.push(child(
+        "http-worker",
+        vec![
+            node("pause", "Wait / Delay", json!({"delayMs":2000})),
+            node(
+                "fetch",
+                "HTTP Request",
+                json!({"url":"https://fixture.example/w"}),
+            ),
+        ],
+        "fetch",
+    ));
+    cases.push(parent("invoke-http", json!({"id":"x","type":"Execute Workflow","label":"x","config":{"workflowId":"http-worker"}})));
+    cases.push(parent("background-http", json!({"id":"x","type":"Execute Workflow","label":"x","config":{"workflowId":"http-worker","mode":"background"}})));
+    cases.push(parent("each-http", json!({"id":"x","type":"Each / Loop","label":"x","config":{"workflowId":"http-worker","arrayPointer":"/items","concurrency":2,"failurePolicy":"collect"}})));
+    // Workflows that need the workspace, directly or through a child.
+    let context = node(
+        "x",
+        "Context Store",
+        json!({"command":{"operation":"get","tableId":"cache","key":"k"}}),
+    );
+    cases.push(parent("read-context", context.clone()));
+    cases.push(child(
+        "context-worker",
+        vec![node(
+            "read",
+            "Context Store",
+            json!({"command":{"operation":"get","tableId":"cache","key":"k"}}),
+        )],
+        "read",
+    ));
+    cases.push(parent("invoke-context", json!({"id":"x","type":"Execute Workflow","label":"x","config":{"workflowId":"context-worker"}})));
+    cases.push(json!({"schemaVersion":1,"id":"reply","name":"reply","status":"draft","updatedAt":"",
+        "nodes":[node("start","Webhook",json!({})),node("x","Respond to Webhook",json!({"status":200}))],"edges":[edge("a","start","x")]}));
     cases
 }
 
 #[test]
 fn queued_runs_match_workspace_runs_under_any_delivery() {
     let mut checked = 0;
+    let mut invoking = 0;
+    let ws = published();
     for doc in cases() {
-        let mut ws = Workspace::default();
-        let graph: workflow_schema::Workflow = match serde_json::from_value(doc.clone()) {
-            Ok(graph) => graph,
-            Err(_) => continue,
+        let id = doc["id"].as_str().unwrap();
+        let Ok(live) = ws.live_document(id) else {
+            continue;
         };
-        if !execution::eligible(&graph) {
+        let Ok(record) = ws.new_run_record("probe", &live, json!({}), Mode::Run, 0, json!({}))
+        else {
+            continue;
+        };
+        if !execution::eligible(&record).unwrap() {
             continue;
         }
-        if ws
-            .handle(
-                "PUT",
-                &format!("/api/workflows/{}", doc["id"].as_str().unwrap()),
-                doc.to_string().as_bytes(),
-                0,
-                "",
-            )
-            .is_err()
-        {
-            continue; // depends on other workflows
-        }
-        publish(&mut ws, &doc);
-        let id = doc["id"].as_str().unwrap();
+        let invokes = !record.invocation_targets.is_empty();
+        invoking += usize::from(invokes);
         for mode in [Mode::Run, Mode::Simulation] {
             let expected = workspace_run(&mut ws.clone(), id, mode, false);
+            assert_eq!(
+                expected.len() > 1,
+                invokes,
+                "{id}: children are compared too"
+            );
             for chaos in [
                 Chaos::None,
                 Chaos::Duplicate,
@@ -268,6 +375,10 @@ fn queued_runs_match_workspace_runs_under_any_delivery() {
         }
     }
     assert!(checked >= 20, "only {checked} cases ran");
+    assert!(
+        invoking >= 3,
+        "only {invoking} cases invoke other workflows"
+    );
 }
 
 #[test]
@@ -281,7 +392,7 @@ fn a_crashed_consumer_settles_like_the_workspace() {
     // The claimed request's outcome is never reported; at its deadline the run
     // records "outcome unknown", whichever way it executes.
     let expected = workspace_run(&mut ws.clone(), "http-chain", Mode::Run, true);
-    assert_eq!(expected["status"], "failed", "{expected}");
+    assert_eq!(expected[0]["status"], "failed", "{expected:?}");
     assert_eq!(
         queue_run(&ws, "http-chain", Mode::Run, Chaos::Crash),
         expected
@@ -308,13 +419,14 @@ fn stale_and_duplicate_messages_do_nothing() {
             json!({}),
         )
         .unwrap();
-    execution::start(&store, &bus, record, 0).unwrap();
+    execution::start(&store, &bus, tree(record), 0).unwrap();
     let first = bus.queue.borrow()[0].1.clone();
     let Step::Perform { run, task } = execution::begin(&store, &bus, &first, 0).unwrap() else {
         panic!("the first step claims the request");
     };
-    // Redelivering the claimed version, or an older one, claims nothing more.
-    for version in [first.version, first.version + 1, 0] {
+    // Redelivering an older version does nothing; the claimed version may step
+    // the run (as the workspace's alarm would), but claims nothing more.
+    for version in [first.version, 0] {
         let stale = WorkMessage {
             run: run.clone(),
             version,
@@ -325,17 +437,25 @@ fn stale_and_duplicate_messages_do_nothing() {
             "version {version}"
         );
     }
+    let current = WorkMessage {
+        run: run.clone(),
+        version: first.version + 1,
+    };
+    assert!(matches!(
+        execution::begin(&store, &bus, &current, 1).unwrap(),
+        Step::Done(_)
+    ));
     // An outcome for a task that wasn't claimed is dropped; the real one applies once.
     assert_eq!(
-        execution::finish(&store, &bus, &run, "not-a-task", perform(&task), 1).unwrap(),
+        execution::finish(&store, &bus, &run, &run, "not-a-task", perform(&task), 1).unwrap(),
         Progress::Unchanged
     );
     assert!(matches!(
-        execution::finish(&store, &bus, &run, &task.id, perform(&task), 1).unwrap(),
+        execution::finish(&store, &bus, &run, &run, &task.id, perform(&task), 1).unwrap(),
         Progress::Saved { .. }
     ));
     assert_eq!(
-        execution::finish(&store, &bus, &run, &task.id, perform(&task), 1).unwrap(),
+        execution::finish(&store, &bus, &run, &run, &task.id, perform(&task), 1).unwrap(),
         Progress::Unchanged
     );
     // The run now waits 5 s. A stale message delivered once it's due must not
@@ -368,39 +488,48 @@ fn stale_and_duplicate_messages_do_nothing() {
         )
         .unwrap();
     assert_eq!(
-        execution::start(&store, &bus, again, 0).unwrap_err().status,
+        execution::start(&store, &bus, tree(again), 0)
+            .unwrap_err()
+            .status,
         409
     );
 }
 
 #[test]
-fn workflows_with_children_data_or_responses_stay_in_the_workspace() {
-    let node = |kind: &str| json!({"schemaVersion":1,"id":"w","name":"w","status":"draft","updatedAt":"","nodes":[{"id":"start","type":"Manual Trigger","label":"s","config":{}},{"id":"x","type":kind,"label":"x","config":{}}],"edges":[]});
-    for kind in [
-        "Execute Workflow",
-        "Each / Loop",
-        "Respond to Webhook",
-        "Data Tables",
-        "Context Store",
-    ] {
-        let graph: workflow_schema::Workflow = serde_json::from_value(node(kind)).unwrap();
-        assert!(!execution::eligible(&graph), "{kind}");
+fn workflows_with_data_or_responses_stay_in_the_workspace() {
+    let ws = published();
+    let record = |id: &str| {
+        ws.new_run_record(
+            "e",
+            &ws.live_document(id).unwrap(),
+            json!({}),
+            Mode::Run,
+            0,
+            json!({}),
+        )
+        .unwrap()
+    };
+    // Children and Each run in run stores, with their parents...
+    for id in ["fan-out", "invoke-http", "each-http"] {
+        assert!(execution::eligible(&record(id)).unwrap(), "{id}");
     }
-    let graph: workflow_schema::Workflow = serde_json::from_value(node("Map / Transform")).unwrap();
-    assert!(execution::eligible(&graph));
+    // ...unless the run, or a workflow it invokes, needs the workspace.
+    for id in ["read-context", "invoke-context", "reply"] {
+        assert!(!execution::eligible(&record(id)).unwrap(), "{id}");
+    }
 }
 
 /// A consumer that read the run before another consumer saved it: its loads see
 /// that old state, its saves go to the real store.
 struct ReadEarlier<'a> {
     store: &'a MemoryRuns,
-    snapshot: (RunRecord, u64),
+    snapshot: (RunTree, u64),
 }
 impl RunStore for ReadEarlier<'_> {
-    fn load(&self, _run: &str) -> Result<Option<(RunRecord, u64)>, ApiError> {
+    fn load(&self, _run: &str) -> Result<Option<(RunTree, u64)>, ApiError> {
         Ok(Some(self.snapshot.clone()))
     }
-    fn save(&self, run: &str, record: &RunRecord, expected: Option<u64>) -> Result<u64, SaveError> {
+    fn save(&self, run: &str, record: &RunTree, expected: Option<u64>) -> Result<u64, SaveError> {
         self.store.save(run, record, expected)
     }
 }
@@ -425,7 +554,7 @@ fn racing_consumers_cannot_both_claim_or_complete() {
             json!({}),
         )
         .unwrap();
-    execution::start(&store, &bus, record, 0).unwrap();
+    execution::start(&store, &bus, tree(record), 0).unwrap();
     let message = bus.queue.borrow()[0].1.clone();
     // Both consumers receive the same message; B reads the run, then A claims.
     let late = ReadEarlier {
@@ -446,11 +575,11 @@ fn racing_consumers_cannot_both_claim_or_complete() {
         snapshot: store.load("r").unwrap().unwrap(),
     };
     assert!(matches!(
-        execution::finish(&store, &bus, "r", &task.id, perform(&task), 1).unwrap(),
+        execution::finish(&store, &bus, "r", "r", &task.id, perform(&task), 1).unwrap(),
         Progress::Saved { .. }
     ));
     assert_eq!(
-        execution::finish(&late, &bus, "r", &task.id, perform(&task), 1).unwrap(),
+        execution::finish(&late, &bus, "r", "r", &task.id, perform(&task), 1).unwrap(),
         Progress::Unchanged
     );
 }
@@ -475,8 +604,8 @@ fn control_requests_apply_to_stored_runs() {
             json!({}),
         )
         .unwrap();
-    execution::start(&store, &bus, record, 0).unwrap();
-    let (paused, _) = execution::control(&store, &bus, "r", "pause", 1).unwrap();
+    execution::start(&store, &bus, tree(record), 0).unwrap();
+    let (paused, _) = execution::control(&store, &bus, "r", "r", "pause", 1).unwrap();
     assert_eq!(paused.view(false).unwrap()["status"], "paused");
     // A paused run's messages do nothing until it resumes.
     let message = WorkMessage {
@@ -487,18 +616,18 @@ fn control_requests_apply_to_stored_runs() {
         execution::begin(&store, &bus, &message, 2).unwrap(),
         Step::Done(Progress::Unchanged)
     );
-    let (resumed, _) = execution::control(&store, &bus, "r", "resume", 3).unwrap();
+    let (resumed, _) = execution::control(&store, &bus, "r", "r", "resume", 3).unwrap();
     assert_eq!(resumed.view(false).unwrap()["status"], "running");
-    let (cancelled, _) = execution::control(&store, &bus, "r", "cancel", 4).unwrap();
+    let (cancelled, _) = execution::control(&store, &bus, "r", "r", "cancel", 4).unwrap();
     assert_eq!(cancelled.view(false).unwrap()["status"], "cancelled");
     assert_eq!(
-        execution::control(&store, &bus, "r", "resume", 5)
+        execution::control(&store, &bus, "r", "r", "resume", 5)
             .unwrap_err()
             .status,
         409
     );
     assert_eq!(
-        execution::control(&store, &bus, "missing", "cancel", 5)
+        execution::control(&store, &bus, "missing", "missing", "cancel", 5)
             .unwrap_err()
             .status,
         404
@@ -522,7 +651,7 @@ fn parallel_requests_are_claimed_together() {
             json!({}),
         )
         .unwrap();
-    execution::start(&store, &bus, record, 0).unwrap();
+    execution::start(&store, &bus, tree(record), 0).unwrap();
     // Each claim's follow-up message is due now while another request is ready,
     // so both requests are in flight before either reports back (a rendezvous
     // between them would otherwise deadlock until a deadline).

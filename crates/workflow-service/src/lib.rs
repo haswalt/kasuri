@@ -153,6 +153,19 @@ pub struct ExternalTask {
     pub task: Task,
     pub dispatched: bool,
 }
+impl ExternalTask {
+    /// Whether the host may claim this task now: an HTTP task (invocations and
+    /// data operations are settled by the workspace) not yet dispatched and not
+    /// past its deadline.
+    pub(crate) fn performable(&self, now: u64) -> bool {
+        !matches!(
+            self.task.node.kind.as_str(),
+            "Execute Workflow" | "Each / Loop"
+        ) && !connectors_data::handles(&self.task.node.kind)
+            && !self.dispatched
+            && now < self.task.deadline_ms
+    }
+}
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct RunRecord {
@@ -1065,25 +1078,29 @@ impl Workspace {
     pub fn start_record(&mut self, mut record: RunRecord, now: u64) -> Result<Value, ApiError> {
         let id = record.id_string()?;
         record.advance(now)?;
-        // The first advance happens here, as it always has, so runs that finish
-        // at once answer with their result. A run still waiting (on HTTP or a
-        // timer) is handed to a run store if it is eligible.
-        if self.offload
-            && record.parent.is_none()
-            && record.status()? == RunStatus::Running
-            && execution::eligible(record.restore()?.workflow())
-        {
-            let view = record.view(false)?;
-            self.offloaded.push(record);
-            return Ok(view);
-        }
+        // The first advance (and the children it invokes) happen here, as they
+        // always have, so runs that finish at once answer with their result. A
+        // run still waiting (on HTTP, a timer or a child) is handed to a run store
+        // with every run it invoked, if it is eligible.
+        let top_level = record.parent.is_none();
         self.runs.insert(0, record);
         self.settle_invocations(now)?;
-        self.runs
-            .iter()
-            .find(|r| r.matches_id(&id))
-            .unwrap()
-            .view(false)
+        let index = self.run_index(&id).unwrap();
+        let view = self.runs[index].view(false)?;
+        if self.offload
+            && top_level
+            && self.runs[index].status()? == RunStatus::Running
+            && execution::eligible(&self.runs[index])?
+        {
+            let (tree, rest): (Vec<RunRecord>, Vec<RunRecord>) =
+                std::mem::take(&mut self.runs).into_iter().partition(|r| {
+                    r.matches_id(&id) || r.parent.as_ref().is_some_and(|p| p.root_id == id)
+                });
+            self.runs = rest;
+            // Oldest first, root first: the commit lists them in this order.
+            self.offloaded.extend(tree.into_iter().rev());
+        }
+        Ok(view)
     }
     /// A new run of `doc`, not yet started or admitted. Hosts that execute runs
     /// on queues admit it, then hand it to `execution::start`.
@@ -1837,13 +1854,7 @@ impl Workspace {
             }
             let run_id = record.id_string()?;
             for external in record.external.iter_mut().chain(record.pending.iter_mut()) {
-                if !matches!(
-                    external.task.node.kind.as_str(),
-                    "Execute Workflow" | "Each / Loop"
-                ) && !connectors_data::handles(&external.task.node.kind)
-                    && !external.dispatched
-                    && now < external.task.deadline_ms
-                {
+                if external.performable(now) {
                     external.dispatched = true;
                     record.wake_at = Some(
                         record
