@@ -3,6 +3,7 @@
 mod audit;
 pub mod contracts;
 pub mod definition;
+pub mod execution;
 mod http_api;
 pub mod invocation;
 mod items;
@@ -1016,15 +1017,41 @@ impl Workspace {
         now: u64,
         trigger_context: Value,
     ) -> Result<Value, ApiError> {
+        self.admit_run(true)?;
+        let record = self.new_run_record(id, doc, input, mode, now, trigger_context)?;
+        self.start_record(record, now)
+    }
+    /// Start a prepared run in this workspace (already admitted) and return its view.
+    pub fn start_record(&mut self, mut record: RunRecord, now: u64) -> Result<Value, ApiError> {
+        let id = record.id_string()?;
+        record.advance(now)?;
+        self.runs.insert(0, record);
+        self.settle_invocations(now)?;
+        self.runs
+            .iter()
+            .find(|r| r.matches_id(&id))
+            .unwrap()
+            .view(false)
+    }
+    /// A new run of `doc`, not yet started or admitted. Hosts that execute runs
+    /// on queues admit it, then hand it to `execution::start`.
+    pub fn new_run_record(
+        &self,
+        id: &str,
+        doc: &Document,
+        input: Value,
+        mode: Mode,
+        now: u64,
+        trigger_context: Value,
+    ) -> Result<RunRecord, ApiError> {
         if trigger_context.to_string().len() > 98304 {
             return Err(error(413, "Trigger context exceeds budget"));
         }
         Self::executable(doc)?;
         let invocation_targets = self.invocation_targets(&doc.graph)?;
-        self.admit_run(true)?;
         let run = Run::new(id, doc.graph.clone(), input, now, Limits::default())
             .map_err(|e| error(400, e.to_string()))?;
-        let mut record = RunRecord {
+        Ok(RunRecord {
             invocation_targets,
             parent: None,
             children: Vec::new(),
@@ -1052,15 +1079,7 @@ impl Workspace {
             host_error: None,
             run_id: run.id().into(),
             run_status: Some(run.status()),
-        };
-        record.advance(now)?;
-        self.runs.insert(0, record);
-        self.settle_invocations(now)?;
-        self.runs
-            .iter()
-            .find(|r| r.matches_id(id))
-            .unwrap()
-            .view(false)
+        })
     }
     pub fn record_audit(
         &mut self,
