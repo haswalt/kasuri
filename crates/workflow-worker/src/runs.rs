@@ -490,8 +490,9 @@ impl DurableObject for WorkflowRun {
             if in_flight.is_empty() {
                 break;
             }
-            // Report progress (for example, a claimed request) while waiting.
-            self.report_current().await;
+            // Report progress (for example, a claimed request) without holding
+            // up the requests.
+            self.report_later();
             let wait = alarm.0.get().unwrap_or(1_000).clamp(25, 1_000);
             let event = {
                 let completion = Box::pin(in_flight.next());
@@ -540,11 +541,11 @@ impl WorkflowRun {
         let Some((tree, row)) = self.runs().tree().map_err(internal)? else {
             return Ok(());
         };
-        let reported = self.report(&row).await;
         let finished = !tree.active().map_err(internal)?;
         let storage = self.state.storage();
         if finished {
-            if reported {
+            // Storage goes only once the workspace has the final state.
+            if self.report(&row).await {
                 storage.delete_alarm().await?;
                 storage.delete_all().await?;
             } else {
@@ -554,6 +555,9 @@ impl WorkflowRun {
             }
             return Ok(());
         }
+        // Intermediate reports never hold up the next step: they are idempotent,
+        // and the index may lag by a step.
+        self.report_later();
         match alarm.0.get() {
             Some(delay) if self.queued()? && delay <= QUEUE_MAX_DELAY_MS => {
                 // Queue delays are whole seconds: round up, never deliver early.
@@ -591,22 +595,33 @@ impl WorkflowRun {
         .map_err(internal)?
             == crate::storage::RunExecution::Queues)
     }
-    /// Report the stored tree as it is now.
-    async fn report_current(&self) {
+    /// Report the stored tree as it is now, in the background.
+    fn report_later(&self) {
         if let Ok(Some(row)) = self.runs().row()
             && row.version > 0.0
+            && let Some(report) = self.prepare_report(&row)
         {
-            self.report(&row).await;
+            let (env, sql) = (self.env.clone(), self.state.storage().sql());
+            self.state.wait_until(async move {
+                send_report(env, sql, report).await;
+            });
         }
     }
-    /// Send the runs that changed since the last accepted report to the
-    /// workspace's index: always the root, and children saved since. Reports are
-    /// idempotent there (ignored unless newer), so a failed one is simply
-    /// superseded by the next, which includes everything it had.
+    /// Report the stored tree and wait for the workspace to accept it.
     async fn report(&self, row: &Row) -> bool {
+        match self.prepare_report(row) {
+            Some(report) => send_report(self.env.clone(), self.state.storage().sql(), report).await,
+            None => false,
+        }
+    }
+    /// The runs that changed since the last accepted report: always the root,
+    /// and children saved since. Reports are idempotent in the workspace (ignored
+    /// unless newer), so a failed one is simply superseded by the next, which
+    /// includes everything it had.
+    fn prepare_report(&self, row: &Row) -> Option<PreparedReport> {
         let runs = self.runs();
         let (Ok(children), Ok(since)) = (runs.children(), runs.reported()) else {
-            return false;
+            return None;
         };
         let version = row.version as u64;
         let body = Report {
@@ -630,18 +645,34 @@ impl WorkflowRun {
             )
             .collect(),
         };
-        let send = async {
-            let namespace = self.env.durable_object("WORKSPACES")?;
-            let stub = namespace.id_from_string(&row.workspace)?.get_stub()?;
-            let mut init = RequestInit::new();
-            init.with_method(Method::Post)
-                .with_body(Some(serde_json::to_string(&body)?.into()));
-            let request = Request::new_with_init("https://workspace/internal/runs/report", &init)?;
-            stub.fetch_with_request(request).await
-        };
-        let accepted = matches!(send.await, Ok(response) if response.status_code() == 200);
-        accepted && runs.set_reported(version).is_ok()
+        Some(PreparedReport {
+            workspace: row.workspace.clone(),
+            body: serde_json::to_string(&body).ok()?,
+            version,
+        })
     }
+}
+
+/// A report ready to send to the workspace's index.
+struct PreparedReport {
+    workspace: String,
+    body: String,
+    version: u64,
+}
+/// Send a report; on acceptance, remember its version so later reports only
+/// carry children changed since.
+async fn send_report(env: Env, sql: SqlStorage, report: PreparedReport) -> bool {
+    let send = async {
+        let namespace = env.durable_object("WORKSPACES")?;
+        let stub = namespace.id_from_string(&report.workspace)?.get_stub()?;
+        let mut init = RequestInit::new();
+        init.with_method(Method::Post)
+            .with_body(Some(report.body.into()));
+        let request = Request::new_with_init("https://workspace/internal/runs/report", &init)?;
+        stub.fetch_with_request(request).await
+    };
+    let accepted = matches!(send.await, Ok(response) if response.status_code() == 200);
+    accepted && ObjectRun(sql).set_reported(report.version).is_ok()
 }
 
 /// Process one queue message: ask the run object to claim work for its version,
