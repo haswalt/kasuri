@@ -73,3 +73,7 @@ CI runs these on every pull request. Run the relevant ones before pushing:
 ## Reporting issues
 
 Use the issue forms for bugs and feature requests. Report security vulnerabilities privately through [GitHub security advisories](https://github.com/haswalt/kasuri/security/advisories/new), not in a public issue.
+
+## License
+
+Kasuri is licensed under the [Apache License, Version 2.0](LICENSE). Unless you state otherwise, any contribution you submit for inclusion is licensed under the same terms, as described in section 5 of the license.

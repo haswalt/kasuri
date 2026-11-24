@@ -152,3 +152,7 @@ Contributions are welcome. [CONTRIBUTING.md](CONTRIBUTING.md) covers setup, the 
 ## Security
 
 Please report vulnerabilities privately through [GitHub security advisories](https://github.com/haswalt/kasuri/security/advisories/new), not in public issues.
+
+## License
+
+Kasuri is licensed under the [Apache License, Version 2.0](LICENSE).
