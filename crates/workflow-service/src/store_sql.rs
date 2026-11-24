@@ -28,7 +28,7 @@ pub enum SqlValue {
     Text(String),
 }
 impl SqlValue {
-    fn integer(&self) -> Result<Option<i64>, StoreError> {
+    pub(crate) fn integer(&self) -> Result<Option<i64>, StoreError> {
         match self {
             SqlValue::Null => Ok(None),
             SqlValue::Integer(value) => Ok(Some(*value)),
@@ -38,7 +38,7 @@ impl SqlValue {
             ))),
         }
     }
-    fn text(self) -> Result<String, StoreError> {
+    pub(crate) fn text(self) -> Result<String, StoreError> {
         match self {
             SqlValue::Text(value) => Ok(value),
             other => Err(StoreError::Invalid(format!("expected text, got {other:?}"))),
@@ -60,6 +60,12 @@ fn text(value: &str) -> SqlValue {
 /// Runs one SQL statement with positional `?` parameters and returns its rows.
 pub trait SqlExec {
     fn query(&self, sql: &str, params: Vec<SqlValue>) -> Result<Vec<Vec<SqlValue>>, StoreError>;
+}
+/// One connection can back several stores.
+impl<T: SqlExec + ?Sized> SqlExec for &T {
+    fn query(&self, sql: &str, params: Vec<SqlValue>) -> Result<Vec<Vec<SqlValue>>, StoreError> {
+        (**self).query(sql, params)
+    }
 }
 
 /// The table layout version written to `ws_meta` once a workspace is stored here.

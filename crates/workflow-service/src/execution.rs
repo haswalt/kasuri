@@ -25,6 +25,9 @@ use connector_sdk::{FailureCode, Outcome, Task};
 use serde::{Deserialize, Serialize};
 pub use workflow_engine::RunStatus;
 
+#[path = "execution_sql.rs"]
+pub mod sql;
+
 /// A top-level run and every run it invoked (Execute Workflow and Each children,
 /// and theirs), stored and stepped together. A tree is the unit of execution: the
 /// workspace's own invocation logic runs over it, so children behave exactly as
