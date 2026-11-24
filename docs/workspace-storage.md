@@ -201,6 +201,17 @@ pub trait RunStore {
 - **On Cloudflare:** `WorkBus` sends to a Queue. `RunStore` is one Durable Object per run, holding that run's row, called over RPC. Each run object is a separate instance, so runs don't contend with each other or with the workspace.
 - **Elsewhere:** `WorkBus` maps to SQS, RabbitMQ or NATS. `RunStore` maps to Postgres (or another SQL store) with a version column, used for compare-and-swap.
 
+### First deployment: run objects (B1)
+
+Before Queues carry work, runs move out of the workspace onto **one Durable Object per run**, whose own alarm is the bus. This works the same on Cloudflare and on workerd, needs no extra resources, and takes runs out of the workspace's memory (on-demand loading). It is selected with `RUN_EXECUTION=objects`; the default stays `workspace` until it is proven.
+
+- **Eligible runs:** top-level runs of workflows without Execute Workflow, Each, data operations or Respond to Webhook (`execution::eligible`). Others run in the workspace as today.
+- **Starting:** the workspace admits the run, writes its index row (`ws_runs`, `remote = 1`, archived so it is never loaded into memory) in the same commit as the start, then calls the run object, which creates the run (`execution::start`) and sets its alarm. Starting is idempotent by run ID.
+- **Stepping:** the run object's alarm processes the current version (`execution::begin`), performs a claimed HTTP task with the worker's existing HTTP executor, and applies the outcome (`execution::finish`). The alarm is the run's single live message: the latest scheduled time wins.
+- **Index reports:** after every save, the run object reports `{version, columns, body}` to the workspace, which updates the index row in one statement, ignoring reports older than the row's version. Lists, details, MCP reads, admission (`MAX_ACTIVE_RUNS`) and retention read the index, which lags the run by at most one report. The workspace never loads these runs.
+- **Control:** pause, resume and cancel on a remote run are forwarded to its run object, which applies them with compare-and-swap and reports.
+- **Finishing:** once a run is terminal and its final report is acknowledged, the run object deletes its storage. The index row is then an ordinary archived run, kept by retention.
+
 ### Messages
 
 A message identifies work and never carries data:
