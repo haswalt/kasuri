@@ -8,6 +8,6 @@ serde_json.workspace = true
 connector-sdk.workspace = true
 workflow-schema.workspace = true
 connectors-validation = { path = "../connectors-validation" }
-roxmltree = "=0.21.1"
+roxmltree = "=0.21.2"
 
 workflow-expressions = { path = "../workflow-expressions" }
