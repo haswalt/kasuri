@@ -1,6 +1,6 @@
 # Data import, export and atomic counters
 
-The Data tables page supports JSON/CSV imports, exports, structured filters and integer counter updates. Operations stay in Rust on Cloudflare and self-hosted workerd. No deployment-specific settings or credentials are embedded in exported files.
+The Data tables page supports JSON/CSV imports, exports, structured filters and integer counter updates. Operations stay in Rust on Cloudflare. No deployment-specific settings or credentials are embedded in exported files.
 
 ## Import
 

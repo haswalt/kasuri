@@ -85,4 +85,4 @@ The pure CoreConnector rejects unsupported types. The Rust host dispatches HTTP 
 
 ## Rust Wasm host
 
-`workflow-service` owns persistent workspace documents, simulations and cron registration. `workflow-worker` implements HTTP, SQLite Durable Objects and alarms directly with workers-rs. The official worker-build tool generates the Wasm module entrypoint. Cloudflare and self-hosted workerd execute the same Rust backend. See [deployment](deployment.md) and [self-hosting](self-hosting.md).
+`workflow-service` owns persistent workspace documents, simulations and cron registration. `workflow-worker` implements HTTP, SQLite Durable Objects and alarms directly with workers-rs. The official worker-build tool generates the Wasm module entrypoint. See [deployment](deployment.md).

@@ -36,5 +36,5 @@ body:
         - Data Tables / Context Store
         - MCP / agents
         - HTTP management API
-        - Deployment / self-hosting
+        - Cloudflare deployment
         - Other

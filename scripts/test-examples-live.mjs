@@ -1,9 +1,10 @@
+import { stageRuntimeFixture } from './stage-runtime-fixture.mjs'
 import { versionedTestClient } from './versioned-test-client.mjs'
 // Opt-in network check of the published, unmodified workflows against public APIs.
 import assert from 'node:assert/strict'
 import { spawn } from 'node:child_process'
 import { once } from 'node:events'
-import { mkdtempSync, readFileSync, rmSync } from 'node:fs'
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join, resolve } from 'node:path'
 import { createServer } from 'node:net'
@@ -16,10 +17,12 @@ await once(probe, 'listening')
 const port = probe.address().port
 await new Promise(resolve => probe.close(resolve))
 const origin = `http://127.0.0.1:${port}`
+const configPath = join(storage, 'test.capnp')
+writeFileSync(configPath, stageRuntimeFixture(storage))
 const child = spawn(resolve('node_modules/workerd/bin/workerd'), [
-  'serve', 'workerd.capnp', '--socket-addr', `http=127.0.0.1:${port}`,
+  'serve', configPath, '--socket-addr', `http=127.0.0.1:${port}`,
   '--directory-path', `storage=${storage}`
-], { cwd: resolve('dist'), env: { ...process.env, BASIC_AUTH: '', PUBLIC_ORIGIN: '', HTTP_ALLOWED_HOSTS: '', HTTP_PRIVATE_HOSTS: '', MAX_ACTIVE_RUNS: '', RUN_HISTORY: '', RUN_HISTORY_DAYS: '', FAILED_RUN_HISTORY_DAYS: '', RUN_EXECUTION: '', HTTP_SECRETS: '{}' } })
+], { cwd: storage, env: { ...process.env, BASIC_AUTH: '', PUBLIC_ORIGIN: '', HTTP_ALLOWED_HOSTS: '', HTTP_PRIVATE_HOSTS: '', MAX_ACTIVE_RUNS: '', RUN_HISTORY: '', RUN_HISTORY_DAYS: '', FAILED_RUN_HISTORY_DAYS: '', RUN_EXECUTION: '', HTTP_SECRETS: '{}' } })
 let logs = '', cookie = ''
 child.stdout.on('data', b => logs += b)
 child.stderr.on('data', b => logs += b)

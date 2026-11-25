@@ -27,7 +27,7 @@ This plan combines the reported product issues with the supplied n8n migration g
 
 The goal is a composable internal workflow platform: reliable draft/publication state, editable graphs, persistent workspace data, flexible requests/responses, collection processing and reusable workflows. Business rules such as duplicate-event handling belong in workflows. The Rust engine remains responsible for durable execution, scheduling, checkpoints and safe effect dispatch.
 
-Keep the React/Panda UI, Rust service/connector crates and Rust/Wasm entrypoint. Each capability must work on Cloudflare and self-hosted workerd. Do not add a TypeScript API, provider-dependent execution engine, seeded installation data or an application demo mode. Maintain importable examples and tests for every supported internal connector.
+Keep the React/Panda UI, Rust service/connector crates and Rust/Wasm entrypoint. Each capability must work on Cloudflare. Keep the execution engine in Rust. Do not add a TypeScript API, seeded installation data or an application demo mode. Maintain importable examples and tests for every supported internal connector.
 
 In scope: all reported product issues; Data Tables/context storage; expressions; bounded Code; collections; parallel branches; workflow invocation; webhook responses; core scheduling, artifact and credential infrastructure. Out of scope: Google Calendar, Twilio, Resend, Anthropic, model/agent adapters, ElevenLabs, Voiceflow and other external service connectors. Generic HTTP/file formats and storage/credential abstractions are platform work; adding provider-specific workflow adapters remains separate.
 
@@ -195,7 +195,7 @@ Acceptance: a parent invokes a reusable synthetic calculation, awaits its result
 
 ### 9. Remaining internal infrastructure
 
-- Add binary HTTP bodies/responses, multipart/form-urlencoded formats and artifact references. Keep large files/collections outside checkpoints. Introduce a storage interface with a self-hosted backend and deployment adapters; provider-specific workflow storage connectors are separate work. Enforce MIME/size/access/retention policies and cleanup across restarts.
+- Add binary HTTP bodies/responses, multipart/form-urlencoded formats and artifact references. Keep large files/collections outside checkpoints. Use Cloudflare storage for large artifacts; provider-specific workflow storage connectors are separate work. Enforce MIME/size/access/retention policies and cleanup across restarts.
 - Build workspace-scoped reusable connection/credential administration for generic HTTP/header/Basic/OAuth use, with encrypted secret storage, rotation, testing and alias references. Existing installation-wide `HTTP_SECRETS` is compatibility infrastructure, not the completed vault. Inbound MCP OAuth and outbound provider credentials remain separate systems.
 - Add interval scheduling and schedule-configuration improvements on the same published-definition and due-work infrastructure, with timezone/DST tests. Preserve existing durable waits/recovery rather than implementing another timer engine.
 - Extend debugger item, branch, child and response/artifact views as their backing data becomes available. Do not fabricate timing traces or historical inputs.
@@ -207,7 +207,7 @@ Acceptance: binary data is accessed by authorized durable references rather than
 1. Back up complete storage and make migrations explicit/versioned. Existing immutable publication history cannot be reconstructed retroactively because it was never stored. Seed known current publications where reliable; flag ambiguous edited-after-publication records for review. Do not invent past revisions or silently expose a draft as the old live graph.
 2. Preserve existing browser ownership, workspace identifiers, grants and endpoint aliases. Distinguish changing a display label from changing an OAuth audience. Keep existing webhook protection until an explicit published config change.
 3. Pin existing runs to their stored graph snapshots. Test old checkpoint readers/migrations before changing item/parallel state shapes. Never migrate by discarding active runs.
-4. Add Rust contract/service/engine tests, real HTTP/workerd tests and focused browser tests for each delivery. Exercise stale UI/MCP edits, concurrent claims, duplicate task completions, restarts, response deadlines and workspace isolation. Run the same relevant checks against Docker; keep Cloudflare asset routing and self-host ingress coverage aligned.
+4. Add Rust contract/service/engine tests, real HTTP/workerd tests and focused browser tests for each delivery. Exercise stale UI/MCP edits, concurrent claims, duplicate task completions, restarts, response deadlines and workspace isolation. Exercise Cloudflare asset routing in local Worker tests.
 5. Maintain a supported-node coverage gate and importable simple/combined JSON examples for every new internal node. Fixtures must be synthetic, contain no private identifiers/secrets, and simulate offline. Include acceptance workflows for data queries/response APIs, branching/parallel context updates, optional deduplication and parent/child execution.
 6. Treat the supplied twelve-workflow assessment as a capability checklist. After the internal foundations land, use sanitized actual exports and expected datasets/results to verify parity. Do not claim the external-service scenarios are migrated while their adapters and credentials remain out of scope.
 
@@ -243,15 +243,11 @@ Verification: Rust workspace tests, 58 frontend tests, the full Wasm runtime reg
 
 Implement the provider-independent Rust principal/authorization boundary described in [platform-auth.md](platform-auth.md). Authentication always delegates to a third party; do not build password accounts. Cloudflare Access is optional, including on Cloudflare, with standards-based OIDC and trusted identity-proxy integrations supported through maintained libraries and explicit trust contracts. Include dashboard/API protection, workspace memberships, safe cookie-owner migration, actor audit context, fail-closed production setup and separate MCP/webhook ingress policy. Existing Basic authentication is not completion of this requirement.
 
-### Self-hosted horizontal execution (documented limitation; implementation outstanding)
-
-The supported package remains one workerd process per local storage volume. [Self-hosting scaling guidance](self-hosting.md#scaling-and-availability) distinguishes in-process branch concurrency, vertical sizing, restart recovery and independent installations from shared multi-worker execution. A future delivery must select an ownership/fencing and shared-state/scheduling architecture, verify it against the pinned runtime, and prove multi-process recovery before enabling Kubernetes replicas/HPA. No distributed-execution guarantee is inferred from the current Docker/Kubernetes packaging.
-
 ### Expressions and routing (completed)
 
 Added a shared bounded Rust expression evaluator with typed output fields, arithmetic/text/date operations, explicit interpolation, missing/null handling, Boolean groups and graph-ancestor references pinned in tasks. The guided editor selects operations, upstream steps and known fields. Switch / Router exposes stable named outputs with ordered first-match/fallback behavior; Merge adds explicit source ordering for append, by-key full outer combination and branch selection while retaining empty-config semantics. Public examples 26–28 require only import and simulation. Native workspace and frontend tests, real/simulated Wasm runs, restart recovery, invalid-reference rejection, MCP simulation and browser-built arithmetic/routing cover this delivery. No arbitrary Code execution is introduced.
 
-Next infrastructure priority is third-party platform authentication as specified above; data schema/index administration, runtime sandbox feasibility and distributed self-host execution remain outstanding.
+Next infrastructure priority is third-party platform authentication as specified above; data schema/index administration and runtime sandbox feasibility remain outstanding.
 
 ### Shared expression bindings across connector inputs (required follow-up)
 

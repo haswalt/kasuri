@@ -54,7 +54,7 @@ When adding or changing a connector:
 2. Add meaningful outputs/status assertions in `scenarios.json`. Include an offline response fixture for HTTP nodes. Keep authentication-dependent features out of this no-configuration pack unless they can be demonstrated without shared secrets.
 3. Update this table and the live test assertions if the example uses a public API.
 4. Run `pnpm test:web` and `cargo test -p workflow-service --test examples`. Both already run through the project's normal CI test command.
-5. For public HTTP examples, also run `pnpm build:selfhost` followed by `pnpm test:examples:live`. This opt-in check executes the unchanged files through a temporary, isolated Rust/Wasm runtime with actual public HTTPS access. It removes its local test storage afterward. It is separate from deterministic CI because it depends on an external service.
+5. For public HTTP examples, also run `pnpm build` followed by `pnpm test:examples:live`. This opt-in check executes the unchanged files through a temporary, isolated Rust/Wasm runtime with actual public HTTPS access. It removes its local test storage afterward. It is separate from deterministic CI because it depends on an external service.
 
 For dashboard import/export, [sample JSON records](datasets/records.json) and equivalent [CSV records](datasets/records.csv) contain public synthetic values. See [transfer format and bounds](../docs/data-transfer.md).
 

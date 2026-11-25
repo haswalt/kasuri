@@ -14,7 +14,7 @@ AI Gateway and MCP Portals are separate integration options. AI Gateway fronts m
 
 ## Implementation requirements
 
-- Keep adapters and execution logic in Rust/Wasm, with matching behavior on Cloudflare and self-hosted workerd. Connecting to Cloudflare services must not require hosting Kasuri on Cloudflare.
+- Keep adapters and execution logic in Rust/Wasm, with runtime coverage on Cloudflare.
 - Configure gateway/portal endpoints and credential references per connection; keep account IDs, tokens and deployment-specific endpoints out of the public repository.
 - Let an agent workflow select its model/gateway and its approved tool sources independently, including native Cloudflare tools exposed through a portal where available.
 - Discover actual tool schemas and permissions from the connected portal/server. Do not assume every portal exposes every Cloudflare tool, or bypass its access policies.

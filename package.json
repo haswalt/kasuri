@@ -8,8 +8,6 @@
     "build": "node scripts/cloudflare-build.mjs",
     "build:worker": "worker-build crates/workflow-worker --release --no-opt",
     "build:web": "pnpm --filter web build",
-    "build:selfhost": "pnpm build && node scripts/build-selfhost.mjs",
-    "start": "sh scripts/start-selfhost.sh",
     "dev:web": "pnpm --filter web dev",
     "test": "pnpm test:web && pnpm test:rust && pnpm test:runtime",
     "test:web": "pnpm --filter web test",
@@ -17,9 +15,7 @@
     "test:runtime": "node scripts/test-runtime.mjs",
     "deploy": "pnpm build && wrangler deploy",
     "deploy:check": "pnpm build && wrangler deploy --dry-run",
-    "setup:selfhost": "node scripts/setup-selfhost.mjs",
     "setup:repository": "node scripts/configure-repository.mjs",
-    "test:container": "node scripts/test-container.mjs",
     "test:examples:live": "node scripts/test-examples-live.mjs",
     "test:data": "node scripts/test-runtime.mjs --data-only"
   },

@@ -20,4 +20,4 @@ There is no demo mode or seeded production data. Unsupported features have expli
 
 Frontend tests cover canvas geometry, insertion, connection validation, import/export, run states, connector categorization and safe CSV cells. Production TypeScript/Vite builds pass. Lint reports existing React synchronization/dependency warnings without errors.
 
-Browser checks exercised workflow creation, configuration and saving, simulation, real execution with a durable wait, debugger navigation, input pinning, theme switching, connector search and layouts at 1280, 1440 and 1920 pixels. QA data lives only in the isolated local browser workspace. Self-host runtime tests cover bundled font media types alongside authentication, HTTP policy, timers, cron and webhooks.
+Browser checks exercised workflow creation, configuration and saving, simulation, real execution with a durable wait, debugger navigation, input pinning, theme switching, connector search and layouts at 1280, 1440 and 1920 pixels. QA data lives only in the isolated local browser workspace. Local Worker runtime tests cover bundled font media types alongside authentication, HTTP policy, timers, cron and webhooks.

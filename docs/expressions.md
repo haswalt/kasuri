@@ -1,6 +1,6 @@
 # Expressions, routing and merge policies
 
-These nodes run entirely in Rust on Cloudflare and self-hosted workerd. Real runs and simulations use the same bounded evaluator. There is no JavaScript evaluation, implicit network, filesystem, environment or secret-store access.
+These nodes run entirely in Rust on Cloudflare. Real runs and simulations use the same bounded evaluator. There is no JavaScript evaluation, implicit network, filesystem, environment or secret-store access.
 
 ## Expressions
 

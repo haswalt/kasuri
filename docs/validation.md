@@ -28,7 +28,7 @@ The connector uses the [Rust jsonschema validator](https://docs.rs/jsonschema/0.
 
 Unknown keywords/formats are rejected, not silently ignored. References (local or external), regex patterns, schema combinators, dynamic schema retrieval and content decoding are not included in this profile. Schemas have the existing 64 KiB configuration budget, at most 512 schema nodes and 16 nesting levels. This bounds traversal and avoids recursive references or user-supplied regex backtracking. Error reporting is limited to 32 entries/8 KiB; paths can be shortened with `pathTruncated: true`. The result, including the unchanged value, must fit the engine's existing 64 KiB node-output budget.
 
-No network, filesystem, secrets or executable code are available to a validation schema. The same Rust implementation runs in native tests, Cloudflare Wasm and self-hosted workerd. Tests include actual format assertions, required fields, numeric ranges/64-bit integer bounds, invalid schemas, unsafe retrieval rejection and bounded diagnostics.
+No network, filesystem, secrets or executable code are available to a validation schema. The same Rust implementation runs in native tests and Cloudflare Wasm. Tests include actual format assertions, required fields, numeric ranges/64-bit integer bounds, invalid schemas, unsafe retrieval rejection and bounded diagnostics.
 
 ## Workflow patterns and examples
 

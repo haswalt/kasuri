@@ -1,6 +1,6 @@
 # HTTP management API v2
 
-The Rust/Wasm entrypoint serves the same API on Cloudflare and self-hosted workerd. `/api/health` reports version `2`; `/api/workspace` reports `apiVersion: 2` and `editPreconditionsRequired: true` alongside the selected workspace's workflows, runs and connector manifests.
+The Rust/Wasm entrypoint serves the API on Cloudflare. `/api/health` reports version `2`; `/api/workspace` reports `apiVersion: 2` and `editPreconditionsRequired: true` alongside the selected workspace's workflows, runs and connector manifests.
 
 Browser ownership uses an HttpOnly session cookie. The route selects a workspace per tab; management requests carry its key in `X-Kasuri-Workspace` (`personal` or an owned workspace ID). The server verifies ownership before routing. A workspace key is not an authorization credential. Non-browser agent integrations should use the scoped [MCP server](mcp.md).
 

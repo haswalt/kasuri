@@ -6,7 +6,7 @@
 
 [![Build and test](https://github.com/haswalt/kasuri/actions/workflows/ci.yaml/badge.svg?branch=develop)](https://github.com/haswalt/kasuri/actions/workflows/ci.yaml)
 
-Kasuri is a visual workflow automation platform that runs on Cloudflare. You build workflows on a canvas in the browser, trigger them manually, on a schedule or from webhooks, and watch every run step by step. The execution engine is written in Rust and compiled to WebAssembly, and it runs on Cloudflare Workers and Durable Objects. The same build can also be self-hosted with the open-source [workerd](https://github.com/cloudflare/workerd) runtime.
+Kasuri is a visual workflow automation platform that runs on Cloudflare. You build workflows on a canvas in the browser, trigger them manually, on a schedule or from webhooks, and watch every run step by step. The execution engine is written in Rust and compiled to WebAssembly, and it runs on Cloudflare Workers and Durable Objects.
 
 There is no hosted demo: every installation is your own, and starts with an empty workspace.
 
@@ -42,15 +42,8 @@ Open the URL Wrangler prints. For frontend-only work, run `pnpm dev:web` alongsi
 | --- | --- |
 | `pnpm dev` | Build and run the Worker and UI locally with Wrangler |
 | `pnpm test` | Run the web, Rust and runtime test suites |
-| `pnpm build:selfhost` | Build the self-hosted package into `dist/` |
 | `pnpm deploy:check` | Package the Worker without publishing it |
 | `pnpm deploy` | Publish to your Cloudflare account |
-
-### Self-host
-
-Docker, Docker Compose and Kubernetes packages are included. See [self-hosting](docs/self-hosting.md) for setup, persistence, upgrades and outbound HTTP configuration.
-
-Self-hosted installations run as a **single node**: one workerd process with all state on one volume. They scale up, not out. See [scaling and availability](docs/self-hosting.md#scaling-and-availability), and the proposed [workspace sharding design](docs/self-host-sharding.md).
 
 ## Building workflows
 
@@ -103,7 +96,6 @@ All backend logic is Rust. Cloudflare's `worker-build` only generates the JavaSc
 | `crates/workflow-data` | Data Tables and Context Store |
 | `crates/connector-sdk` | Connector manifest and execution contracts |
 | `crates/connectors-*` | Built-in connectors (core, HTTP, webhook, data, validation) |
-| `deploy/` | workerd configuration and Kubernetes manifests |
 
 ## Documentation
 
@@ -119,7 +111,6 @@ All backend logic is Rust. Cloudflare's `worker-build` only generates the JavaSc
 **Running Kasuri**
 
 - [Cloudflare deployment](docs/deployment.md), [One-click deployment](docs/cloudflare-one-click.md)
-- [Self-hosting](docs/self-hosting.md)
 
 **Integrating**
 
@@ -130,8 +121,7 @@ All backend logic is Rust. Cloudflare's `worker-build` only generates the JavaSc
 
 - [Workflow engine](docs/workflow-engine.md)
 - [UI implementation](docs/ui-implementation.md), [Styling](docs/styling.md)
-- [Scalable workspace storage and execution](docs/workspace-storage.md) (proposal)
-- [Self-hosted workspace sharding](docs/self-host-sharding.md) (proposal)
+- [Scalable workspace storage and execution](docs/workspace-storage.md)
 - [Third-party platform authentication](docs/platform-auth.md) (planned)
 - [Agent management requirements](docs/agent-mcp.md), [Agentic connectors](docs/agentic-connectors.md) (planned)
 - [Internal platform plan](docs/internal-platform-plan.md)
@@ -143,7 +133,6 @@ Kasuri is under active development. Current limitations:
 - **No user accounts.** A browser cookie identifies who owns which workspaces; clearing it loses access to them. Protect private installations with [Cloudflare Access](https://developers.cloudflare.com/cloudflare-one/policies/access/) or the optional Basic authentication. Third-party sign-in is [planned](docs/platform-auth.md).
 - **Workspace capacity.** Each workspace runs as one Durable Object. Finished runs are stored as [history](docs/deployment.md#run-history) under configurable retention; workflows, active runs and audit entries share a 6 MB in-memory budget, which limits how many large runs can be active at once. See [concurrent runs](docs/deployment.md#concurrent-runs) and the [storage redesign](docs/workspace-storage.md).
 - **No SaaS connectors yet.** Integrations use HTTP Request. OAuth-based connectors are not implemented.
-- **Self-hosting is single-node.** See [above](#self-host).
 
 ## Contributing
 

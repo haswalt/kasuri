@@ -1,8 +1,8 @@
+import { stageRuntimeFixture } from './stage-runtime-fixture.mjs'
 import { spawn } from 'node:child_process'
 import {
   mkdtempSync,
   rmSync,
-  readFileSync,
   writeFileSync,
   cpSync
 } from 'node:fs'
@@ -50,14 +50,13 @@ probe.listen(0, '127.0.0.1')
 await once(probe, 'listening')
 const port = probe.address().port
 await new Promise((r) => probe.close(r))
-cpSync('dist/worker', join(data, 'worker'), { recursive: true })
 cpSync('scripts/fixtures/http-upstream.mjs', join(data, 'upstream.mjs'))
 const configPath = join(data, 'test.capnp')
 // RUN_EXECUTION=queues needs the config with workerd's (experimental) Queues Worker.
 const queues = process.env.RUN_EXECUTION === 'queues'
 // The run-object checks use queues when the suite does, otherwise run objects.
 const offloaded = queues ? 'queues' : 'objects'
-let config = readFileSync(queues ? 'dist/workerd-queues.capnp' : 'dist/workerd.capnp', 'utf8')
+const config = stageRuntimeFixture(data, { queues })
   .replace(
     'services = [',
     `services = [(name = "upstream", worker = (modules = [(name = "upstream.mjs", esModule = embed "upstream.mjs")], compatibilityDate = "2026-11-18")),`
@@ -83,7 +82,7 @@ function start(policy = {}) {
       ...(queues ? ['--experimental'] : [])
     ],
     {
-      cwd: resolve('dist'),
+      cwd: data,
       env: {
         ...process.env,
         BASIC_AUTH: 'test:runtime-check',

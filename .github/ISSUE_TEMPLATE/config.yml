@@ -5,4 +5,4 @@ contact_links:
     about: Report vulnerabilities privately. Do not open a public issue.
   - name: Documentation
     url: https://github.com/haswalt/kasuri/tree/develop/docs
-    about: Setup, connectors, webhooks, MCP and self-hosting guides.
+    about: Setup, connectors, webhooks, MCP and deployment guides.

@@ -15,7 +15,7 @@ pnpm install
 pnpm dev
 ```
 
-`pnpm dev` builds the Rust Worker and the web app, then starts Wrangler locally. For frontend-only work, run `pnpm dev:web` alongside it. See the [README](README.md) for architecture, and `docs/` for connectors, webhooks, MCP and self-hosting.
+`pnpm dev` builds the Rust Worker and the web app, then starts Wrangler locally. For frontend-only work, run `pnpm dev:web` alongside it. See the [README](README.md) for architecture, and `docs/` for connectors, webhooks, MCP and Cloudflare deployment.
 
 ## Branches
 
@@ -31,7 +31,7 @@ Kasuri uses [Conventional Commits](https://www.conventionalcommits.org/) for its
 ```
 
 - **Types:** `feat`, `fix`, `perf`, `refactor`, `docs`, `test`, `build`, `ci`, `chore`, `style`, `revert`
-- **Scope:** an optional lowercase area, such as `engine`, `mcp`, `webhooks`, `data`, `editor`, `service`, `schema` or `docker`
+- **Scope:** an optional lowercase area, such as `engine`, `mcp`, `webhooks`, `data`, `editor`, `service`, `schema` or `deployment`
 - **Summary:** imperative and lowercase, with no trailing period. The whole header can be up to about 100 characters.
 - **Breaking changes:** add `!` after the type or scope (for example `feat(api)!: require edit versions`) and explain the break in the PR description.
 
@@ -54,11 +54,10 @@ CI runs these on every pull request. Run the relevant ones before pushing:
 | Rust formatting | `cargo fmt --all -- --check` |
 | Rust lints (correctness and suspicious are enforced) | `cargo clippy --workspace --all-targets` |
 | Web lint | `pnpm --filter web lint` |
-| Build | `pnpm build:selfhost` |
+| Build | `pnpm build` |
 | Web tests | `pnpm test:web` |
 | Rust tests | `pnpm test:rust` (`cargo test --workspace`) |
 | Runtime tests against a local Worker | `pnpm test:runtime` |
-| Container image | `docker build -t kasuri:ci . && node scripts/test-container.mjs kasuri:ci` |
 
 `pnpm test` runs the web, Rust and runtime suites together. For a focused Rust change, `cargo test -p <crate>` is a quick first check.
 
@@ -67,7 +66,7 @@ CI runs these on every pull request. Run the relevant ones before pushing:
 - **Tests:** add or update tests with every behaviour change. Rust crates keep integration tests in `crates/<crate>/tests`, the web app in `apps/web/tests`, and end-to-end runtime checks in `scripts/*-checks.mjs`.
 - **Examples:** `examples/workflows` are compiled into the MCP discovery tools and asserted in CI. Keep them valid and free of real credentials.
 - **Compatibility:** saved workflows and the HTTP and MCP APIs are persistent contracts. Don't break existing documents silently. Changes to the workflow format go through `schemaVersion`.
-- **Secrets:** never commit tokens, webhook keys or private hostnames. Use `.env.example` for configuration names only.
+- **Secrets:** never commit tokens, webhook keys or private hostnames. Use `.dev.vars.example` for configuration names only.
 - **Docs:** update `README.md` or the relevant page in `docs/` when user-visible behaviour changes.
 
 ## Reporting issues

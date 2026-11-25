@@ -1,10 +1,11 @@
-//! Queue-driven run execution (stage 2 of `docs/workspace-storage.md`).
+//! Durable run execution (see `docs/workspace-storage.md`).
 //!
 //! A run tree (a top-level run and the runs it invokes, see [`RunTree`]) advances
 //! one message at a time, outside the workspace: a consumer loads the tree from a
 //! [`RunStore`], steps it with the workspace's own logic, and sends the next
-//! message on a [`WorkBus`]. Both are traits, so Cloudflare (Queues and a
-//! Durable Object per run) and other hosts (SQS, NATS, Postgres) can provide them.
+//! message on a [`WorkBus`]. Cloudflare stores runs in Durable Object SQLite and
+//! schedules steps with alarms or Cloudflare Queues. Native tests use these
+//! interfaces to exercise retries.
 //!
 //! Delivery is at least once and may be out of order. Correctness comes from the
 //! store's compare-and-swap on a version, not from the bus:
@@ -24,9 +25,6 @@ use crate::{ApiError, Mode, RunRecord, WebhookReply, Workspace, error};
 use connector_sdk::{FailureCode, Outcome, Task};
 use serde::{Deserialize, Serialize};
 pub use workflow_engine::RunStatus;
-
-#[path = "execution_sql.rs"]
-pub mod sql;
 
 /// A top-level run and every run it invoked (Execute Workflow and Each children,
 /// and theirs), stored and stepped together. A tree is the unit of execution: the

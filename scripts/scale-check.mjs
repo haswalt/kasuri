@@ -4,7 +4,7 @@
 //   an HTTP call), with step latency compared to one run on its own;
 // - large state: runs carrying 50 KB inputs, which stay cancellable.
 //
-// Usage: pnpm build:selfhost, then
+// Usage: pnpm build, then
 //   RUN_EXECUTION=objects node scripts/scale-check.mjs [--runs 1000] [--size 51200] [--wait 3000]
 // It prints a JSON summary and fails if any run doesn't finish as expected, or if
 // the median lateness is more than twice the single run's (plus 250 ms for timer
@@ -13,9 +13,10 @@
 //
 // workerd runs every Durable Object of a worker on one isolate, so these numbers
 // measure one machine's CPU, not Cloudflare, where each run object is separate.
+import { stageRuntimeFixture } from './stage-runtime-fixture.mjs'
 import assert from 'node:assert/strict'
 import { spawn } from 'node:child_process'
-import { cpSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import { cpSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { createServer } from 'node:net'
 import { once } from 'node:events'
 import { tmpdir } from 'node:os'
@@ -42,15 +43,14 @@ const probe = createServer().listen(0, '127.0.0.1')
 await once(probe, 'listening')
 const port = probe.address().port
 await new Promise(r => probe.close(r))
-cpSync('dist/worker', join(data, 'worker'), { recursive: true })
 cpSync('scripts/fixtures/http-upstream.mjs', join(data, 'upstream.mjs'))
-const config = readFileSync(queues ? 'dist/workerd-queues.capnp' : 'dist/workerd.capnp', 'utf8')
+const config = stageRuntimeFixture(data, { queues })
   .replace('services = [', `services = [(name = "upstream", worker = (modules = [(name = "upstream.mjs", esModule = embed "upstream.mjs")], compatibilityDate = "2026-11-18")),`)
   .replace('compatibilityDate = "2026-11-18",', 'globalOutbound = "upstream", compatibilityDate = "2026-11-18",')
 writeFileSync(join(data, 'scale.capnp'), config)
 const origin = `http://127.0.0.1:${port}`
 const child = spawn(resolve('node_modules/workerd/bin/workerd'), ['serve', join(data, 'scale.capnp'), '--socket-addr', `http=127.0.0.1:${port}`, '--directory-path', `storage=${data}`, ...(queues ? ['--experimental'] : [])], {
-  cwd: resolve('dist'),
+  cwd: data,
   env: { ...process.env, BASIC_AUTH: 'scale:check', PUBLIC_ORIGIN: '', HTTP_ALLOWED_HOSTS: '', HTTP_PRIVATE_HOSTS: '', MAX_ACTIVE_RUNS: '', RUN_HISTORY: String(RUNS + 100), RUN_HISTORY_DAYS: '', FAILED_RUN_HISTORY_DAYS: '', RUN_EXECUTION: mode, HTTP_SECRETS: '{}' }
 })
 let logs = ''
@@ -128,7 +128,7 @@ try {
   }
   const single = await measure(1, 0)
   const many = await measure(RUNS, CANCEL)
-  const summary = { mode: mode || 'workspace', inputBytes: SIZE, waitMs: WAIT, single, concurrent: many }
+  const summary = { mode: mode || 'objects', inputBytes: SIZE, waitMs: WAIT, single, concurrent: many }
   console.log(JSON.stringify(summary, null, 2))
   const limit = 2 * Math.max(single.latenessMedianMs, 0) + 250
   if (checkLatency) {

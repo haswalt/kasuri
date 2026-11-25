@@ -69,7 +69,7 @@ Configure aliases in the installation's `HTTP_SECRETS` JSON map:
 
 Named HTTP secrets require the installation’s existing `BASIC_AUTH` protection to be configured, so anonymous workflow authors cannot use shared installation credentials. Without it, secret-backed requests fail with `egress_denied`; unauthenticated public HTTP requests still work.
 
-On Cloudflare, store that JSON with `pnpm exec wrangler secret put HTTP_SECRETS`. Locally, put it in ignored `.dev.vars`. For self-hosting supply `HTTP_SECRETS` from the environment or a Kubernetes Secret; the container also accepts `HTTP_SECRETS_FILE` pointing at a mounted JSON file. Compose reads `HTTP_SECRETS` from the ignored `.env`. Keep these values out of Git.
+On Cloudflare, store that JSON with `pnpm exec wrangler secret put HTTP_SECRETS`. Locally, put it in ignored `.dev.vars`. Keep these values out of Git.
 
 The workflow contains the username and secret aliases. Password/header secret values are resolved only after dispatch is persisted, are not returned by the workspace API, and are not copied into task checkpoints. Known secret values and Basic authorization encodings are redacted from successful response bodies if echoed by an upstream. Missing aliases fail with `missing_input`; there is no fallback to plaintext passwords. Non-sensitive literal custom headers remain part of workflow JSON. Do not put credentials in URL queries, run input, ordinary literals or fixtures. OAuth and a connection-management vault UI remain future work.
 
@@ -83,13 +83,13 @@ The workflow contains the username and secret aliases. Password/header secret va
 
 URLs cannot contain credentials or fragments. Private, loopback, link-local, metadata, special-use addresses and local hostnames are blocked by default. Before dispatch, the Rust host checks A and AAAA DNS answers through Cloudflare's public DNS-over-HTTPS resolver and rejects the destination if any answer is nonpublic. DNS lookup failures fail closed. The trusted DNS endpoint is independent of the optional application host allowlist.
 
-Redirects are rejected, including redirects to another public host, so credentials are never automatically forwarded to a new destination. The connection layer must also enforce public-only networking: self-hosted workerd explicitly allows only publicly routable destination addresses, protecting against DNS rebinding between lookup and connect. Preserve this network policy when modifying the deployment. Cloudflare runs through its platform's outbound networking; the application does not provision private connectivity.
+Redirects are rejected, including redirects to another public host, so credentials are never automatically forwarded to a new destination. Cloudflare enforces outbound networking policy. Kasuri does not provision private connectivity.
 
 ### Explicit private-host opt-in
 
 An operator can set `HTTP_PRIVATE_HOSTS` to exact destination hostnames or IP addresses that may bypass the public-destination/DNS checks. Leave it empty unless deliberately enabling a trusted private service. If `HTTP_ALLOWED_HOSTS` is also set, the destination must satisfy that restriction too. HTTPS and header/redirect protections still apply.
 
-This setting grants permission; it does not create connectivity. Self-hosted operators must additionally add the specific private IP/CIDR to the `internet` service's `network.allow` list in workerd configuration. Keep `public` and add only the required ranges, rather than enabling all private networks. Cloudflare private connectivity requires separately configured platform networking; a host opt-in alone does not enable it.
+This setting grants permission; it does not create connectivity. Cloudflare private connectivity requires separately configured platform networking.
 
 ### Simulations and failures
 

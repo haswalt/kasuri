@@ -12,7 +12,7 @@ pnpm deploy
 
 The build uses the official `worker-build` CLI and `workers-rs` to compile `workflow-worker` to Wasm. Wrangler loads `crates/workflow-worker/build/index.js`, the generated entrypoint. HTTP routing, workspace storage, connector execution and scheduling are Rust. React static assets share the same origin.
 
-`wrangler.jsonc` creates a Worker named `kasuri`, with an `ASSETS` binding, a `WORKSPACES` Durable Object namespace, and a `WorkflowWorkspace` SQLite class migration. It also binds a `kasuri-runs` queue (producer and consumer), used only with `RUN_EXECUTION=queues`; `pnpm deploy` and the deploy button create it if it doesn't exist. Change the Worker name before deploying if necessary. Preserve the namespace/class/migration history when upgrading an installation that contains data. This is a fresh deployment configuration and does not migrate storage from the former TypeScript backend.
+`wrangler.jsonc` creates a Worker named `kasuri`, with an `ASSETS` binding, and two SQLite-backed Durable Object namespaces: `WORKSPACES` for workspace data and `RUNS` for run trees. Wrangler also provisions the `kasuri-runs` Cloudflare Queue for queue execution. Change the Worker name before deploying if necessary. Preserve the namespace/class/migration history when upgrading an installation that contains data. This is a fresh deployment configuration and does not migrate storage from the former TypeScript backend.
 
 Workspaces start empty and persist. An HttpOnly, SameSite=Strict cookie carries a workspace routing ID and an independent session token; only its hash is stored for management authorization. Secure is enabled on HTTPS. Foreign-Origin and cross-site mutation requests are rejected. There is no workspace expiration mode. Run and cron state is saved together in SQLite; alarms resume waits and dispatch scheduled core workflows.
 
@@ -22,7 +22,7 @@ For private deployments, configure Cloudflare Access or set optional Basic crede
 pnpm exec wrangler secret put BASIC_AUTH
 ```
 
-Enter `username:password`. The health endpoint is unauthenticated for probes. Do not store credentials in tracked configuration. For local authentication, put `BASIC_AUTH="username:password"` in ignored `.dev.vars`.
+Enter `username:password`. The health endpoint is unauthenticated for probes. Do not store credentials in tracked configuration. For local configuration, copy `.dev.vars.example` to the ignored `.dev.vars` file and set `BASIC_AUTH="username:password"` if you need local authentication.
 
 ## API
 
@@ -42,7 +42,7 @@ The Rust service bounds JSON bodies to 128 KiB and what a workspace holds in mem
 
 ### Run history
 
-Finished runs are kept in storage and listed with active runs, newest first. By default each workflow keeps its 100 newest finished runs. Configure history as Worker variables on Cloudflare, or in the environment when self-hosting:
+Finished runs are kept in storage and listed with active runs, newest first. By default each workflow keeps its 100 newest finished runs. Configure history as Worker variables:
 
 | Setting | Default | Meaning |
 | --- | --- | --- |
@@ -54,23 +54,21 @@ Older runs are deleted when a commit archives runs of that workflow, and the age
 
 ### Run execution
 
-`RUN_EXECUTION` chooses where runs execute:
+A run moves to a run object once it is waiting (on HTTP, a timer, a child or its webhook response), after its first steps and any data operations due have run in the workspace, so runs that finish at once, or on their data operations, still answer with their result. A run that invokes other workflows (Execute Workflow or Each) moves with its child runs: they execute together in its run object, and appear in run lists as they are created. Data Tables and Context Store operations from a run object are applied to the workspace's data in a transaction, keyed so that a retry replays the first result rather than applying it twice. A webhook request waiting for Respond to Webhook is answered from the run object. Only simulations that use data operations (directly or in a workflow they invoke) stay in the workspace, with the data snapshot they started with. Lists and details of a run in a run object can lag it by one step. Pause, resume and cancel are forwarded to the run object, a child's through its root. The run object deletes its storage once every run in it has finished (background children included) and the workspace has their final state. Children created in a run object count toward `MAX_ACTIVE_RUNS` for new starts, but are not refused by it; each run's children stay bounded as in the workspace (16, or 256 with Each, which runs at most 4 items at a time). See [run objects](workspace-storage.md#run-objects) for the design.
 
-| Value | Meaning |
+Set the `RUN_EXECUTION` Worker variable to select a Cloudflare execution mode. Both run object modes persist checkpoints in the same SQLite-backed Durable Objects.
+
+| Value | Execution |
 | --- | --- |
-| `workspace` (fallback) | Every run executes in its workspace's Durable Object. |
-| empty or `objects` (default) | A run that still has to wait after its first step (on an HTTP call or a timer) moves to its own Durable Object, which steps it on its own alarm and reports to the workspace. The workspace keeps only an index entry, so waiting runs don't use its memory, and runs no longer share one object's thread. |
-| `queues` (optional) | As `objects`, but each step is a message on the `kasuri-runs` queue, and HTTP calls are made by the queue consumer rather than inside the run object. Consumers scale out with the queue backlog, so many runs' calls proceed in parallel. Waits longer than a day are kept on the run object's alarm until they are due within a day. |
+| Empty or `objects` (default) | Run Durable Object alarms advance run trees and dispatch HTTP calls. |
+| `queues` | Cloudflare Queues delivers steps to Worker consumers, which can scale with the backlog and dispatch HTTP calls outside run objects. Delays beyond the queue's scheduling window stay on Durable Object alarms until they can be enqueued. |
+| `workspace` (fallback) | New runs stay in the workspace Durable Object. Existing offloaded runs keep their stored ownership and control path. |
 
-`queues` uses Cloudflare Queues, which the Workers Free plan includes with a daily operation limit (about three operations per step: send, read and acknowledge). A run's steps are delivered at least once; the run object's versioned compare-and-swap makes duplicate and late messages harmless, and an HTTP request is claimed before it is sent, so it is sent once (with its idempotency key) unless a consumer fails mid-call. On Cloudflare you can switch between `objects` and `queues` at any time: a run in a run object continues in the mode its next step finds. When self-hosting, let queued runs finish before switching away from `queues`, because the other modes start workerd without the queue.
-
-A run moves to a run object once it is waiting (on HTTP, a timer, a child or its webhook response), after its first steps and any data operations due have run in the workspace, so runs that finish at once, or on their data operations, still answer with their result. A run that invokes other workflows (Execute Workflow or Each) moves with its child runs: they execute together in its run object, and appear in run lists as they are created. Data Tables and Context Store operations from a run object are applied to the workspace's data in a transaction, keyed so that a retry replays the first result rather than applying it twice. A webhook request waiting for Respond to Webhook is answered from the run object. Only simulations that use data operations (directly or in a workflow they invoke) stay in the workspace, with the data snapshot they started with. Lists and details of a run in a run object can lag it by one step. Pause, resume and cancel are forwarded to the run object, a child's through its root. The run object deletes its storage once every run in it has finished (background children included) and the workspace has their final state. Children created in a run object count toward `MAX_ACTIVE_RUNS` for new starts, but are not refused by it; each run's children stay bounded as in the workspace (16, or 256 with Each, which runs at most 4 items at a time). See [run objects](workspace-storage.md#first-deployment-run-objects-b1) for the design.
-
-Default promotion followed Cloudflare functional verification on 25 November 2026: a published order-processing tree completed with persisted data and an external HTTP read, a live webhook response was submitted once, and pause/resume/cancel worked on an offloaded run. Log tails showed WorkflowRun execution without exceptions. This verifies those paths, not the separate 1,000-run throughput or acceptance-latency targets. Set `RUN_EXECUTION=workspace` explicitly to keep new runs in the workspace. Existing offloaded runs retain their stored ownership and control path.
+Queue consumers claim work at the current tree version before sending HTTP requests. Duplicate and stale deliveries are ignored. Keep the queue consumer connected while previously queued messages drain when switching to alarms.
 
 ### Concurrent runs
 
-Runs are not limited by count by default. A workspace holds its workflows, revisions, active runs and audit entries in memory, within a 6 MB budget; finished runs leave memory and don't count. The budget protects the Durable Object's 128 MB memory limit: measured on workerd, a request uses about ten times the workspace's in-memory state. Active runs can never be pruned, so a workspace stops starting new runs, Execute Workflow children and Each items once that state reaches 75% of the budget. Run state stores each repeated value once (an input passed through a trigger and a Wait node is kept once, not three times), so that is about 85 concurrent runs with 50 KB inputs, or many more with small ones. The remaining budget keeps the workspace writable while active runs finish; refused starts return `429`, and Each items wait and retry. To cap concurrency as well, set `MAX_ACTIVE_RUNS` to a positive integer (as a Worker variable on Cloudflare, or in the environment when self-hosting). Empty, `0` or `unlimited` mean no count limit. Running and paused runs, and runs holding an open webhook response, count as active. An invalid value fails requests with a configuration error rather than silently using another limit. See Rust source for graph/engine budgets.
+Runs are not limited by count by default. A workspace holds its workflows, revisions, active runs and audit entries in memory, within a 6 MB budget; finished runs leave memory and don't count. The budget protects the Durable Object's 128 MB memory limit: measured on workerd, a request uses about ten times the workspace's in-memory state. Active runs can never be pruned, so a workspace stops starting new runs, Execute Workflow children and Each items once that state reaches 75% of the budget. Run state stores each repeated value once (an input passed through a trigger and a Wait node is kept once, not three times), so that is about 85 concurrent runs with 50 KB inputs, or many more with small ones. The remaining budget keeps the workspace writable while active runs finish; refused starts return `429`, and Each items wait and retry. To cap concurrency as well, set `MAX_ACTIVE_RUNS` to a positive integer (as a Worker variable). Empty, `0` or `unlimited` mean no count limit. Running and paused runs, and runs holding an open webhook response, count as active. An invalid value fails requests with a configuration error rather than silently using another limit. See Rust source for graph/engine budgets.
 
 ### Workspace storage
 
