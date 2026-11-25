@@ -1,5 +1,41 @@
 [
   {
+    "file": "workflows/36-mcp-client-booking-availability.json",
+    "outputs": {
+      "reply": {
+        "available": true
+      }
+    },
+    "statuses": {}
+  },
+  {
+    "file": "workflows/37-mcp-client-list-tools.json",
+    "outputs": {
+      "discover": {
+        "tools": [
+          {
+            "name": "check_availability",
+            "description": "Check a synthetic booking date",
+            "inputSchema": {
+              "type": "object",
+              "properties": {
+                "date": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "date"
+              ]
+            },
+            "outputSchema": null
+          }
+        ],
+        "truncated": false
+      }
+    },
+    "statuses": {}
+  },
+  {
     "file": "workflows/01-hello.json",
     "outputs": {
       "hello": {

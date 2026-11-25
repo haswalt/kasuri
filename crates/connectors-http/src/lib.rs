@@ -215,16 +215,26 @@ fn listed(host: &str, hosts: &str) -> bool {
         .any(|entry| !entry.is_empty() && entry.eq_ignore_ascii_case(host.trim_matches(['[', ']'])))
 }
 pub fn allowed(spec: &RequestSpec, hosts: &str) -> bool {
-    hosts.trim().is_empty() || listed(Url::parse(&spec.url).unwrap().host_str().unwrap(), hosts)
+    allowed_url(&Url::parse(&spec.url).unwrap(), hosts)
+}
+pub fn allowed_url(url: &Url, hosts: &str) -> bool {
+    hosts.trim().is_empty() || private_url_opt_in(url, hosts)
 }
 pub fn private_opt_in(spec: &RequestSpec, hosts: &str) -> bool {
-    listed(Url::parse(&spec.url).unwrap().host_str().unwrap(), hosts)
+    private_url_opt_in(&Url::parse(&spec.url).unwrap(), hosts)
+}
+pub fn private_url_opt_in(url: &Url, hosts: &str) -> bool {
+    url.host_str().is_some_and(|host| listed(host, hosts))
 }
 pub fn public_destination(spec: &RequestSpec) -> bool {
-    match Url::parse(&spec.url).unwrap().host().unwrap() {
-        Host::Ipv4(ip) => public_ip(IpAddr::V4(ip)),
-        Host::Ipv6(ip) => public_ip(IpAddr::V6(ip)),
-        Host::Domain(host) => {
+    public_url_destination(&Url::parse(&spec.url).unwrap())
+}
+pub fn public_url_destination(url: &Url) -> bool {
+    match url.host() {
+        None => false,
+        Some(Host::Ipv4(ip)) => public_ip(IpAddr::V4(ip)),
+        Some(Host::Ipv6(ip)) => public_ip(IpAddr::V6(ip)),
+        Some(Host::Domain(host)) => {
             host.contains('.')
                 && !host.ends_with('.')
                 && ![

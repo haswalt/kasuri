@@ -18,6 +18,7 @@ sha2 = "0.11"
 subtle = "2"
 futures-util = "0.3"
 connectors-clairic = { path = "../connectors-clairic" }
+connectors-mcp-client = { path = "../connectors-mcp-client" }
 connectors-email = { path = "../connectors-email" }
 connectors-http = { path = "../connectors-http" }
 connector-sdk.workspace = true

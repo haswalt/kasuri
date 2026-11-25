@@ -45,6 +45,7 @@ export const api = {
   workspaces: () => request<{ workspaces: WorkspaceMembership[] }>('workspaces'),
   createWorkspace: (name: string) => request<WorkspaceMembership>('workspaces', 'POST', { name }),
   renameWorkspace: (id: string, name: string) => request<WorkspaceMembership>(`workspaces/${id}`, 'PATCH', { name }),
+  mcpClientConnections: () => request<{connections:McpClientConnection[]}>('mcp-client/connections'),
   mcp: () => request<McpStatus>('mcp'),
   createMcpCredential: (name: string, role: string, expiresDays: number) =>
     request<McpCredential & { token: string }>('mcp/credentials', 'POST', {
@@ -84,6 +85,7 @@ export const api = {
     request<Run>(`runs/${id}/${action}`, 'POST')
 }
 
+export type McpClientConnection = { alias: string; tools: string[] }
 export type McpCredential = {
   id: string
   name: string

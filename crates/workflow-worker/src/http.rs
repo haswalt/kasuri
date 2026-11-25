@@ -7,8 +7,7 @@ use futures_util::{
 };
 use std::time::Duration;
 use worker::*;
-async fn public_dns(spec: &RequestSpec, signal: &AbortSignal) -> Result<bool> {
-    let url = Url::parse(&spec.url).map_err(|_| Error::RustError("Invalid URL".into()))?;
+pub(crate) async fn public_dns(url: &Url, signal: &AbortSignal) -> Result<bool> {
     let Some(host) = url.host_str() else {
         return Ok(false);
     };
@@ -81,7 +80,9 @@ async fn prepare(
         .unwrap_or_default();
     if !connectors_http::private_opt_in(spec, &private_hosts)
         && (!connectors_http::public_destination(spec)
-            || !public_dns(spec, signal).await.unwrap_or(false))
+            || !public_dns(&Url::parse(&spec.url).unwrap(), signal)
+                .await
+                .unwrap_or(false))
     {
         return Ok(failure(FailureCode::EgressDenied, false));
     }

@@ -5,6 +5,7 @@ mod external;
 mod files;
 mod http;
 mod mcp;
+mod mcp_client;
 mod runs;
 mod storage;
 mod webhook;
@@ -330,6 +331,9 @@ impl DurableObject for WorkflowWorkspace {
         }
         if let Some(response) = self.workspace_route(&mut req, &token).await? {
             return Ok(response);
+        }
+        if path == "/api/mcp-client/connections" && req.method() == Method::Get {
+            return mcp_client::list_connections(&self.env, &self.state.id().to_string());
         }
         if path == "/api/mcp" || path.starts_with("/api/mcp/") {
             return self.mcp_management(req).await;

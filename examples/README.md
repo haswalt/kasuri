@@ -39,6 +39,10 @@ Every example accepts the default `{}` input. No accounts, API keys, environment
 
 Together these cover every currently implemented node: Manual Trigger, Webhook, Schedule, Map / Transform, IF / Condition, Merge, Wait / Delay, JSON Utilities, Error Handler, HTTP Request, Filter, Sort, Clairic, Email Trigger and Send Email.
 
+## MCP Client
+
+Use **Simulate → Play** with the default input to try [a synthetic booking lookup](workflows/36-mcp-client-booking-availability.json) or [tool schema discovery](workflows/37-mcp-client-list-tools.json). Both use fixtures and make no network requests.
+
 ## Public APIs and simulation
 
 Examples 06 and 07 use [JSONPlaceholder](https://jsonplaceholder.typicode.com/), a public sample-data API requiring no signup or key. Live execution sends read-only GET requests containing fixed sample parameters, not your run input. No private data, credential references, personal infrastructure or real customer records are included.

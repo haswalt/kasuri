@@ -1,0 +1,25 @@
+{
+  "schemaVersion": 1,
+  "id": "36-mcp-client-booking-availability",
+  "name": "Check booking availability with MCP",
+  "description": "Simulate with {}. A fixture supplies a synthetic availability result without contacting an MCP server.",
+  "status": "draft",
+  "revision": 0,
+  "updatedAt": "",
+  "nodes": [
+    {"id":"start","type":"Manual Trigger","label":"Start offline example","config":{}},
+    {"id":"booking","type":"Map / Transform","label":"Booking details","config":{"mapping":{"date":"2027-06-12","band":"Example Quartet"}}},
+    {"id":"lookup","type":"MCP Client","label":"Check availability","config":{
+      "connection":"offline","operation":"call","tool":"check_availability",
+      "simulationResponse":{"content":[{"type":"text","text":"Available"}],"structuredContent":{"available":true}}
+    }},
+    {"id":"reply","type":"Map / Transform","label":"Prepare reply data","config":{
+      "mapping":{"available":{"$input":"/structuredContent/available"}}
+    }}
+  ],
+  "edges": [
+    {"id":"start-booking","source":"start","target":"booking"},
+    {"id":"booking-lookup","source":"booking","target":"lookup"},
+    {"id":"lookup-reply","source":"lookup","target":"reply"}
+  ]
+}

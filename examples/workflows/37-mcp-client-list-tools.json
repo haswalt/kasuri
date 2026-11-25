@@ -1,0 +1,19 @@
+{
+  "schemaVersion": 1,
+  "id": "37-mcp-client-list-tools",
+  "name": "Inspect approved MCP tools",
+  "description": "Simulate with {} to inspect a synthetic tool schema without contacting an MCP server.",
+  "status": "draft",
+  "revision": 0,
+  "updatedAt": "",
+  "nodes": [
+    {"id":"start","type":"Manual Trigger","label":"Start offline example","config":{}},
+    {"id":"discover","type":"MCP Client","label":"List tools","config":{
+      "operation":"list","connection":"offline","simulationResponse":{"tools":[
+        {"name":"check_availability","description":"Check a synthetic booking date",
+         "inputSchema":{"type":"object","properties":{"date":{"type":"string"}},"required":["date"]}}
+      ]}
+    }}
+  ],
+  "edges": [{"id":"start-discover","source":"start","target":"discover"}]
+}

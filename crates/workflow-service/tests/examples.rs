@@ -135,7 +135,10 @@ fn every_published_example_simulates_without_input_or_configuration() {
         if !graph.nodes.iter().any(|n| {
             matches!(
                 n.kind.as_str(),
-                "HTTP Request" | connectors_clairic::KIND | connectors_email::SEND
+                "HTTP Request"
+                    | connectors_clairic::KIND
+                    | connectors_mcp_client::KIND
+                    | connectors_email::SEND
             )
         }) {
             let mut ws = Workspace::default();

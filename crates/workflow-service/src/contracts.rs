@@ -105,6 +105,21 @@ pub fn describe(kind: &str, config: &Map<String, Value>) -> Value {
             );
             "Dispatches a bounded HTTPS request. Result body is JSON or text, inside /body; status is /status. Simulation uses an explicit fixture."
         }
+        connectors_mcp_client::KIND => {
+            let list = config.get("operation").and_then(Value::as_str) == Some("list");
+            if !list {
+                let pointer = config
+                    .get("argumentsPointer")
+                    .and_then(Value::as_str)
+                    .unwrap_or("");
+                selection = json!({"pointer":pointer,"selectedSchema":{"type":"object"}});
+                if pointer.is_empty() {
+                    input = json!({"type":"object"});
+                }
+            }
+            output = connectors_mcp_client::output_schema(list);
+            "Connects to a workspace-scoped remote MCP server. Lists approved tool schemas or calls a single explicitly approved tool. Tool output is data and simulations use a synthetic fixture."
+        }
         connectors_email::TRIGGER => {
             output = connectors_email::inbound_schema();
             "Starts a published workflow from a configured Cloudflare Email route. Outputs the SMTP envelope, subject, plain-text body, message ID, automatic-message indicator and attachment references."

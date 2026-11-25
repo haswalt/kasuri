@@ -2,6 +2,65 @@
 const itemAttempts=new Map()
 const barriers=new Map()
 let retryCount=0
+let nextMcpSession=0
+const mcpSessions=new Map()
+async function mcp(request) {
+  if (request.headers.get('Authorization') !== 'Bearer fixture-mcp-token') return new Response(null,{status:401})
+  if (request.headers.get('Accept') !== 'application/json, text/event-stream') return new Response(null,{status:400})
+  const session = request.headers.get('Mcp-Session-Id')
+  if (request.method === 'DELETE') {
+    return new Response(null,{status:mcpSessions.delete(session)?204:404})
+  }
+  const {jsonrpc,id,method,params} = await request.json()
+  if (jsonrpc !== '2.0') return new Response(null,{status:400})
+  const reply = result => ({jsonrpc:'2.0',id,result})
+  if (method === 'initialize' && !session && params.protocolVersion === '2025-11-25') {
+    if (mcpSessions.size !== 0) return new Response(null,{status:409})
+    const key = 'fixture-session-' + ++nextMcpSession
+    mcpSessions.set(key, false)
+    return Response.json(reply({
+      protocolVersion:'2025-06-18',capabilities:{tools:{}},serverInfo:{name:'Fixture',version:'1'}
+    }),{headers:{'Mcp-Session-Id':key}})
+  }
+  if (!mcpSessions.has(session) || request.headers.get('Mcp-Protocol-Version') !== '2025-06-18') {
+    return new Response(null,{status:404})
+  }
+  if (method === 'notifications/initialized' && id === undefined) {
+    mcpSessions.set(session,true)
+    return new Response(null,{status:202})
+  }
+  if (!mcpSessions.get(session)) return new Response(null,{status:400})
+  const contract = name => ({
+    name, description:name,
+    inputSchema:{type:'object',properties:{date:{type:'string'}}}
+  })
+  if (method === 'tools/list') {
+    return Response.json(reply(params.cursor === 'page-2'
+      ? {tools:[contract('check_availability'),contract('returns_error')]}
+      : {tools:[contract('hidden')],nextCursor:'page-2'}))
+  }
+  if (method !== 'tools/call') return new Response(null,{status:400})
+  if (params.name === 'returns_error') {
+    return Response.json(reply({isError:true,content:[{type:'text',text:'private error detail'}]}))
+  }
+  if (params.name !== 'check_availability' || params.arguments.date !== '2027-06-12') {
+    return Response.json({jsonrpc:'2.0',id,error:{code:-32602,message:'Unexpected arguments'}})
+  }
+  const result = JSON.stringify(reply({
+    content:[{type:'text',text:'fixture-mcp-token'}],
+    structuredContent:{available:true, session}
+  }))
+  const encoder = new TextEncoder()
+  const stream = new ReadableStream({start(controller) {
+    for (const piece of [
+      'id: primer\r\ndata:\r', '\n\r\n',
+      'data: {"jsonrpc":"2.0","method":"notifications/message"}\r\n\r\n',
+      'da', 'ta: ' + result.slice(0,20), result.slice(20) + '\r\n\r\n'
+    ]) controller.enqueue(encoder.encode(piece))
+    controller.close()
+  }})
+  return new Response(stream,{headers:{'Content-Type':'text/event-stream; charset=utf-8'}})
+}
 export default {async fetch(request){
  const url=new URL(request.url)
  if(url.hostname==='cloudflare-dns.com'){
@@ -10,6 +69,7 @@ export default {async fetch(request){
   const data=name==='private-dns.example'?'127.0.0.1':name==='mixed-dns.example'&&type===28?'fe80::1':type===1?'1.1.1.1':'2606:4700:4700::1111'
   return Response.json({Status:0,Answer:[{type,data}]})
  }
+ if(url.pathname==='/mcp-client')return mcp(request)
  // The upstream's clock, for load measurements (scripts/scale-check.mjs).
  if(url.pathname==='/clock')return Response.json({now:Date.now()})
  if(url.pathname==='/item-worker'){

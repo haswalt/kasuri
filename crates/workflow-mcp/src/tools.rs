@@ -249,7 +249,7 @@ fn definitions() -> Vec<(&'static str, &'static str, &'static str, bool, Value)>
         (
             "runs_simulate",
             "simulate",
-            "Run the selected workflow version through the Rust engine with no network calls. HTTP and Clairic nodes require explicit simulationResponse fixtures.",
+            "Run the selected workflow version through the Rust engine with no network calls. HTTP, Clairic and MCP Client nodes require explicit simulationResponse fixtures.",
             true,
             mutate(
                 json!({"workflowId":id,"expectedVersion":version,"input":{}}),

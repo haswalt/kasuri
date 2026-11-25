@@ -18,6 +18,7 @@ import { checkAudit } from './audit-checks.mjs'
 import { checkPublications } from './publication-checks.mjs'
 import { checkWorkspaces } from './workspace-checks.mjs'
 import { checkMcp } from './mcp-checks.mjs'
+import { checkMcpClient } from './mcp-client-checks.mjs'
 import { checkMcpDiscovery } from './mcp-discovery-checks.mjs'
 import { checkDataTransfer } from './data-transfer-checks.mjs'
 import { checkExpressions } from './expression-checks.mjs'
@@ -57,6 +58,7 @@ const queues = process.env.RUN_EXECUTION === 'queues'
 // The run-object checks use queues when the suite does, otherwise run objects.
 const offloaded = queues ? 'queues' : 'objects'
 const config = stageRuntimeFixture(data, { queues })
+  .replace('        (name = "HTTP_SECRETS",', '        (name = "MCP_CONNECTIONS", fromEnvironment = "MCP_CONNECTIONS"),\n        (name = "HTTP_SECRETS",')
   .replace(
     'services = [',
     `services = [(name = "upstream", worker = (modules = [(name = "upstream.mjs", esModule = embed "upstream.mjs")], compatibilityDate = "2026-11-18")),`
@@ -93,6 +95,7 @@ function start(policy = {}) {
         RUN_HISTORY: '',
         RUN_HISTORY_DAYS: '',
         FAILED_RUN_HISTORY_DAYS: '',
+        MCP_CONNECTIONS: '',
         // Run the whole suite with run objects (RUN_EXECUTION=objects) or queues.
         RUN_EXECUTION: process.env.RUN_EXECUTION ?? '',
         HTTP_SECRETS: JSON.stringify({
@@ -124,7 +127,9 @@ async function stop() {
 try {
   start()
   await healthy(origin)
-  if (process.argv.includes('--validation-only')) {
+  if (process.argv.includes('--mcp-client-only')) {
+    await checkMcpClient(origin, async policy => { await stop(); start(policy); await healthy(origin) })
+  } else if (process.argv.includes('--validation-only')) {
     await checkParsing(origin, 'test:runtime-check', async () => {await stop();start();await healthy(origin)})
     await checkValidation(origin, 'test:runtime-check', async () => {await stop();start();await healthy(origin)})
   } else if (process.argv.includes('--run-objects-only')) {
@@ -202,6 +207,8 @@ try {
       await healthy(origin)
     })
     await checkHttp(origin)
+    await checkMcpClient(origin, async policy => { await stop(); start(policy); await healthy(origin) })
+    await stop(); start(); await healthy(origin)
     await checkMcp(origin, 'test:runtime-check', async () => {
       await stop()
       start()
