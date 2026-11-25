@@ -566,5 +566,22 @@
     "statuses": {
       "handoff": "skipped"
     }
+  },
+  {
+    "file": "workflows/35-clairic-booking-attachment.json",
+    "outputs": {
+      "extract": {
+        "values": {
+          "event_date": "2027-06-12",
+          "guest_count": 80
+        },
+        "confidence": {
+          "event_date": null,
+          "guest_count": null
+        },
+        "truncated": false
+      }
+    },
+    "statuses": {}
   }
 ]

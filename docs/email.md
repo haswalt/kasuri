@@ -18,7 +18,7 @@ Use **Email Trigger → Clairic → IF → Send Email** to route booking enquiri
 
 3. Configure [Cloudflare Email Routing](https://developers.cloudflare.com/email-service/configuration/email-routing-addresses/) to send the corresponding addresses to the Kasuri Worker.
 
-The trigger emits `from` and `to` from the SMTP envelope, the decoded `subject` and plain-text `body`, `messageId` (null if absent or invalid), and `automatic` for automated messages and return-path bounces. Email addresses and MIME content come from the message and should be treated as untrusted input. An unknown route or inactive workflow rejects the message. Every accepted delivery starts its own run. Use Context Store to deduplicate messages if your workflow needs it. The MIME message can be up to 1 MiB, and the decoded input must fit the existing 64 KiB workflow value budget. The first version processes the body; file references add attachment handling.
+The trigger emits `from` and `to` from the SMTP envelope, the decoded `subject` and plain-text `body`, `messageId` (null if absent or invalid), and `automatic` for automated messages and return-path bounces. Email addresses and MIME content come from the message and should be treated as untrusted input. An unknown route or inactive workflow rejects the message. Every accepted delivery starts its own run. Use Context Store to deduplicate messages if your workflow needs it. The decoded input must fit the existing 64 KiB workflow value budget. With the optional private R2 binding, supported attachments appear as [file references](files.md) and the raw MIME limit is 12 MiB. Without the binding, the raw MIME limit is 1 MiB and attachments are skipped.
 
 ## Send mail
 

@@ -1829,13 +1829,7 @@ impl Workspace {
             })
             .collect()
     }
-    pub fn receive_email(
-        &mut self,
-        workflow_id: &str,
-        payload: Value,
-        now: u64,
-        run_id: &str,
-    ) -> Result<Value, ApiError> {
+    pub fn email_document(&self, workflow_id: &str) -> Result<Document, ApiError> {
         let doc = self.live_document(workflow_id)?;
         if doc.status != Publication::Active
             || !doc
@@ -1846,6 +1840,16 @@ impl Workspace {
         {
             return Err(error(404, "Email workflow is not active"));
         }
+        Ok(doc)
+    }
+    pub fn receive_email(
+        &mut self,
+        workflow_id: &str,
+        payload: Value,
+        now: u64,
+        run_id: &str,
+    ) -> Result<Value, ApiError> {
+        let doc = self.email_document(workflow_id)?;
         self.start_run_context(
             run_id,
             &doc,

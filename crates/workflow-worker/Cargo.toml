@@ -8,6 +8,7 @@ license.workspace = true
 crate-type = ["cdylib", "rlib"]
 
 [dependencies]
+workflow-files = { path = "../workflow-files" }
 worker = { version = "=0.9.0", features = ["queue"] }
 serde.workspace = true
 serde_json.workspace = true

@@ -1,6 +1,6 @@
 # Agentic connector roadmap
 
-Status: Clairic text extraction and classification is implemented. The remaining adapters and Clairic media support are planned.
+Status: Clairic extraction and classification from text and private image/PDF references is implemented. The remaining adapters are planned.
 
 | Option | Role in a workflow | Required capabilities |
 | --- | --- | --- |
@@ -21,7 +21,7 @@ For an incoming booking enquiry, pass the email body to Clairic and request the 
 
 Live runs use the deployment's Workers AI binding. The [Clairic connector guide](connectors.md#clairic) links to importable examples for both routing branches, using synthetic emails and offline fixture answers. Receiving and sending live email are separate connector work.
 
-Use the same field builder for general document extraction. For example, a booking enquiry might arrive with its details in a PDF or an image attachment. Start with email text, then accept Clairic's supported images and PDFs once Kasuri can pass authorized file references between nodes. Resolve the references for the model call and enforce its format and size limits. Keep attachment bytes out of workflow documents and run checkpoints.
+Use the same field builder for general document extraction. For example, a booking enquiry might arrive with its details in a PDF or an image attachment. The Email Trigger can pass [private file references](files.md) to Clairic. The Worker resolves them for the model call and keeps the bytes out of workflow documents and run checkpoints.
 
 ## Implementation requirements
 
