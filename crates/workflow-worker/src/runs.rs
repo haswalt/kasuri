@@ -324,7 +324,8 @@ impl DurableObject for WorkflowRun {
                     now(),
                 ) {
                     Ok((record, _)) => {
-                        self.settle(&alarm).await?;
+                        // The caller answers from the index: report before replying.
+                        self.settle_reported(&alarm).await?;
                         Response::from_json(&record.view(false).map_err(internal)?)
                     }
                     Err(error) => api_error(error.status, &error.message),
@@ -538,6 +539,13 @@ impl WorkflowRun {
     /// for the next message, or, once every run has finished and the workspace
     /// has the final report, delete this object's storage.
     async fn settle(&self, alarm: &Alarm) -> Result<()> {
+        self.settle_with(alarm, false).await
+    }
+    /// As `settle`, but the report is applied before this returns.
+    async fn settle_reported(&self, alarm: &Alarm) -> Result<()> {
+        self.settle_with(alarm, true).await
+    }
+    async fn settle_with(&self, alarm: &Alarm, report_now: bool) -> Result<()> {
         let Some((tree, row)) = self.runs().tree().map_err(internal)? else {
             return Ok(());
         };
@@ -557,7 +565,11 @@ impl WorkflowRun {
         }
         // Intermediate reports never hold up the next step: they are idempotent,
         // and the index may lag by a step.
-        self.report_later();
+        if report_now {
+            self.report(&row).await;
+        } else {
+            self.report_later();
+        }
         match alarm.0.get() {
             Some(delay) if self.queued()? && delay <= QUEUE_MAX_DELAY_MS => {
                 // Queue delays are whole seconds: round up, never deliver early.
