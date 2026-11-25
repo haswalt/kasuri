@@ -12,7 +12,9 @@ use std::{collections::BTreeMap, time::Duration};
 use worker::*;
 
 const INGRESS: &str = "/internal/email";
-const MAX_RAW_BYTES: usize = 1024 * 1024;
+const MAX_TEXT_EMAIL_BYTES: usize = 1024 * 1024;
+// Allows the 8 MiB attachment budget plus MIME base64 and headers.
+const MAX_MEDIA_EMAIL_BYTES: usize = 12 * 1024 * 1024;
 
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
@@ -48,10 +50,17 @@ pub async fn receive(message: ForwardableEmailMessage, env: Env, _ctx: Context) 
         return Ok(());
     };
     let namespace = env.durable_object("WORKSPACES")?;
-    let stub = namespace.id_from_string(&route.workspace_id)?.get_stub()?;
+    let workspace = namespace.id_from_string(&route.workspace_id)?;
+    let workspace_key = workspace.to_string();
+    let stub = workspace.get_stub()?;
 
+    let max_raw_bytes = if env.bucket("FILES").is_ok() {
+        MAX_MEDIA_EMAIL_BYTES
+    } else {
+        MAX_TEXT_EMAIL_BYTES
+    };
     let raw_size = message.raw_size();
-    if raw_size > MAX_RAW_BYTES as f64 {
+    if raw_size > max_raw_bytes as f64 {
         message.set_reject("Message exceeds the Kasuri email size limit");
         return Ok(());
     }
@@ -59,7 +68,7 @@ pub async fn receive(message: ForwardableEmailMessage, env: Env, _ctx: Context) 
     let mut stream = message.raw_byte_stream();
     while let Some(chunk) = stream.next().await {
         let chunk = chunk?;
-        if raw.len().saturating_add(chunk.len()) > MAX_RAW_BYTES {
+        if raw.len().saturating_add(chunk.len()) > max_raw_bytes {
             message.set_reject("Message exceeds the Kasuri email size limit");
             return Ok(());
         }
@@ -69,13 +78,41 @@ pub async fn receive(message: ForwardableEmailMessage, env: Env, _ctx: Context) 
         message.set_reject("Invalid email message");
         return Ok(());
     };
+    let mut mail = connectors_email::parse(message.from(), message.to(), &parsed);
+    // Do not upload attachments for an inactive workflow. The accepting request
+    // checks the publication again to handle a pause or edit during upload.
+    if parsed.attachments().next().is_some() && env.bucket("FILES").is_ok() {
+        let mut init = RequestInit::new();
+        init.with_method(Method::Post)
+            .with_body(Some(serde_json::to_string(&route.workflow_id)?.into()));
+        let status = stub
+            .fetch_with_request(Request::new_with_init(
+                "https://workspace/internal/email/check",
+                &init,
+            )?)
+            .await?
+            .status_code();
+        match status {
+            204 => {}
+            404 => {
+                message.set_reject("No active email workflow for this message");
+                return Ok(());
+            }
+            _ => return Err(internal("Could not check email workflow")),
+        }
+    }
+    (mail.attachments, mail.attachments_skipped) =
+        crate::files::store_attachments(&env, &workspace_key, &parsed).await?;
     let delivery = Delivery {
         workflow_id: route.workflow_id,
-        mail: connectors_email::parse(message.from(), message.to(), &parsed),
+        mail,
     };
     let body = serde_json::to_string(&delivery)?;
     // The email is the first node's output and must fit the existing run value limit.
     if body.len() > 65_536 {
+        if let Ok(bucket) = env.bucket("FILES") {
+            crate::files::discard(&bucket, &workspace_key, &delivery.mail.attachments).await;
+        }
         message.set_reject("Decoded email is too large for a workflow input");
         return Ok(());
     }
@@ -90,6 +127,9 @@ pub async fn receive(message: ForwardableEmailMessage, env: Env, _ctx: Context) 
     match response.status_code() {
         202 => Ok(()),
         400 | 404 => {
+            if let Ok(bucket) = env.bucket("FILES") {
+                crate::files::discard(&bucket, &workspace_key, &delivery.mail.attachments).await;
+            }
             message.set_reject("No active email workflow for this message");
             Ok(())
         }
@@ -98,6 +138,16 @@ pub async fn receive(message: ForwardableEmailMessage, env: Env, _ctx: Context) 
 }
 
 impl WorkflowWorkspace {
+    pub(crate) async fn check_email(&self, mut req: Request) -> Result<Response> {
+        let workflow_id: String = req.json().await?;
+        let workspace = self.load()?;
+        let status = match workspace.email_document(&workflow_id) {
+            Ok(_) => 204,
+            Err(error) => error.status,
+        };
+        Ok(Response::empty()?.with_status(status))
+    }
+
     pub(crate) async fn incoming_email(&self, mut req: Request) -> Result<Response> {
         let delivery: Delivery = req.json().await?;
         let mut workspace = self.load()?;

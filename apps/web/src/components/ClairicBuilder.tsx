@@ -2,7 +2,7 @@ import { useState } from 'react'
 import type { Json } from '../../../../packages/contracts/src/index'
 import { styles } from '../design/styles'
 import { Button } from '../design/ui'
-import { fieldChoices, fieldPointer } from '../lib/input-hints'
+import { arrayChoices, fieldChoices, fieldPointer } from '../lib/input-hints'
 import type { InputHints } from '../lib/input-hints'
 import { FieldPicker } from './FieldPicker'
 
@@ -32,6 +32,14 @@ export function ClairicBuilder({ config, hints, onChange }: Props) {
     <FieldPicker label="Text to read" value={text(config.inputPointer) || '$'}
       choices={fieldChoices(hints)} rootLabel="Whole input text ($)"
       onChange={value => onChange({ ...config, inputPointer: fieldPointer(value) })} />
+    <FieldPicker label="Attachments (optional)" value={config.attachmentsPointer === '' ? '$' : text(config.attachmentsPointer)}
+      choices={arrayChoices(hints)} rootLabel="Whole input as a file list ($)"
+      onChange={value => onChange({ ...config, attachmentsPointer: fieldPointer(value) })} />
+    {typeof config.attachmentsPointer === 'string' && <Button onClick={() => {
+      const next = { ...config }
+      delete next.attachmentsPointer
+      onChange(next)
+    }}>Clear attachments</Button>}
     <label>Reference date (optional)
       <input type="date" value={text(config.referenceDate)} onChange={event => {
         const next = { ...config }

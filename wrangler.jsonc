@@ -20,6 +20,8 @@
   // "ai": { "binding": "AI" },
   // Enable only with an onboarded sending domain and explicitly routed workspaces.
   // "send_email": [{ "name": "EMAIL" }],
+  // Optional private bucket for workflow attachments. Set a bucket lifecycle.
+  // "r2_buckets": [{ "binding": "FILES", "bucket_name": "kasuri-files" }],
   "durable_objects": {
     "bindings": [
       {

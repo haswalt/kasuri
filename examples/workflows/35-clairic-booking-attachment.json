@@ -1,0 +1,76 @@
+{
+  "schemaVersion": 1,
+  "id": "35-clairic-booking-attachment",
+  "name": "Extract booking details from a PDF attachment",
+  "description": "Simulate with {}. The file reference and Clairic answers are synthetic. No storage or model access is needed.",
+  "status": "draft",
+  "revision": 0,
+  "updatedAt": "",
+  "nodes": [
+    {
+      "id": "start",
+      "type": "Manual Trigger",
+      "label": "Start offline example",
+      "config": {}
+    },
+    {
+      "id": "mail",
+      "type": "Map / Transform",
+      "label": "Example attachment reference",
+      "config": {
+        "mapping": {
+          "attachments": [
+            {
+              "id": "1111111111111111111111111111111111111111111111111111111111111111",
+              "name": "booking.pdf",
+              "contentType": "application/pdf",
+              "size": 27
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": "extract",
+      "type": "Clairic",
+      "label": "Extract booking details from PDF",
+      "config": {
+        "attachmentsPointer": "/attachments",
+        "fields": [
+          {
+            "name": "event_date",
+            "type": "date",
+            "instructions": "Date the band would perform."
+          },
+          {
+            "name": "guest_count",
+            "type": "number",
+            "instructions": "Expected guests."
+          }
+        ],
+        "simulationResponse": {
+          "answers": {
+            "event_date": {
+              "value": "2027-06-12"
+            },
+            "guest_count": {
+              "value": 80
+            }
+          }
+        }
+      }
+    }
+  ],
+  "edges": [
+    {
+      "id": "start-mail",
+      "source": "start",
+      "target": "mail"
+    },
+    {
+      "id": "mail-extract",
+      "source": "mail",
+      "target": "extract"
+    }
+  ]
+}

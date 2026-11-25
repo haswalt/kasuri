@@ -35,6 +35,7 @@ Every example accepts the default `{}` input. No accounts, API keys, environment
 | [33 Clairic booking handoff](workflows/33-clairic-booking-handoff.json) | Offline AI extraction | Route an enquiry with missing details to a person, with the original email and extracted fields. |
 
 | [34 Email booking enquiry](workflows/34-email-booking-enquiry.json) | Offline email routing | Route a synthetic email through Clairic and preview a threaded reply, without sending mail. |
+| [35 Clairic booking attachment](workflows/35-clairic-booking-attachment.json) | Offline file extraction | Classify a synthetic PDF reference using fixture answers. |
 
 Together these cover every currently implemented node: Manual Trigger, Webhook, Schedule, Map / Transform, IF / Condition, Merge, Wait / Delay, JSON Utilities, Error Handler, HTTP Request, Filter, Sort, Clairic, Email Trigger and Send Email.
 
