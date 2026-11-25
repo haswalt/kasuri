@@ -25,15 +25,39 @@ export async function checkMcpClient(origin, restart) {
     url:'https://fixture.example/mcp-client', workspaceIds:[workspaceId],
     allowedTools:['check_availability','returns_error'], bearerToken:'fixture-mcp-token'
   }
-  await restart({MCP_CONNECTIONS:JSON.stringify({
-    availability:profile,
-    blocked:{...profile,url:'https://private-dns.example/mcp-client'},
-    redirect:{...profile,url:'https://fixture.example/redirect'},
-  })})
+  const portal = {
+    url:'https://fixture.example/mcp-portal', workspaceIds:[workspaceId],
+    allowedTools:['check_availability','returns_error'], accessServiceToken:{
+      clientIdBinding:'MCP_PORTAL_CLIENT_ID', clientSecretBinding:'MCP_PORTAL_CLIENT_SECRET'
+    }
+  }
+  const settings = {
+    MCP_PORTAL_CLIENT_ID:'fixture-portal-client-id',
+    MCP_PORTAL_CLIENT_SECRET:'fixture-portal-client-secret',
+    MCP_CONNECTIONS:JSON.stringify({
+      availability:profile,
+      blocked:{...profile,url:'https://private-dns.example/mcp-client'},
+      redirect:{...profile,url:'https://fixture.example/redirect'},
+      portal,
+      portalMissingSecret:{...portal,accessServiceToken:{...portal.accessServiceToken,clientSecretBinding:'MCP_MISSING'}},
+      portalMixedAuth:{...portal,bearerToken:profile.bearerToken},
+      portalRedirect:{...portal,url:'https://fixture.example/redirect'},
+    })
+  }
+  await restart(settings)
   const listed = await api('mcp-client/connections')
   assert.deepEqual(listed.connections.find(item => item.alias === 'availability'),{
-    alias:'availability', tools:['check_availability','returns_error']
+    alias:'availability', tools:['check_availability','returns_error'], authentication:'bearer', configured:true
   })
+  assert.deepEqual(listed.connections.find(item => item.alias === 'portal'),{
+    alias:'portal', tools:['check_availability','returns_error'], authentication:'cloudflare_access', configured:true
+  })
+  assert.equal(listed.connections.find(item => item.alias === 'portalMissingSecret').configured,false)
+  assert.equal(listed.connections.find(item => item.alias === 'portalMixedAuth').configured,false)
+  for (const credential of ['fixture-portal-client-id','fixture-portal-client-secret',
+    'MCP_PORTAL_CLIENT_ID','MCP_PORTAL_CLIENT_SECRET',portal.url]) {
+    assert(!JSON.stringify(listed).includes(credential))
+  }
   assert(!JSON.stringify(listed).includes(profile.bearerToken))
   assert(!JSON.stringify(listed).includes(profile.url))
   const workflow = JSON.parse(readFileSync('examples/workflows/36-mcp-client-booking-availability.json','utf8'))
@@ -73,11 +97,27 @@ export async function checkMcpClient(origin, restart) {
   assert.deepEqual(tools.tools.map(tool=>tool.name), ['check_availability','returns_error'])
   assert.equal(tools.truncated,false)
 
+  await configure({connection:'portal',tool:'check_availability'})
+  const portalRun = await run()
+  assert.equal(portalRun.status,'succeeded',JSON.stringify(portalRun))
+  assert.deepEqual(node(portalRun).output.structuredContent,{
+    available:true, session:'[REDACTED]', clientId:'[REDACTED]'
+  })
+  assert.equal(node(portalRun).output.content[0].text,'[REDACTED]')
+  discovery.nodes.find(node => node.id === 'discover').config.connection = 'portal'
+  await api('workflows/'+discovery.id,'PUT',discovery)
+  const portalDiscovery = await run('run', discovery.id)
+  assert.equal(portalDiscovery.status,'succeeded',JSON.stringify(portalDiscovery))
+  assert.deepEqual(node(portalDiscovery,'discover').output.tools.map(tool=>tool.name),['check_availability','returns_error'])
+
   for (const [config, expected] of [
     [{connection:'availability',tool:'hidden'},'egress_denied'],
     [{connection:'blocked',tool:'check_availability'},'egress_denied'],
     [{connection:'redirect',tool:'check_availability'},'egress_denied'],
     [{connection:'availability',tool:'returns_error'},'external'],
+    [{connection:'portalMissingSecret',tool:'check_availability'},'missing_input'],
+    [{connection:'portalMixedAuth',tool:'check_availability'},'invalid_config'],
+    [{connection:'portalRedirect',tool:'check_availability'},'egress_denied'],
   ]) {
     await configure(config)
     const result = await run()
@@ -85,10 +125,17 @@ export async function checkMcpClient(origin, restart) {
     assert.equal(node(result).error,expected)
     assert(!JSON.stringify(result).includes('private error detail'))
   }
+  // Rotate the underlying Worker secret and run the same unchanged workflow revision.
+  await configure({connection:'portal',tool:'check_availability'})
+  await restart({...settings,MCP_PORTAL_CLIENT_SECRET:'fixture-portal-client-secret-rotated'})
+  const rotated = await run()
+  assert.equal(rotated.status,'succeeded',JSON.stringify(rotated))
+  assert.equal(node(rotated).output.content[0].text,'[REDACTED]')
+
   cookie = ''
   versions = versionedTestClient()
   assert.deepEqual(await api('mcp-client/connections'),{connections:[]})
-  await configure({connection:'availability',tool:'check_availability'})
+  await configure({connection:'portal',tool:'check_availability'})
   assert.equal(node(await run()).error,'egress_denied')
-  console.log('Passed: offline fixtures, approved MCP calls, version/session negotiation, split SSE messages, filtered schema discovery, redaction, tool errors, and workspace and egress enforcement.')
+  console.log('Passed: offline fixtures, approved bearer and Cloudflare Portal calls, token rotation, version/session negotiation, split SSE messages, filtered schema discovery, redaction, tool errors, and workspace and egress enforcement.')
 }

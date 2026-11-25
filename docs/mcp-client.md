@@ -1,6 +1,6 @@
 # MCP Client
 
-Use **MCP Client** in a workflow to list a remote server's approved tools or call a specific approved tool. The server endpoint, credentials and allowed tools are configured by the deployment operator. The node contains a connection alias and a tool name. The workflow editor gets only aliases and approved tool names for the active workspace.
+Use **MCP Client** in a workflow to list a remote server's approved tools or call a specific approved tool. The server endpoint, credentials and allowed tools are configured by the deployment operator. The node contains a connection alias and a tool name. The workflow editor gets only connection names, approved tools, and setup status for the active workspace. Open **Connections → MCP servers** for the same view outside the editor.
 
 ## Configure a connection
 
@@ -18,6 +18,8 @@ Run `pnpm exec wrangler secret put MCP_CONNECTIONS` and enter a JSON object like
 ```
 
 Omit `bearerToken` for a server that accepts anonymous calls. Configure a least-privilege token on the remote server. Put the token in `bearerToken` and keep credentials out of the URL. Each live connection requires explicit workspaces and tool names. The URL must use HTTPS and follows Kasuri's `HTTP_ALLOWED_HOSTS` and `HTTP_PRIVATE_HOSTS` rules. The client sends credentials only to the configured URL and rejects redirects.
+
+For workspace connections backed by Cloudflare One, see [Cloudflare MCP Portals](mcp-portals.md) to use Access service token bindings instead of a bearer token.
 
 ## Use it in a workflow
 

@@ -85,7 +85,12 @@ export const api = {
     request<Run>(`runs/${id}/${action}`, 'POST')
 }
 
-export type McpClientConnection = { alias: string; tools: string[] }
+export type McpClientConnection = {
+  alias: string
+  tools: string[]
+  authentication: 'none' | 'bearer' | 'cloudflare_access'
+  configured: boolean
+}
 export type McpCredential = {
   id: string
   name: string
