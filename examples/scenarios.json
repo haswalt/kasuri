@@ -554,5 +554,17 @@
     "statuses": {
       "reply": "skipped"
     }
+  },
+  {
+    "file": "workflows/34-email-booking-enquiry.json",
+    "outputs": {
+      "reply": {
+        "status": "preview",
+        "messageId": null
+      }
+    },
+    "statuses": {
+      "handoff": "skipped"
+    }
   }
 ]

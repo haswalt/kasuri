@@ -132,11 +132,12 @@ fn every_published_example_simulates_without_input_or_configuration() {
             .1;
         check(&case, &run);
         // Core examples also execute real waits and survive checkpoint restoration.
-        if !graph
-            .nodes
-            .iter()
-            .any(|n| matches!(n.kind.as_str(), "HTTP Request" | connectors_clairic::KIND))
-        {
+        if !graph.nodes.iter().any(|n| {
+            matches!(
+                n.kind.as_str(),
+                "HTTP Request" | connectors_clairic::KIND | connectors_email::SEND
+            )
+        }) {
             let mut ws = Workspace::default();
             dependencies(&mut ws, &case);
             save(&mut ws, &doc);

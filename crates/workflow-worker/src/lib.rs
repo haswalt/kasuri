@@ -1,5 +1,6 @@
 //! HTTP, SQLite persistence and alarms, implemented directly with workers-rs.
 mod data;
+mod email;
 mod external;
 mod http;
 mod mcp;
@@ -273,6 +274,9 @@ impl DurableObject for WorkflowWorkspace {
         let path = req.url()?.path().to_string();
         // Only run objects call this: the entry Worker never forwards `/internal/`
         // paths to a workspace.
+        if path == "/internal/email" && req.method() == Method::Post {
+            return self.incoming_email(req).await;
+        }
         if path == "/internal/runs/report" && req.method() == Method::Post {
             #[derive(serde::Deserialize)]
             struct Run {
@@ -412,8 +416,9 @@ impl DurableObject for WorkflowWorkspace {
         use std::time::Duration;
         let execute = |id: String, task: connector_sdk::Task| {
             let env = self.env.clone();
+            let workspace_id = self.state.id().to_string();
             async move {
-                let outcome = external::execute(&task, &env).await;
+                let outcome = external::execute(&task, &env, &workspace_id).await;
                 (id, task, outcome)
             }
         };
