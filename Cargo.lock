@@ -169,6 +169,7 @@ dependencies = [
  "connector-sdk",
  "serde",
  "serde_json",
+ "workflow-files",
 ]
 
 [[package]]
@@ -202,6 +203,7 @@ dependencies = [
  "mail-parser",
  "serde",
  "serde_json",
+ "workflow-files",
 ]
 
 [[package]]
@@ -1764,6 +1766,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "workflow-files"
+version = "0.1.0"
+dependencies = [
+ "serde",
+ "serde_json",
+]
+
+[[package]]
 name = "workflow-mcp"
 version = "0.1.0"
 dependencies = [
@@ -1833,6 +1843,7 @@ dependencies = [
  "url",
  "worker",
  "workflow-data",
+ "workflow-files",
  "workflow-mcp",
  "workflow-service",
 ]

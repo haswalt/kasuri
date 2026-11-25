@@ -2,6 +2,7 @@
 mod data;
 mod email;
 mod external;
+mod files;
 mod http;
 mod mcp;
 mod runs;
@@ -274,6 +275,9 @@ impl DurableObject for WorkflowWorkspace {
         let path = req.url()?.path().to_string();
         // Only run objects call this: the entry Worker never forwards `/internal/`
         // paths to a workspace.
+        if path == "/internal/email/check" && req.method() == Method::Post {
+            return self.check_email(req).await;
+        }
         if path == "/internal/email" && req.method() == Method::Post {
             return self.incoming_email(req).await;
         }

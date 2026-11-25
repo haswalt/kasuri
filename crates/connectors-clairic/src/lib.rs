@@ -4,6 +4,7 @@ use connector_sdk::{Failure, FailureCode, NodeManifest, Outcome, Task};
 use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value, json};
 use std::collections::{BTreeMap, HashSet};
+use workflow_files::{FileReference, MAX_MEDIA_BYTES, MAX_MEDIA_ITEMS};
 
 pub const KIND: &str = "Clairic";
 pub const MODEL: &str = "@cf/cloudflare/clairic";
@@ -38,6 +39,8 @@ struct Field {
 struct Config {
     #[serde(default, rename = "inputPointer")]
     input_pointer: Option<String>,
+    #[serde(default, rename = "attachmentsPointer")]
+    attachments_pointer: Option<String>,
     fields: Vec<Field>,
     #[serde(default, rename = "simulationResponse")]
     simulation_response: Option<ModelResponse>,
@@ -59,6 +62,16 @@ pub struct Request<'a> {
     fields: BTreeMap<&'a str, &'a Field>,
     #[serde(skip_serializing_if = "Option::is_none")]
     reference_date: Option<NaiveDate>,
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    images: Vec<&'a MediaPart>,
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    documents: Vec<&'a MediaPart>,
+}
+
+#[derive(Serialize)]
+pub struct MediaPart {
+    pub content_type: String,
+    pub base64: String,
 }
 
 fn parse(config: &Map<String, Value>) -> Result<Config, FailureCode> {
@@ -83,7 +96,13 @@ fn parse(config: &Map<String, Value>) -> Result<Config, FailureCode> {
             };
             valid_name && names.insert(&entry.name) && valid_choices
         })
-        && parsed.input_pointer.as_ref().is_none_or(|pointer| {
+        && [
+            parsed.input_pointer.as_ref(),
+            parsed.attachments_pointer.as_ref(),
+        ]
+        .into_iter()
+        .flatten()
+        .all(|pointer| {
             pointer.is_empty()
                 || (pointer.starts_with('/')
                     && pointer
@@ -108,10 +127,18 @@ pub fn validate(config: &Map<String, Value>) -> Result<(), FailureCode> {
 pub struct Prepared<'a> {
     config: Config,
     text: &'a str,
+    files: Vec<FileReference>,
 }
 
 impl Prepared<'_> {
-    pub fn request(&self) -> Request<'_> {
+    pub fn files(&self) -> &[FileReference] {
+        &self.files
+    }
+
+    pub fn request<'a>(&'a self, media: &'a [MediaPart]) -> Request<'a> {
+        let (documents, images) = media
+            .iter()
+            .partition(|part| part.content_type == "application/pdf");
         Request {
             model: "clairic",
             state: self.text,
@@ -122,6 +149,8 @@ impl Prepared<'_> {
                 .map(|entry| (entry.name.as_str(), entry))
                 .collect(),
             reference_date: self.config.reference_date,
+            images,
+            documents,
         }
     }
 
@@ -135,13 +164,44 @@ impl Prepared<'_> {
 
 pub fn prepare(task: &Task) -> Result<Prepared<'_>, FailureCode> {
     let config = parse(&task.node.config)?;
-    let text = task
-        .input
-        .pointer(config.input_pointer.as_deref().unwrap_or(""))
-        .and_then(Value::as_str)
-        .filter(|text| !text.trim().is_empty())
-        .ok_or(FailureCode::MissingInput)?;
-    Ok(Prepared { config, text })
+    let files: Vec<FileReference> = match config
+        .attachments_pointer
+        .as_ref()
+        .and_then(|p| task.input.pointer(p))
+    {
+        None | Some(Value::Null) => Vec::new(),
+        Some(Value::Array(files)) if files.len() > MAX_MEDIA_ITEMS => {
+            return Err(FailureCode::BudgetExceeded);
+        }
+        Some(list) => {
+            serde_json::from_value(list.clone()).map_err(|_| FailureCode::InvalidConfig)?
+        }
+    };
+    let mut ids = HashSet::new();
+    if !files
+        .iter()
+        .all(|file| file.valid() && ids.insert(&file.id))
+    {
+        return Err(FailureCode::InvalidConfig);
+    }
+    if files.iter().map(|file| file.size).sum::<u64>() > MAX_MEDIA_BYTES {
+        return Err(FailureCode::BudgetExceeded);
+    }
+    let pointer = config.input_pointer.as_deref().unwrap_or("");
+    let text = match task.input.pointer(pointer) {
+        Some(Value::String(text)) => text,
+        None | Some(Value::Null) if !files.is_empty() => "",
+        Some(_) if config.input_pointer.is_none() && !files.is_empty() => "",
+        _ => return Err(FailureCode::MissingInput),
+    };
+    if text.trim().is_empty() && files.is_empty() {
+        return Err(FailureCode::MissingInput);
+    }
+    Ok(Prepared {
+        config,
+        text,
+        files,
+    })
 }
 
 pub fn simulate(task: &Task) -> Outcome {
@@ -258,7 +318,8 @@ pub fn manifest() -> NodeManifest {
         kind: KIND.into(),
         version: 1,
         config_schema: json!({"type":"object","additionalProperties":false,"required":["fields"],"properties":{
-            "inputPointer":{"type":"string","description":"JSON Pointer to the source text. Empty selects the whole input."},
+            "inputPointer":{"type":"string","description":"JSON Pointer to source text. Empty selects the whole input."},
+            "attachmentsPointer":{"type":"string","description":"JSON Pointer to an array of private file references."},
             "referenceDate":{"type":"string","format":"date"},
             "fields":{"type":"array","minItems":1,"items":{
                 "type":"object","additionalProperties":false,"required":["name","type"],"properties":{
@@ -305,7 +366,7 @@ mod tests {
         let task = booking_task();
         let prepared = prepare(&task).unwrap();
         assert_eq!(
-            serde_json::to_value(prepared.request()).unwrap(),
+            serde_json::to_value(prepared.request(&[])).unwrap(),
             json!({
                 "model":"clairic","state":"Could we book the band for 80 guests?",
                 "reference_date":"2026-11-25","fields":{
@@ -315,6 +376,31 @@ mod tests {
                 }
             })
         );
+    }
+
+    #[test]
+    fn accepts_media_without_text_and_rejects_unscoped_reference_shapes() {
+        let mut task = booking_task();
+        task.node.config.remove("inputPointer");
+        task.node
+            .config
+            .insert("attachmentsPointer".into(), json!("/attachments"));
+        task.input = json!({"attachments":[{
+            "id":"1".repeat(64), "name":"booking.pdf", "contentType":"application/pdf", "size":10
+        }]});
+        let prepared = prepare(&task).unwrap();
+        assert_eq!(prepared.files()[0].name, "booking.pdf");
+        let media = [MediaPart {
+            content_type: "application/pdf".into(),
+            base64: "encoded".into(),
+        }];
+        let request = serde_json::to_value(prepared.request(&media)).unwrap();
+        assert_eq!(request["state"], "");
+        assert_eq!(request["documents"][0]["base64"], "encoded");
+        assert!(request.get("images").is_none());
+
+        task.input["attachments"][0]["id"] = json!("https://example.test/private.pdf");
+        assert!(matches!(prepare(&task), Err(FailureCode::InvalidConfig)));
     }
 
     #[test]
