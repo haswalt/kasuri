@@ -119,15 +119,20 @@ pub(crate) fn write_workspace(
     // rolls back and the caller discards its candidate.
     tracked.workspace = std::mem::take(workspace);
     let written = tracked.commit(&mut store).map_err(store_error)?;
-    // Written root first, then its children oldest first.
-    let mut offloaded: Vec<Vec<RunRecord>> = Vec::new();
+    // Written in list order (newest first), which is each tree's own order.
+    let mut offloaded: Vec<(String, Vec<RunRecord>)> = Vec::new();
     for record in written.upserts.iter().filter(|record| record.remote) {
         let record: RunRecord = serde_json::from_str(&record.body).map_err(internal)?;
-        match (&record.parent, offloaded.last_mut()) {
-            (Some(_), Some(tree)) => tree.insert(0, record),
-            _ => offloaded.push(vec![record]),
+        let root = match &record.parent {
+            Some(parent) => parent.root_id.clone(),
+            None => record.id_string().map_err(internal)?,
+        };
+        match offloaded.iter_mut().find(|(id, _)| *id == root) {
+            Some((_, tree)) => tree.push(record),
+            None => offloaded.push((root, vec![record])),
         }
     }
+    let offloaded: Vec<Vec<RunRecord>> = offloaded.into_iter().map(|(_, tree)| tree).collect();
     // Hand back the workspace with retention applied: the one copy a save makes,
     // since the cache keeps the committed state as well.
     *workspace = tracked.workspace.clone();
@@ -337,6 +342,8 @@ impl WorkflowWorkspace {
     ) -> Result<()> {
         // No callback I/O inside the transaction. Retention runs in the commit,
         // before lifecycle cleanup, so pruned runs cannot retain data scopes.
+        // Runs already waiting leave in this commit.
+        workspace.offload_waiting().map_err(internal)?;
         self.commit_and_hand_off(workspace, stage).await?;
         // Arm recovery before any effect is attempted. A failed transaction must
         // leave a durable wake-up, including when this save runs in an alarm.
@@ -476,9 +483,9 @@ impl WorkflowWorkspace {
     async fn arm_workspace_alarm(&self, workspace: &Workspace) -> Result<()> {
         // Runs whose run object hasn't reported yet are checked again shortly.
         let unstarted = tables(&self.state.storage().sql())
-            .unstarted_remote_runs(crate::now().saturating_add(1))
+            .has_unstarted_remote_runs(crate::now().saturating_add(1))
             .map_err(store_error)?;
-        let retry = (!unstarted.is_empty()).then(|| crate::now() + REMOTE_START_RETRY_MS);
+        let retry = unstarted.then(|| crate::now() + REMOTE_START_RETRY_MS);
         let next = match (workspace.next_alarm(), retry) {
             (Some(a), Some(b)) => Some(a.min(b)),
             (a, b) => a.or(b),

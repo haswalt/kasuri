@@ -70,22 +70,29 @@ fn start(ws: &mut Workspace, workflow: &str, id: &str) -> Result<Value, ApiError
 /// Commit, reload with an archive and the offload setting, as the host does.
 /// Returns the trees handed to the host to start, each newest run first.
 fn cycle(store: &mut MemoryStore, tracked: &mut Tracked) -> (Tracked, Vec<RunTree>) {
-    // As the host's save does: commit, perform due data tasks (none here), then
-    // move out runs now waiting, in a second commit.
+    // As the host's save does: runs already waiting leave in the commit; after
+    // due data tasks (none here), runs now waiting leave in a second one.
+    tracked.workspace.offload_waiting().unwrap();
     let mut written = tracked.commit(store).unwrap();
     if tracked.workspace.offload_waiting().unwrap() {
         written
             .upserts
             .extend(tracked.commit(store).unwrap().upserts);
     }
-    let mut started: Vec<RunTree> = vec![];
+    // Written in list order, newest first: each tree's own order (root last).
+    let mut started: Vec<(String, RunTree)> = vec![];
     for record in written.upserts.iter().filter(|r| r.remote) {
         let record: RunRecord = serde_json::from_str(&record.body).unwrap();
-        match &record.parent {
-            None => started.push(RunTree::new(vec![record])),
-            Some(_) => started.last_mut().unwrap().runs.insert(0, record),
+        let root = record
+            .parent
+            .as_ref()
+            .map_or_else(|| record.id_string().unwrap(), |p| p.root_id.clone());
+        match started.iter_mut().find(|(id, _)| *id == root) {
+            Some((_, tree)) => tree.runs.push(record),
+            None => started.push((root, RunTree::new(vec![record]))),
         }
     }
+    let started = started.into_iter().map(|(_, tree)| tree).collect();
     let mut reloaded = Tracked::load(store).unwrap();
     reloaded.workspace.archive = Archive::new(Rc::new(store.clone()));
     reloaded.workspace.offload = true;

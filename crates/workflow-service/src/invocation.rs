@@ -526,6 +526,7 @@ impl Workspace {
             host_error: None,
             run_id: run.id().into(),
             run_status: Some(run.status()),
+            summary: Some(crate::run_summary(&run)),
         };
         child_record.advance(time)?;
         let child = Child {

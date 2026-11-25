@@ -152,11 +152,8 @@ fn error(message: &str) -> EngineError {
     EngineError(message.into())
 }
 fn check_value(value: &Value) -> Result<(), EngineError> {
-    if serde_json::to_vec(value)
-        .map_err(|_| error("Invalid JSON value"))?
-        .len()
-        > MAX_VALUE_BYTES
-    {
+    // Measured without building the encoded copy.
+    if encoded_len(value) > MAX_VALUE_BYTES {
         return Err(error(
             "Input/output exceeds 64 KiB; store large artifacts externally",
         ));

@@ -201,6 +201,42 @@ pub struct RunRecord {
     pub run_id: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub run_status: Option<RunStatus>,
+    /// The engine-derived part of the run's list entry (see [`run_summary`]),
+    /// cached by `store` so listing and indexing a run never restores its
+    /// checkpoint. Absent on records stored before it existed.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub summary: Option<Value>,
+}
+
+/// The parts of a run's list entry that come from its engine state: workflow,
+/// node statuses (without outputs) and failure.
+fn run_summary(run: &Run) -> Value {
+    json!({
+        "id": run.id(),
+        "workflowId": run.workflow().id,
+        "name": run.workflow().name,
+        "revision": run.workflow().revision,
+        "nodes": node_views(run, true),
+        "failure": run.failure(),
+    })
+}
+/// Node entries for a run's view; with `summary`, without outputs.
+fn node_views(run: &Run, summary: bool) -> Vec<Value> {
+    run.workflow().nodes.iter().map(|n| {
+        let s=&run.nodes()[&n.id];
+        let (status,attempts,output,code,until)=match s {
+            NodeState::Pending=>("pending",0,None,None,None),
+            NodeState::Running{task}=>("running",task.attempt,None,None,Some(task.deadline_ms)),
+            NodeState::Waiting{until_ms,output,attempts}=>("waiting",*attempts,Some(output),None,Some(*until_ms)),
+            NodeState::Retry{at_ms,attempts}=>("retry",*attempts,None,None,Some(*at_ms)),
+            NodeState::Succeeded{output,attempts,..}=>("succeeded",*attempts,Some(output),None,None),
+            NodeState::Skipped=>("skipped",0,None,None,None),
+            NodeState::Failed{failure,attempts}=>("failed",*attempts,None,Some(&failure.code),None),
+        };
+        let mut value=json!({"id":n.id,"label":n.label,"type":n.kind,"status":status,"attempts":attempts,"untilMs":until,"error":code});
+        if !summary && let Some(output)=output { value["output"]=output.clone(); }
+        value
+    }).collect()
 }
 impl RunRecord {
     fn restore(&self) -> Result<Run, ApiError> {
@@ -209,6 +245,7 @@ impl RunRecord {
     /// Persist the engine state and refresh the cached ID and status together.
     fn store(&mut self, run: &Run, status: u16) -> Result<(), ApiError> {
         self.checkpoint = run.checkpoint().map_err(|e| error(status, e.to_string()))?;
+        self.summary = Some(run_summary(run));
         self.run_id = run.id().into();
         self.run_status = Some(run.status());
         Ok(())
@@ -268,26 +305,24 @@ impl RunRecord {
         })
     }
     pub fn view(&self, summary: bool) -> Result<Value, ApiError> {
-        let run = self.restore()?;
-        let state: Value = workflow_engine::checkpoint_state(&self.checkpoint)
-            .map_err(|_| error(500, "Invalid stored run"))?;
-        let nodes:Vec<_>=run.workflow().nodes.iter().map(|n| {
-            let s=&run.nodes()[&n.id];
-            let (status,attempts,output,code,until)=match s {
-                NodeState::Pending=>("pending",0,None,None,None),
-                NodeState::Running{task}=>("running",task.attempt,None,None,Some(task.deadline_ms)),
-                NodeState::Waiting{until_ms,output,attempts}=>("waiting",*attempts,Some(output),None,Some(*until_ms)),
-                NodeState::Retry{at_ms,attempts}=>("retry",*attempts,None,None,Some(*at_ms)),
-                NodeState::Succeeded{output,attempts,..}=>("succeeded",*attempts,Some(output),None,None),
-                NodeState::Skipped=>("skipped",0,None,None,None),
-                NodeState::Failed{failure,attempts}=>("failed",*attempts,None,Some(&failure.code),None),
-            };
-            let mut value=json!({"id":n.id,"label":n.label,"type":n.kind,"status":status,"attempts":attempts,"untilMs":until,"error":code});
-            if !summary && let Some(output)=output { value["output"]=output.clone(); }
-            value
-        }).collect();
+        // A list entry needs only the cached summary; a full view restores the
+        // run (once) for outputs and input.
+        let (engine, input) = match (&self.summary, summary) {
+            (Some(cached), true) => (std::borrow::Cow::Borrowed(cached), Value::Null),
+            _ => {
+                let run = self.restore()?;
+                let mut engine = run_summary(&run);
+                engine["nodes"] = json!(node_views(&run, summary));
+                let input = if summary {
+                    Value::Null
+                } else {
+                    run.input().clone()
+                };
+                (std::borrow::Cow::Owned(engine), input)
+            }
+        };
         Ok(
-            json!({"id":run.id(),"workflowId":run.workflow().id,"name":run.workflow().name,"revision":run.workflow().revision,"createdAt":iso(self.created_at),"mode":self.mode,"status":self.status()?,"nodes":nodes,"webhookResponse":if summary {self.webhook_response.as_ref().map(|w|json!({"delivery":w.delivery,"deadlineMs":w.deadline_ms,"closedAt":w.closed_at}))}else{self.webhook_response.as_ref().map(|w|json!(w))},"parent":self.parent,"children":self.children,"iterations":if summary {Value::Null}else{json!(self.iterations)},"context":if summary {Value::Null}else{self.trigger_context.clone()},"input":if summary {Value::Null}else{state["input"].clone()},"error":self.host_error.clone().map(Value::String).unwrap_or_else(||state["failure"].clone()),"wakeAt":self.wake_at}),
+            json!({"id":engine["id"],"workflowId":engine["workflowId"],"name":engine["name"],"revision":engine["revision"],"createdAt":iso(self.created_at),"mode":self.mode,"status":self.status()?,"nodes":engine["nodes"],"webhookResponse":if summary {self.webhook_response.as_ref().map(|w|json!({"delivery":w.delivery,"deadlineMs":w.deadline_ms,"closedAt":w.closed_at}))}else{self.webhook_response.as_ref().map(|w|json!(w))},"parent":self.parent,"children":self.children,"iterations":if summary {Value::Null}else{json!(self.iterations)},"context":if summary {Value::Null}else{self.trigger_context.clone()},"input":input,"error":self.host_error.clone().map(Value::String).unwrap_or_else(||engine["failure"].clone()),"wakeAt":self.wake_at}),
         )
     }
     fn advance(&mut self, now: u64) -> Result<(), ApiError> {
@@ -556,10 +591,11 @@ pub struct Workspace {
     /// stores) instead of in it. Set by the host.
     #[serde(skip)]
     pub offload: bool,
-    /// Runs started in this operation for execution outside the workspace. The
-    /// commit writes their index rows; the host then starts them in run stores.
+    /// Runs leaving for execution outside the workspace (see
+    /// [`Workspace::offload_waiting`]). The next commit rewrites them as index rows
+    /// and removes them from `runs`; the host then starts them in run stores.
     #[serde(skip)]
-    pub offloaded: Vec<RunRecord>,
+    pub leaving: std::collections::BTreeSet<String>,
     /// Control requests (run, action) for runs executing outside the workspace,
     /// accepted in this operation. The host forwards them after the commit.
     #[serde(skip)]
@@ -621,7 +657,7 @@ impl Workspace {
                     .map_err(|e| error(500, e.to_string()))?,
                 None => 0,
             };
-            if self.active_runs(count_open_responses)? + remote + self.offloaded.len() >= limit {
+            if self.active_runs(count_open_responses)? + remote >= limit {
                 return Err(error(
                     429,
                     "Wait for an active run to finish before starting another",
@@ -1088,12 +1124,12 @@ impl Workspace {
     }
     /// Hand waiting run trees to run stores (when the host executes runs outside
     /// the workspace): top-level, eligible runs still running, with every run
-    /// they invoked. The host calls this after a save has performed the data
-    /// tasks due, so runs that finish at once (or on their data operations) still
-    /// answer with their result, and moves them out on its next commit. A tree is
-    /// left here while it has a data task to perform, an HTTP request in flight
-    /// from this workspace, or a child that isn't held in memory. Returns whether
-    /// any tree moved.
+    /// they invoked. They leave on the next commit, which writes them as index
+    /// rows in their places in the list, and the host then starts them. A tree is
+    /// left here while it has a data task to perform (the host performs those
+    /// after a save, so runs that finish on them still answer with their
+    /// result), an HTTP request in flight from this workspace, or a child that
+    /// isn't held in memory. Returns whether any tree is leaving.
     pub fn offload_waiting(&mut self) -> Result<bool, ApiError> {
         if !self.offload {
             return Ok(false);
@@ -1102,6 +1138,7 @@ impl Workspace {
         for record in &self.runs {
             if record.parent.is_none()
                 && record.status()? == RunStatus::Running
+                && !self.leaving.contains(&record.id_string()?)
                 && execution::eligible(record)?
             {
                 roots.push(record.id_string()?);
@@ -1131,12 +1168,11 @@ impl Workspace {
             if busy || !complete {
                 continue;
             }
-            let (tree, rest): (Vec<RunRecord>, Vec<RunRecord>) = std::mem::take(&mut self.runs)
-                .into_iter()
-                .partition(in_tree);
-            self.runs = rest;
-            // Oldest first, root first: the commit lists them in this order.
-            self.offloaded.extend(tree.into_iter().rev());
+            let ids = tree
+                .iter()
+                .map(|r| r.id_string())
+                .collect::<Result<Vec<_>, _>>()?;
+            self.leaving.extend(ids);
             moved = true;
         }
         Ok(moved)
@@ -1187,6 +1223,7 @@ impl Workspace {
             host_error: None,
             run_id: run.id().into(),
             run_status: Some(run.status()),
+            summary: Some(crate::run_summary(&run)),
         })
     }
     pub fn record_audit(

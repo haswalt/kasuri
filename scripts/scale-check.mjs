@@ -30,6 +30,8 @@ const RUNS = option('runs', 1000)
 const SIZE = option('size', 0)
 const WAIT = option('wait', 3000)
 const CANCEL = option('cancel', 10)
+// How many starts are in flight at once.
+const STARTING = option('concurrency', 25)
 const checkLatency = !process.argv.includes('--no-latency')
 const mode = process.env.RUN_EXECUTION ?? ''
 const queues = mode === 'queues'
@@ -94,7 +96,7 @@ try {
   // HTTP step ran (the upstream's clock) beyond its wait, counted from when its
   // start was acknowledged: the time it took to step, not to be admitted.
   async function measure(count, cancel) {
-    const started = await pool(Array.from({ length: count }), 25, async (_, index) => {
+    const started = await pool(Array.from({ length: count }), STARTING, async (_, index) => {
       const at = Date.now()
       const run = await api('runs', 'POST', { workflowId: 'scale', mode: 'run', input })
       assert.equal(run.status, 'running')
@@ -121,7 +123,8 @@ try {
       assert.equal(done.get(r.id).status, cancelled.has(r.id) ? 'cancelled' : 'succeeded', r.id)
     }
     const late = started.filter(r => !cancelled.has(r.id)).map(r => done.get(r.id).at - (r.at + r.accepted) - WAIT)
-    return { runs: count, cancelled: cancelled.size, acceptMedianMs: percentile(started.map(r => r.accepted), 0.5), acceptP95Ms: percentile(started.map(r => r.accepted), 0.95), latenessMedianMs: percentile(late, 0.5), latenessP95Ms: percentile(late, 0.95), latenessMaxMs: Math.max(...late) }
+    const startSpan = Math.max(...started.map(r => r.at + r.accepted)) - Math.min(...started.map(r => r.at))
+    return { runs: count, cancelled: cancelled.size, startsPerSecond: Math.round(count / Math.max(startSpan, 1) * 1000), acceptMedianMs: percentile(started.map(r => r.accepted), 0.5), acceptP95Ms: percentile(started.map(r => r.accepted), 0.95), latenessMedianMs: percentile(late, 0.5), latenessP95Ms: percentile(late, 0.95), latenessMaxMs: Math.max(...late) }
   }
   const single = await measure(1, 0)
   const many = await measure(RUNS, CANCEL)
