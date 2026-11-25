@@ -56,6 +56,8 @@ BASIC_AUTH='username:password' pnpm start
 
 The process runs from `dist/`, serves on port 8080 and stores data in the root `data/` directory. `dist/` contains the Wasm binary, generated module, assets and `workerd.capnp`. Distribute it with a compatible workerd binary if Node.js is unavailable on the destination. From that directory run `PUBLIC_ORIGIN= BASIC_AUTH= HTTP_ALLOWED_HOSTS= HTTP_PRIVATE_HOSTS= HTTP_SECRETS= MAX_ACTIVE_RUNS= RUN_HISTORY= RUN_HISTORY_DAYS= FAILED_RUN_HISTORY_DAYS= RUN_EXECUTION= workerd serve workerd.capnp`. The provided launchers supply an empty default for the optional workerd environment binding. The binary itself requires no Node.js runtime.
 
+Unset/empty `RUN_EXECUTION` now uses run objects; set `workspace` explicitly for the legacy execution fallback. All modes still share one local workerd process and are not a multi-process cluster.
+
 `RUN_EXECUTION=queues` needs a message queue, which workerd provides with its built-in Queues Worker, storing messages on the same data volume. workerd marks that Worker experimental, so it is not in `workerd.capnp`: the build also writes `workerd-queues.capnp`, and the launchers (`pnpm start` and the container) use it, with `--experimental`, only when `RUN_EXECUTION=queues`. Run it directly with `workerd serve workerd-queues.capnp --experimental`. The other modes don't use it.
 
 For a different address or storage path, use workerd's `--socket-addr http=127.0.0.1:8090` and `--directory-path storage=/absolute/data/path` options. Create the storage directory first.

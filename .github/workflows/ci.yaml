@@ -42,15 +42,15 @@ jobs:
       - run: pnpm install --frozen-lockfile
       - run: pnpm build:selfhost
       - run: pnpm test
-  # The runtime suite again, with eligible runs executed by run objects, stepped
-  # by their alarms (objects) or by queue messages (queues).
+  # Explicit execution modes, including the workspace fallback. The application
+  # job above exercises the unset/default objects mode.
   run-objects:
     runs-on: ubuntu-latest
     timeout-minutes: 30
     strategy:
       fail-fast: false
       matrix:
-        execution: [objects, queues]
+        execution: [workspace, objects, queues]
     env:
       RUN_EXECUTION: ${{ matrix.execution }}
     steps:
@@ -63,8 +63,10 @@ jobs:
       - run: pnpm build:selfhost
       - run: pnpm test:runtime
       # Many runs at once, some with 50 KB of state: all finish, and cancels apply.
-      - run: node scripts/scale-check.mjs --runs 300 --no-latency
-      - run: node scripts/scale-check.mjs --runs 100 --size 51200 --no-latency
+      - if: matrix.execution != 'workspace'
+        run: node scripts/scale-check.mjs --runs 300 --no-latency
+      - if: matrix.execution != 'workspace'
+        run: node scripts/scale-check.mjs --runs 100 --size 51200 --no-latency
   container:
     runs-on: ubuntu-latest
     timeout-minutes: 30
