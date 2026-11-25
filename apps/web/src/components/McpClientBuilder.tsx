@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import type { Json } from '../../../../packages/contracts/src/index'
 import { styles } from '../design/styles'
+import { path } from '../lib/navigation'
 import { api } from '../lib/api'
 import type { McpClientConnection } from '../lib/api'
 import { fieldChoices, fieldPointer, inputValue, schemaAt } from '../lib/input-hints'
@@ -51,13 +52,16 @@ export function McpClientBuilder({config, hints, onChange}: Props) {
       }}>
         <option value="" disabled>Select a connection…</option>
         {alias && !connection && <option value={alias}>{alias} (offline or unavailable)</option>}
-        {connections?.map(item => <option key={item.alias} value={item.alias}>{item.alias}</option>)}
+        {connections?.map(item => <option key={item.alias} value={item.alias}>
+          {item.alias}{item.authentication === 'cloudflare_access' ? ' · Cloudflare MCP Portal' : ''}
+        </option>)}
         {alias !== 'offline' && !connections?.some(item => item.alias === 'offline')
           && <option value="offline">Offline simulation</option>}
       </select>
     </label>
     {error && <p role="alert">{error}</p>}
-    {connections?.length === 0 && <p className={styles.muted}>Your operator can enable a live MCP connection for this workspace.</p>}
+    {(connections?.length === 0 || (connection && !connection.configured)) &&
+      <p className={styles.muted}>Check setup in <a href={path('connections') + '?connector=MCP%20Client'}>Connections</a>.</p>}
     <label>Operation
       <select value={operation} onChange={event => {
         const next: Record<string, Json> = {...config, operation: event.target.value}

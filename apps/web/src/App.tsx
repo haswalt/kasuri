@@ -1,3 +1,4 @@
+import { McpOutboundConnections } from './components/McpOutboundConnections'
 import { McpManagement, AuditLog } from './components/McpManagement'
 import { Button } from './design/ui'
 import { styles } from './design/styles'
@@ -430,12 +431,14 @@ function App() {
     else query.delete(key)
     go(path('connectors') + (query.size ? '?' + query.toString() : ''))
   }
+  const catalogueKind = (name: string) => name === 'Cloudflare MCP Portals' ? 'MCP Client' : name
+  const selectedConnectionKind = catalogueKind(route.query.get('connector') || 'HTTP Request')
   const visibleConnectors = catalogue.filter(
     (c) =>
       (categoryFilter === 'All' || group(c.name) === categoryFilter) &&
       c.name.toLowerCase().includes(connectorSearch.toLowerCase()) &&
       (connectorStatus === 'all' ||
-        (connectorStatus === 'built-in' ? connectors.some((m) => m.kind === c.name) : !connectors.some((m) => m.kind === c.name)))
+        (connectorStatus === 'built-in' ? connectors.some((m) => m.kind === catalogueKind(c.name)) : !connectors.some((m) => m.kind === catalogueKind(c.name))))
   )
   const editorToolbar = workflow && (
     <>
@@ -1371,7 +1374,7 @@ function App() {
                 </div>
                 <div className={styles.catalogueGrid}>
                   {visibleConnectors.map((c) => {
-                    const manifest = connectors.find((m) => m.kind === c.name)
+                    const manifest = connectors.find((m) => m.kind === catalogueKind(c.name))
                     return (
                       <Button
                         className={styles.catalogueCard}
@@ -1398,6 +1401,8 @@ function App() {
                           {manifest
                             ? c.name === 'HTTP Request'
                               ? 'Public HTTPS, Basic auth and custom headers.'
+                              : c.name === 'Cloudflare MCP Portals'
+                                ? 'Use approved portal tools from an MCP Client node.'
                               : manifest.hasExternalSideEffects
                                 ? 'Durable execution with explicit side effects.'
                                 : 'Ready to use in your workflow.'
@@ -1479,19 +1484,13 @@ function App() {
                         )}
                       </div>
                     </div>
-                    <Empty
-                      icon="key"
-                      title={
-                        filter === 'MCP servers'
-                          ? 'MCP connections are planned'
-                          : 'Host-managed credentials'
-                      }
-                    >
-                      HTTP Basic authentication and sensitive custom headers use
-                      named secrets configured on your installation. A saved
-                      connection vault and OAuth management are not available
-                      yet.
-                    </Empty>
+                    {filter === 'All' || filter === 'MCP servers' || selectedConnectionKind === 'MCP Client' ? (
+                      <McpOutboundConnections key={route.workspaceKey} />
+                    ) : (
+                      <Empty icon="key" title="Host-managed credentials">
+                        HTTP Basic authentication and sensitive custom headers use named secrets configured on your installation.
+                      </Empty>
+                    )}
                   </section>
                   <aside
                     className={styles.panel + ' ' + styles.connectionDetail}
@@ -1505,8 +1504,7 @@ function App() {
                       status={
                         connectors.some(
                           (c) =>
-                            c.kind ===
-                            (route.query.get('connector') || 'HTTP Request')
+                            c.kind === selectedConnectionKind
                         )
                           ? 'active'
                           : 'planned'
@@ -1514,18 +1512,17 @@ function App() {
                       label={
                         connectors.some(
                           (c) =>
-                            c.kind ===
-                            (route.query.get('connector') || 'HTTP Request')
+                            c.kind === selectedConnectionKind
                         )
                           ? 'Available'
                           : 'Planned'
                       }
                     />
-                    <p>
-                      For HTTP Request, select Basic authentication and
-                      reference a password secret by name. Custom credential
-                      headers use a <code>$secret</code> reference.
-                    </p>
+                    {selectedConnectionKind === 'MCP Client' ? (
+                      <p>Choose a configured connection in the MCP Client node. Portal access and the approved tools are managed separately.</p>
+                    ) : (
+                      <p>For HTTP Request, select Basic authentication and reference a password secret by name. Custom credential headers use a <code>$secret</code> reference.</p>
+                    )}
                     <div className={styles.infoBox}>
                       Secret values stay on the host and are redacted from
                       echoed responses.

@@ -4,8 +4,15 @@ const barriers=new Map()
 let retryCount=0
 let nextMcpSession=0
 const mcpSessions=new Map()
-async function mcp(request) {
-  if (request.headers.get('Authorization') !== 'Bearer fixture-mcp-token') return new Response(null,{status:401})
+async function mcp(request, portal = false) {
+  const authorization = request.headers.get('Authorization')
+  const accessId = request.headers.get('CF-Access-Client-Id')
+  const accessSecret = request.headers.get('CF-Access-Client-Secret')
+  if (portal
+    ? authorization || accessId !== 'fixture-portal-client-id' || !['fixture-portal-client-secret','fixture-portal-client-secret-rotated'].includes(accessSecret)
+    : authorization !== 'Bearer fixture-mcp-token' || accessId || accessSecret) {
+    return new Response(null,{status:401})
+  }
   if (request.headers.get('Accept') !== 'application/json, text/event-stream') return new Response(null,{status:400})
   const session = request.headers.get('Mcp-Session-Id')
   if (request.method === 'DELETE') {
@@ -47,8 +54,8 @@ async function mcp(request) {
     return Response.json({jsonrpc:'2.0',id,error:{code:-32602,message:'Unexpected arguments'}})
   }
   const result = JSON.stringify(reply({
-    content:[{type:'text',text:'fixture-mcp-token'}],
-    structuredContent:{available:true, session}
+    content:[{type:'text',text:portal ? accessSecret : 'fixture-mcp-token'}],
+    structuredContent:{available:true, session, ...(portal?{clientId:accessId}:{})}
   }))
   const encoder = new TextEncoder()
   const stream = new ReadableStream({start(controller) {
@@ -64,12 +71,13 @@ async function mcp(request) {
 export default {async fetch(request){
  const url=new URL(request.url)
  if(url.hostname==='cloudflare-dns.com'){
-  if(request.headers.has('authorization')||request.headers.has('x-api-key'))return new Response('Credentials leaked to DNS',{status:500})
+  if(request.headers.has('authorization')||request.headers.has('x-api-key')||request.headers.has('CF-Access-Client-Id')||request.headers.has('CF-Access-Client-Secret'))return new Response('Credentials leaked to DNS',{status:500})
   const name=url.searchParams.get('name');const type=url.searchParams.get('type')==='AAAA'?28:1
   const data=name==='private-dns.example'?'127.0.0.1':name==='mixed-dns.example'&&type===28?'fe80::1':type===1?'1.1.1.1':'2606:4700:4700::1111'
   return Response.json({Status:0,Answer:[{type,data}]})
  }
  if(url.pathname==='/mcp-client')return mcp(request)
+ if(url.pathname==='/mcp-portal')return mcp(request,true)
  // The upstream's clock, for load measurements (scripts/scale-check.mjs).
  if(url.pathname==='/clock')return Response.json({now:Date.now()})
  if(url.pathname==='/item-worker'){

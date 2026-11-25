@@ -58,7 +58,7 @@ const queues = process.env.RUN_EXECUTION === 'queues'
 // The run-object checks use queues when the suite does, otherwise run objects.
 const offloaded = queues ? 'queues' : 'objects'
 const config = stageRuntimeFixture(data, { queues })
-  .replace('        (name = "HTTP_SECRETS",', '        (name = "MCP_CONNECTIONS", fromEnvironment = "MCP_CONNECTIONS"),\n        (name = "HTTP_SECRETS",')
+  .replace('        (name = "HTTP_SECRETS",', '        (name = "MCP_CONNECTIONS", fromEnvironment = "MCP_CONNECTIONS"),\n        (name = "MCP_PORTAL_CLIENT_ID", fromEnvironment = "MCP_PORTAL_CLIENT_ID"),\n        (name = "MCP_PORTAL_CLIENT_SECRET", fromEnvironment = "MCP_PORTAL_CLIENT_SECRET"),\n        (name = "HTTP_SECRETS",')
   .replace(
     'services = [',
     `services = [(name = "upstream", worker = (modules = [(name = "upstream.mjs", esModule = embed "upstream.mjs")], compatibilityDate = "2026-11-18")),`
@@ -96,6 +96,8 @@ function start(policy = {}) {
         RUN_HISTORY_DAYS: '',
         FAILED_RUN_HISTORY_DAYS: '',
         MCP_CONNECTIONS: '',
+        MCP_PORTAL_CLIENT_ID: '',
+        MCP_PORTAL_CLIENT_SECRET: '',
         // Run the whole suite with run objects (RUN_EXECUTION=objects) or queues.
         RUN_EXECUTION: process.env.RUN_EXECUTION ?? '',
         HTTP_SECRETS: JSON.stringify({

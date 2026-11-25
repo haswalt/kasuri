@@ -28,6 +28,61 @@ struct Profile {
     workspace_ids: BTreeSet<String>,
     allowed_tools: BTreeSet<String>,
     bearer_token: Option<String>,
+    access_service_token: Option<AccessServiceToken>,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+struct AccessServiceToken {
+    client_id_binding: String,
+    client_secret_binding: String,
+}
+
+enum Credentials<'a> {
+    Anonymous,
+    Bearer(&'a str),
+    CloudflareAccess {
+        client_id: String,
+        client_secret: String,
+    },
+}
+
+impl Credentials<'_> {
+    fn apply(&self, headers: &Headers) -> ClientResult<()> {
+        let set = |name, value| {
+            headers
+                .set(name, value)
+                .map_err(|_| FailureCode::InvalidConfig)
+        };
+        match self {
+            Self::Anonymous => Ok(()),
+            Self::Bearer(token) => set("Authorization", &format!("Bearer {token}")),
+            Self::CloudflareAccess {
+                client_id,
+                client_secret,
+            } => {
+                set("CF-Access-Client-Id", client_id)?;
+                set("CF-Access-Client-Secret", client_secret)
+            }
+        }
+    }
+
+    fn redactions(&self) -> Vec<String> {
+        match self {
+            Self::Anonymous => Vec::new(),
+            Self::Bearer(token) => vec![(*token).to_owned()],
+            Self::CloudflareAccess {
+                client_id,
+                client_secret,
+            } => {
+                vec![client_id.clone(), client_secret.clone()]
+            }
+        }
+    }
+}
+
+fn valid_credential(value: &str) -> bool {
+    !value.is_empty() && value.bytes().all(|byte| byte.is_ascii_graphic())
 }
 
 impl Profile {
@@ -41,12 +96,54 @@ impl Profile {
         {
             return Err(FailureCode::InvalidConfig);
         }
-        if self.bearer_token.as_ref().is_some_and(|value| {
-            value.is_empty() || !value.bytes().all(|byte| byte.is_ascii_graphic())
-        }) {
-            return Err(FailureCode::InvalidConfig);
-        }
         Ok(url)
+    }
+
+    fn valid_tools(&self) -> bool {
+        !self.allowed_tools.is_empty()
+            && self
+                .allowed_tools
+                .iter()
+                .all(|tool| protocol::valid_tool(tool))
+    }
+
+    fn authentication(&self) -> &'static str {
+        if self.access_service_token.is_some() {
+            "cloudflare_access"
+        } else if self.bearer_token.is_some() {
+            "bearer"
+        } else {
+            "none"
+        }
+    }
+
+    fn credentials(&self, env: &Env) -> ClientResult<Credentials<'_>> {
+        let read_secret = |name: &str| {
+            if !protocol::valid_alias(name)
+                || !name.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'_')
+            {
+                return Err(FailureCode::InvalidConfig);
+            }
+            let value = env
+                .secret(name)
+                .map_err(|_| FailureCode::MissingInput)?
+                .to_string();
+            if !valid_credential(&value) {
+                return Err(FailureCode::InvalidConfig);
+            }
+            Ok(value)
+        };
+        match (&self.bearer_token, &self.access_service_token) {
+            (None, None) => Ok(Credentials::Anonymous),
+            (Some(token), None) if valid_credential(token) => Ok(Credentials::Bearer(token)),
+            (None, Some(token)) if token.client_id_binding != token.client_secret_binding => {
+                Ok(Credentials::CloudflareAccess {
+                    client_id: read_secret(&token.client_id_binding)?,
+                    client_secret: read_secret(&token.client_secret_binding)?,
+                })
+            }
+            _ => Err(FailureCode::InvalidConfig),
+        }
     }
 }
 
@@ -71,14 +168,19 @@ pub(crate) fn list_connections(env: &Env, workspace: &str) -> Result<Response> {
         .filter(|(alias, profile)| {
             protocol::valid_alias(alias) && profile.workspace_ids.contains(workspace)
         })
-        .map(|(alias, profile)| json!({"alias":alias,"tools":profile.allowed_tools}))
+        .map(|(alias, profile)| json!({
+            "alias":alias,
+            "tools":profile.allowed_tools,
+            "authentication":profile.authentication(),
+            "configured":profile.valid_tools() && profile.url().is_ok() && profile.credentials(env).is_ok()
+        }))
         .collect();
     Response::from_json(&json!({"connections":connections}))
 }
 
 struct Session<'a> {
     url: Url,
-    token: Option<&'a str>,
+    credentials: Credentials<'a>,
     version: Option<String>,
     id: Option<String>,
     signal: &'a AbortSignal,
@@ -89,11 +191,7 @@ impl Session<'_> {
         headers
             .set("Accept", "application/json, text/event-stream")
             .map_err(|_| FailureCode::InvalidConfig)?;
-        if let Some(token) = self.token {
-            headers
-                .set("Authorization", &format!("Bearer {token}"))
-                .map_err(|_| FailureCode::InvalidConfig)?;
-        }
+        self.credentials.apply(&headers)?;
         if let Some(version) = &self.version {
             headers
                 .set("MCP-Protocol-Version", version)
@@ -326,14 +424,13 @@ pub(crate) async fn execute(task: &Task, env: &Env, workspace: &str) -> Outcome 
     {
         return fail(FailureCode::EgressDenied);
     }
-    if profile.allowed_tools.is_empty()
-        || !profile
-            .allowed_tools
-            .iter()
-            .all(|tool| protocol::valid_tool(tool))
-    {
+    if !profile.valid_tools() {
         return fail(FailureCode::InvalidConfig);
     }
+    let credentials = match profile.credentials(env) {
+        Ok(credentials) => credentials,
+        Err(code) => return fail(code),
+    };
     let url = match profile.url() {
         Ok(url) => url,
         Err(code) => return fail(code),
@@ -370,7 +467,7 @@ pub(crate) async fn execute(task: &Task, env: &Env, workspace: &str) -> Outcome 
         }
         let mut session = Session {
             url,
-            token: profile.bearer_token.as_deref(),
+            credentials,
             version: None,
             id: None,
             signal: &signal,
@@ -391,8 +488,9 @@ pub(crate) async fn execute(task: &Task, env: &Env, workspace: &str) -> Outcome 
         .await;
         session.close(task.deadline_ms).await;
         let mut result = result?;
-        let mut secrets: Vec<_> = profile.bearer_token.iter().cloned().collect();
+        let mut secrets = session.credentials.redactions();
         secrets.extend(session.id);
+        secrets.sort_by_key(|value| std::cmp::Reverse(value.len()));
         redact(&mut result, &secrets);
         protocol::bounded_output(result)
     });

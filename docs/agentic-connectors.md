@@ -1,6 +1,6 @@
 # Agentic connector roadmap
 
-Status: Clairic supports extraction and classification from text and private image/PDF references. MCP Client supports approved tool discovery and calls. The remaining adapters are planned.
+Status: Clairic supports extraction and classification from text and private image/PDF references. MCP Client supports approved tool discovery and calls, including Cloudflare MCP Portals authenticated by an Access service token. The remaining adapters are planned.
 
 | Option | Role in a workflow | Required capabilities |
 | --- | --- | --- |
@@ -8,7 +8,7 @@ Status: Clairic supports extraction and classification from text and private ima
 | Cloudflare Workers AI | Native model execution | Model discovery/selection, typed input/output, structured results and usage budgets |
 | Cloudflare AI Gateway | Model access through a configured gateway | Connect using operator-owned gateway/provider configuration; secret-backed authentication; supported model requests and tool-call round trips; correlate usage/errors with runs |
 | [MCP Client](mcp-client.md) | Call a remote MCP server directly | List approved tool schemas or invoke an explicitly selected tool |
-| Cloudflare MCP Portals | Access tools through a Cloudflare-managed MCP portal | Connect to an operator-provided portal endpoint; discover permitted native/aggregated tools; invoke tools within portal and Kasuri policies; support appropriate machine authentication and reconnect behavior |
+| [Cloudflare MCP Portals](mcp-portals.md) | Access tools through a Cloudflare-managed MCP portal | Use an Access service token with MCP Client to discover and call approved portal tools |
 | AI Agent | Orchestrate model and tool calls | Combine a model/provider or gateway connection with direct MCP/portal tool sources; bounded iterative execution, structured results, explicit permission/approval policies and audit events |
 
 AI Gateway and MCP Portals are separate integration options. AI Gateway fronts model requests; an MCP portal provides an endpoint for curated MCP server capabilities. Neither replaces Kasuri's inbound [MCP management server](agent-mcp.md), which allows external agents to manage Kasuri itself.

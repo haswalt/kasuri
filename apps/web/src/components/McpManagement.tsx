@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react'
 import { api } from '../lib/api'
+import { path } from '../lib/navigation'
 import type { McpStatus, OAuthRequest, AuditPage, AuditEvent } from '../lib/api'
 import { Button, Dialog, Empty, Icon, PageHeader, Pill } from '../design/ui'
 import { styles } from '../design/styles'
@@ -250,8 +251,7 @@ export function McpManagement({ authorizeId }: { authorizeId: string | null }) {
             </Button>
           )}
           <p>
-            Outbound MCP connections are a separate connector capability. This
-            endpoint manages Kasuri itself.
+            For the servers your workflows call, see <a href={path('connections') + '?connector=MCP%20Client'}>outbound MCP connections</a>.
           </p>
         </aside>
       </div>
