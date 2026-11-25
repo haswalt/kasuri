@@ -10,7 +10,7 @@ export const catalogue = [
   { "name": "Request Context", "category": "Core platform" },
   { "name": "Data Tables", "category": "Core platform" },
   { "name": "Context Store", "category": "Core platform" },
-  { "name": "Classify with Clairic", "category": "AI and LLM" },
+  { "name": "Clairic", "category": "AI and LLM" },
   { "name": "Cloudflare AI Gateway", "category": "AI and LLM" },
   { "name": "Cloudflare MCP Portals", "category": "AI and LLM" },
   { "name": "Sort", "category": "Core platform" },
