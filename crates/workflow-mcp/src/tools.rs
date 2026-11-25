@@ -360,7 +360,7 @@ fn handle(
     path: &str,
     body: Value,
     now: u64,
-    nonce: &str,
+    new_id: &str,
     actor: &str,
 ) -> Result<Value, Value> {
     ws.handle_as(
@@ -368,7 +368,7 @@ fn handle(
         path,
         &serde_json::to_vec(&body).unwrap(),
         now,
-        nonce,
+        new_id,
         actor,
     )
     .map(|(_, v)| v)
@@ -405,7 +405,7 @@ fn execute(
     name: &str,
     args: &Value,
     now: u64,
-    nonce: &str,
+    new_id: &str,
     actor: &str,
     data: Option<&mut dyn crate::DataAccess>,
 ) -> Result<Value, Value> {
@@ -540,7 +540,7 @@ fn execute(
                 &format!("/api/workflows/{id}/{action}"),
                 json!({"expectedVersion":args["expectedVersion"]}),
                 now,
-                nonce,
+                new_id,
                 actor,
             )
         }
@@ -571,7 +571,7 @@ fn execute(
                 &format!("/api/workflows/{id}/revisions/{revision}/restore"),
                 json!({"expectedVersion":args["expectedVersion"]}),
                 now,
-                nonce,
+                new_id,
                 actor,
             )
         }
@@ -619,23 +619,23 @@ fn execute(
                 &format!("/api/workflows/{id}"),
                 doc,
                 now,
-                nonce,
+                new_id,
                 actor,
             )
         }
         "workflows_clone" => {
             let source = existing(ws, required(args, "workflowId")?)?;
             let mut doc = serde_json::to_value(source).unwrap();
-            doc["id"] = json!(nonce);
+            doc["id"] = json!(new_id);
             doc["version"] = json!(0);
             doc["name"] = json!(args["name"].as_str().unwrap_or("Cloned workflow"));
             handle(
                 ws,
                 "PUT",
-                &format!("/api/workflows/{nonce}"),
+                &format!("/api/workflows/{new_id}"),
                 doc,
                 now,
-                nonce,
+                new_id,
                 actor,
             )
         }
@@ -648,7 +648,7 @@ fn execute(
                 &format!("/api/workflows/{id}/{action}"),
                 json!({"expectedVersion":args["expectedVersion"]}),
                 now,
-                nonce,
+                new_id,
                 actor,
             )
         }
@@ -660,7 +660,7 @@ fn execute(
                 "/api/runs",
                 json!({"workflowId":id,"expectedVersion":args["expectedVersion"],"mode":if name=="runs_simulate"{"simulation"}else{"run"},"input":args["input"]}),
                 now,
-                nonce,
+                new_id,
                 actor,
             )
         }
@@ -679,7 +679,7 @@ fn execute(
                 &format!("/api/runs/{id}"),
                 Value::Null,
                 now,
-                nonce,
+                new_id,
                 actor,
             )
         }
@@ -692,7 +692,7 @@ fn execute(
                 &format!("/api/runs/{id}/{action}"),
                 json!({}),
                 now,
-                nonce,
+                new_id,
                 actor,
             )
         }
@@ -765,9 +765,9 @@ pub fn call(
     c: &Credential,
     params: &Value,
     now: u64,
-    nonce: &str,
+    new_id: &str,
 ) -> Value {
-    call_with_data(ws, auth, c, params, now, nonce, None)
+    call_with_data(ws, auth, c, params, now, new_id, None)
 }
 pub fn call_with_data(
     ws: &mut Workspace,
@@ -775,7 +775,7 @@ pub fn call_with_data(
     c: &Credential,
     params: &Value,
     now: u64,
-    nonce: &str,
+    new_id: &str,
     data: Option<&mut dyn crate::DataAccess>,
 ) -> Value {
     let name = params["name"].as_str().unwrap_or("");
@@ -793,7 +793,7 @@ pub fn call_with_data(
                 args["workflowId"].as_str().unwrap_or(""),
                 "forbidden",
                 now,
-                nonce,
+                new_id,
             );
             if let Some(event) = ws.audit.last_mut() {
                 event["attemptedAction"] = json!(name);
@@ -942,7 +942,7 @@ pub fn call_with_data(
             "Receipt storage is full; inspect existing state before retrying later",
         )));
     }
-    let result=execute(ws,name,args,now,nonce,&c.id,data).map(|v| {
+    let result=execute(ws,name,args,now,new_id,&c.id,data).map(|v| {
         if mutation && name.starts_with("data_") {return compact_data(v);}
 
         if mutation { json!({"id":v["id"],"workflowId":v["workflowId"],"version":v["version"],"revision":v["revision"],"status":v["status"],"detailsTool":if name.starts_with("runs_"){"runs_get"}else{"workflows_get"}}) } else { v }

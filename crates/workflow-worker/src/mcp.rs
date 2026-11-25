@@ -241,7 +241,7 @@ impl WorkflowWorkspace {
             let namespace = self.env.durable_object("WORKSPACES")?;
             let mut entropy = || namespace.unique_id().expect("secure entropy").to_string();
             let time = now();
-            let nonce = entropy();
+            let new_id = entropy();
             let previously_active: Vec<_> = auth
                 .credentials
                 .iter()
@@ -293,7 +293,7 @@ impl WorkflowWorkspace {
                         &credential,
                         input,
                         time,
-                        &nonce,
+                        &new_id,
                         Some(&mut data),
                     ) {
                         Some(v) => json(&v, 200)?,
@@ -343,7 +343,7 @@ impl WorkflowWorkspace {
                     &credential.id,
                     "succeeded",
                     time,
-                    &nonce,
+                    &new_id,
                 );
                 if let Some(event) = ws.audit.last_mut() {
                     event["entity"] =

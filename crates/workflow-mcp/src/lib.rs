@@ -57,9 +57,9 @@ pub fn rpc(
     credential: &Credential,
     request: Value,
     now: u64,
-    nonce: &str,
+    new_id: &str,
 ) -> Option<Value> {
-    rpc_with_data(ws, auth, credential, request, now, nonce, None)
+    rpc_with_data(ws, auth, credential, request, now, new_id, None)
 }
 pub fn rpc_with_data(
     ws: &mut Workspace,
@@ -67,7 +67,7 @@ pub fn rpc_with_data(
     credential: &Credential,
     request: Value,
     now: u64,
-    nonce: &str,
+    new_id: &str,
     data: Option<&mut dyn DataAccess>,
 ) -> Option<Value> {
     let id = request.get("id").cloned();
@@ -107,7 +107,7 @@ pub fn rpc_with_data(
         "tools/list" => {
             json!({"tools":tools::list(credential).into_iter().filter(|tool|data.is_some()||!tool["name"].as_str().unwrap_or("").starts_with("data_")).collect::<Vec<_>>()})
         }
-        "tools/call" => tools::call_with_data(ws, auth, credential, params, now, nonce, data),
+        "tools/call" => tools::call_with_data(ws, auth, credential, params, now, new_id, data),
         _ => {
             return Some(
                 json!({"jsonrpc":"2.0","id":id,"error":{"code":-32601,"message":"Method not found"}}),

@@ -46,7 +46,7 @@ fn call(
     args: Value,
 ) -> Value {
     let credential = auth.authenticate(token, RESOURCE, 100).unwrap();
-    rpc_with_data(ws,auth,&credential,json!({"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":name,"arguments":args}}),100,"nonce",Some(host)).unwrap()["result"].clone()
+    rpc_with_data(ws,auth,&credential,json!({"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":name,"arguments":args}}),100,"new-id",Some(host)).unwrap()["result"].clone()
 }
 #[test]
 fn explicit_data_scopes_and_durable_receipts_preserve_existing_grants() {
