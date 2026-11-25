@@ -372,3 +372,22 @@ workerd runs every Durable Object of a worker on one isolate, so these figures a
 - **One Durable Object per run, driven by its own alarms (no queue):** scales well on Cloudflare and needs no bus. But execution and state would both be tied to Durable Objects, with no portable equivalent, and HTTP calls would wait inside Durable Objects (billed by wall time) instead of in consumer Workers. Rejected in favour of the portable queue design. Per-run objects are still used, but only as the run store on Cloudflare.
 - **Cloudflare Workflows:** durable steps, sleeps and retries, up to 50,000 concurrent instances per account. But the documented entrypoints are JavaScript, TypeScript and Python only, so Kasuri's Rust engine would need a JavaScript wrapper. Its step model would also duplicate the engine's own retry, wait and checkpoint semantics, and there's no equivalent outside Cloudflare. Rejected for portability and to keep a single execution model.
 - **Run shards** (N execution objects per workspace): fewer objects, but each shard is still one thread shared by its runs and needs rebalancing as load changes. The queue design scales without tuning.
+
+### Resident save-cost baseline (25 November 2026)
+
+Run `cargo run --release --locked -p workflow-service --example workspace_save_cost -- --samples 25` to measure change detection and commits at 100, 1,000 and 10,000 entities. The native benchmark uses separate workflow-heavy and revision-heavy workspaces, excludes fixture construction/load, warms up three times, and reports JSON lines with median/p95 timings, resident bytes and actual writes. Both no-op commits and one-workflow edits are measured; edits assert exactly one upsert. It uses the current memory budget unchanged.
+
+An initial optimization makes `split_meta` serialize only management, audit sequence and legacy webhook-event metadata. Previously it built a JSON value for every collection and then discarded those collections, after the entity split had already encoded them. Metadata bytes/key ordering remain identical; a parity test compares the projection with the persisted Workspace contract, and the SQLite rollback/migration suite covers storage behavior.
+
+Illustrative native release measurements on one development machine, 25 samples (milliseconds; not Cloudflare CPU or end-to-end HTTP latency):
+
+| Resident profile | Entities | Before median commit | After median commit | Speedup |
+| --- | ---: | ---: | ---: | ---: |
+| workflows | 100 | 0.278 | 0.099 | 2.82× |
+| workflows | 1,000 | 2.867 | 0.954 | 3.01× |
+| workflows | 10,000 | 29.889 | 9.687 | 3.09× |
+| revisions | 100 | 0.263 | 0.104 | 2.53× |
+| revisions | 1,000 | 2.647 | 1.053 | 2.51× |
+| revisions | 10,000 | 27.243 | 10.636 | 2.56× |
+
+These results do **not** meet the constant-cost target. The remaining entity encoding, digest comparisons, ordering, deletion detection, retention and host workspace cloning still grow with resident state. The next change needs an explicit mutation journal/dirty-record boundary that captures inserts, updates and deletes across all mutation paths, including migration and rollback, rather than assuming SQL upsert count measures save CPU. The benchmark isolates `Tracked::changes` and `Tracked::commit` with MemoryStore; SQL, host cloning, HTTP handling, workspace loading and alarm/webhook acceptance need separate host-level measurements. No timing threshold is asserted in CI.
