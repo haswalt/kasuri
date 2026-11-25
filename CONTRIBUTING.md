@@ -43,6 +43,14 @@ fix(engine): drop the expression context once input bindings resolve
 docs(mcp): describe input bindings and the workflow op in discovery
 ```
 
+### Releases
+
+[release-please](https://github.com/googleapis/release-please) reads these commit titles on `develop` (pull requests are squash-merged, so it's the PR title) and keeps a release pull request open with the next version and its `CHANGELOG.md` entry. Merging that pull request tags `vX.Y.Z` and publishes a GitHub release.
+
+- `fix` and `perf` bump the patch version and `feat` the minor version. Before 1.0, a breaking change (`!`) also bumps the minor version.
+- Features, bug fixes, performance and reverts appear in the changelog; other types don't.
+- The version lives in the root `package.json` and `.release-please-manifest.json`. Crate versions in `Cargo.toml` aren't released separately.
+
 Individual commits on a branch can be informal, since squash merging replaces them. Conventional commit messages still make review easier.
 
 ## Checks
