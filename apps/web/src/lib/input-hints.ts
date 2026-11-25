@@ -96,7 +96,11 @@ export function workflowInputHints(workflow: Workflow, nodeId: string | undefine
     } else if(node.type==='Email Trigger') {
       hint={sample:initial,schema:{type:'object',properties:{
         from:{type:'string'},to:{type:'string'},subject:{type:'string'},body:{type:'string'},
-        messageId:{type:['string','null']},automatic:{type:'boolean'}
+        messageId:{type:['string','null']},automatic:{type:'boolean'},
+        attachments:{type:'array',items:{type:'object',properties:{
+          id:{type:'string'},name:{type:'string'},contentType:{enum:['application/pdf','image/png','image/jpeg','image/webp']},
+          size:{type:'number'}
+        }}},attachmentsSkipped:{type:'integer'}
       }}}
     } else if(node.type==='Send Email') {
       hint={sample:{status:'preview',messageId:null},schema:{type:'object',properties:{

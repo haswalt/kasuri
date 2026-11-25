@@ -3,7 +3,7 @@ use connector_sdk::{Failure, FailureCode, NodeManifest, Outcome, Task};
 use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value, json};
 
-pub use mail_parser::MessageParser;
+pub use mail_parser::{Message as ParsedMessage, MessageParser};
 
 pub const TRIGGER: &str = "Email Trigger";
 pub const SEND: &str = "Send Email";
@@ -18,6 +18,8 @@ pub struct Inbound {
     pub body: String,
     pub message_id: Option<String>,
     pub automatic: bool,
+    pub attachments: Vec<workflow_files::FileReference>,
+    pub attachments_skipped: usize,
 }
 
 pub fn parse(from: String, to: String, message: &mail_parser::Message<'_>) -> Inbound {
@@ -33,6 +35,8 @@ pub fn parse(from: String, to: String, message: &mail_parser::Message<'_>) -> In
         subject: message.subject().unwrap_or_default().to_string(),
         body: message.body_text(0).unwrap_or_default().into_owned(),
         message_id: message.message_id().and_then(thread_id),
+        attachments: Vec::new(),
+        attachments_skipped: 0,
     }
 }
 
@@ -138,8 +142,10 @@ pub fn failed(code: FailureCode) -> Outcome {
 pub fn inbound_schema() -> Value {
     json!({"type":"object","properties":{
         "from":{"type":"string"},"to":{"type":"string"},"subject":{"type":"string"},
-        "body":{"type":"string"},"messageId":{"type":["string","null"]},"automatic":{"type":"boolean"}
-    },"required":["from","to","subject","body","messageId","automatic"]})
+        "body":{"type":"string"},"messageId":{"type":["string","null"]},"automatic":{"type":"boolean"},
+        "attachments":{"type":"array","items":workflow_files::FileReference::schema()},
+        "attachmentsSkipped":{"type":"integer","minimum":0}
+    },"required":["from","to","subject","body","messageId","automatic","attachments","attachmentsSkipped"]})
 }
 pub fn send_input_schema() -> Value {
     json!({"type":"object","properties":{

@@ -24,11 +24,16 @@ pub(crate) async fn execute(task: &Task, env: &Env, workspace: &str) -> Outcome 
     if remaining == 0 {
         return connectors_clairic::failed(FailureCode::Timeout);
     }
-    let inference = Box::pin(ai.run::<_, Value>(connectors_clairic::MODEL, prepared.request()));
+    let inference = Box::pin(async {
+        let media = crate::files::load_media(env, workspace, prepared.files()).await?;
+        ai.run::<_, Value>(connectors_clairic::MODEL, prepared.request(&media))
+            .await
+            .map_err(|_| FailureCode::External)
+    });
     let timeout = Box::pin(Delay::from(Duration::from_millis(remaining)));
     match select(inference, timeout).await {
         Either::Left((Ok(response), _)) => prepared.complete(response),
-        Either::Left((Err(_), _)) => connectors_clairic::failed(FailureCode::External),
+        Either::Left((Err(code), _)) => connectors_clairic::failed(code),
         Either::Right(_) => connectors_clairic::failed(FailureCode::Timeout),
     }
 }

@@ -107,7 +107,7 @@ pub fn describe(kind: &str, config: &Map<String, Value>) -> Value {
         }
         connectors_email::TRIGGER => {
             output = connectors_email::inbound_schema();
-            "Starts a published workflow from a configured Cloudflare Email route. Outputs the SMTP envelope, subject, plain-text body, message ID and automatic-message indicator."
+            "Starts a published workflow from a configured Cloudflare Email route. Outputs the SMTP envelope, subject, plain-text body, message ID, automatic-message indicator and attachment references."
         }
         connectors_email::SEND => {
             input = connectors_email::send_input_schema();
@@ -119,11 +119,13 @@ pub fn describe(kind: &str, config: &Map<String, Value>) -> Value {
         }
         connectors_clairic::KIND => {
             selection = json!({"pointer":config.get("inputPointer").and_then(Value::as_str).unwrap_or(""),"selectedSchema":{"type":"string","minLength":1}});
-            if selection["pointer"] == "" {
+            if let Some(pointer) = config.get("attachmentsPointer").and_then(Value::as_str) {
+                selection["attachmentsPointer"] = json!(pointer);
+            } else if selection["pointer"] == "" {
                 input = json!({"type":"string","minLength":1});
             }
             output = connectors_clairic::output_schema(config);
-            "Extracts configured typed values from selected text with Cloudflare Workers AI. Read /values and /confidence by field name; null means there is no usable answer or score. Simulations require a fixture and never call the model."
+            "Extracts configured typed values from selected text and private image or PDF references with Cloudflare Workers AI. Read /values and /confidence by field name; null means there is no usable answer or score. Simulations require a fixture and never call the model."
         }
         "Parse Body" => {
             output = object(
