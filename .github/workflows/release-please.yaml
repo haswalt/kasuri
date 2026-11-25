@@ -1,0 +1,29 @@
+# Maintains a release pull request from Conventional Commits on develop. Merging
+# it tags the release, publishes it on GitHub and updates CHANGELOG.md. See
+# release-please-config.json and CONTRIBUTING.md.
+name: Release
+on:
+  push:
+    branches: [develop]
+permissions:
+  contents: write
+  issues: write
+  pull-requests: write
+concurrency:
+  group: release-please
+  cancel-in-progress: false
+jobs:
+  release-please:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: googleapis/release-please-action@v4
+        with:
+          # Pull requests opened with the default token don't trigger other
+          # workflows, so CI wouldn't run on the release pull request. Set a
+          # RELEASE_PLEASE_TOKEN secret (a fine-grained token or GitHub App token
+          # with contents and pull request write access) to run it.
+          token: ${{ secrets.RELEASE_PLEASE_TOKEN || github.token }}
+          target-branch: develop
+          config-file: release-please-config.json
+          manifest-file: .release-please-manifest.json
