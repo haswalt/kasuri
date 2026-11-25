@@ -96,18 +96,25 @@ function App() {
   )
   const mounted = useRef(false),
     generation = useRef(0),
+    refreshRequest = useRef<symbol | null>(null),
     dirty = useRef(new Set<string>()),
     fileInput = useRef<HTMLInputElement>(null),
     undo = useRef<(() => Promise<void>) | null>(null)
   const workflow = workflows.find((w) => w.id === route.workflowId)
   const editor = Boolean(route.workflowId)
   const selectedId = route.runId || route.query.get('run')
-  async function refresh() {
+  const liveOverview = (route.page === 'workflows' && !editor && route.section !== 'trash') ||
+    (route.page === 'runs' && !route.runId)
+  async function refresh(includeDirectory = true) {
+    const request = Symbol()
+    refreshRequest.current = request
     const at = generation.current
+    const isCurrent = () => mounted.current && at === generation.current && refreshRequest.current === request
     try {
       const data = await api.workspace()
-      const directory = await api.workspaces()
-      if (!mounted.current || at !== generation.current) return
+      if (!isCurrent()) return
+      const directory = includeDirectory ? await api.workspaces() : null
+      if (!isCurrent()) return
       setWorkflows((previous) =>
         data.workflows.map((w) =>
           dirty.current.has(w.id)
@@ -115,33 +122,44 @@ function App() {
             : w
         )
       )
-      setMemberships(directory.workspaces)
+      if (directory) setMemberships(directory.workspaces)
       setRuns(data.runs)
       setClock(Date.now())
       setConnectors(data.connectors)
       setConnected(true)
       setLoaded(true)
     } catch (e) {
-      if (mounted.current && at === generation.current) {
+      if (isCurrent() && includeDirectory) {
         setConnected(false)
         setLoaded(true)
         setNotice(
           e instanceof Error ? e.message : 'Could not reach the backend.'
         )
       }
+    } finally {
+      if (refreshRequest.current === request) refreshRequest.current = null
     }
   }
   useEffect(() => {
     mounted.current = true
-    void refresh()
-    const timer = setInterval(() => {
-      if (!document.querySelector('[role=menu]')) void refresh()
-    }, 5000)
     return () => {
       mounted.current = false
-      clearInterval(timer)
+      refreshRequest.current = null
     }
   }, [])
+  useEffect(() => {
+    void refresh()
+  }, [route.page, route.workflowId, route.runId, route.section])
+  useEffect(() => {
+    if (!liveOverview || busy || selectedId) return
+    const timer = setInterval(() => {
+      if (document.visibilityState === 'visible' && !refreshRequest.current &&
+        !document.querySelector('[role=menu], dialog[open]')) {
+        void refresh(false)
+      }
+    }, 5000)
+    return () => clearInterval(timer)
+  }, [liveOverview, busy, selectedId])
   useEffect(() => {
     setSearch('')
     setFilter('All')
