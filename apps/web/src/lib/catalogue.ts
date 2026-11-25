@@ -10,6 +10,8 @@ export const catalogue = [
   { "name": "Request Context", "category": "Core platform" },
   { "name": "Data Tables", "category": "Core platform" },
   { "name": "Context Store", "category": "Core platform" },
+  { "name": "Email Trigger", "category": "Communication and messaging" },
+  { "name": "Send Email", "category": "Communication and messaging" },
   { "name": "Clairic", "category": "AI and LLM" },
   { "name": "Cloudflare AI Gateway", "category": "AI and LLM" },
   { "name": "Cloudflare MCP Portals", "category": "AI and LLM" },
@@ -207,10 +209,6 @@ export const catalogue = [
     "category": "Utilities, data processing, security and monitoring"
   },
   {
-    "name": "Native Cloudflare Email",
-    "category": "Additional requested connectors"
-  },
-  {
     "name": "Square Teams",
     "category": "Additional requested connectors"
   }
@@ -230,6 +228,12 @@ export const fields: Record<string, { key: string; label: string; placeholder: s
   "Respond to Webhook": [{ key: "status", label: "HTTP status", placeholder: "200" }, { key: "responseType", label: "Response body type", placeholder: "json" }, { key: "headers", label: "Response headers (JSON)", placeholder: '{ "X-Result": "accepted" }' }, { key: "body", label: "Response body (JSON or text)", placeholder: '{ "accepted": true }' }],
   "Request Context": [{ key: "part", label: "Read immutable trigger metadata, body, headers or query", placeholder: "metadata" }],
   "Context Store": [{ key: "command", label: "Context command (JSON)", placeholder: '{ "operation": "get", "tableId": "cache", "key": "example" }' }],
+  "Send Email": [
+    { key: "to", label: "Recipient", placeholder: "Use bound input to or enter an address" },
+    { key: "subject", label: "Subject", placeholder: "Use bound input subject" },
+    { key: "text", label: "Plain text", placeholder: "Use bound input text" },
+    { key: "inReplyTo", label: "Original message ID (optional)", placeholder: "Use bound input inReplyTo" }
+  ],
   "HTTP Request": [{ key: "url", label: "Public HTTPS URL", placeholder: "https://api.example.com/data" }, { key: "method", label: "Method: GET, HEAD, POST, PUT, PATCH, DELETE", placeholder: "GET" }, { key: "query", label: "Query parameters (JSON)", placeholder: '{ "q": { "$input": "/query" } }' }, { key: "headers", label: "Custom headers (JSON; use $secret for credentials)", placeholder: '{ "X-Tenant": "team-a", "X-Api-Key": { "$secret": "api_key" } }' }, { key: "authentication", label: "Authentication: none or basic", placeholder: "none" }, { key: "username", label: "Basic auth username", placeholder: "api-user" }, { key: "passwordSecret", label: "Basic auth password secret name", placeholder: "api_password" }, { key: "body", label: "JSON request body (write methods only)", placeholder: '{ "name": { "$input": "/name" } }' }, { key: "responseType", label: "Response: json or text", placeholder: "json" }, { key: "simulationResponse", label: "Simulation response (JSON; no network request)", placeholder: '{ "status": 200, "body": { "items": [] } }' }],
   Schedule: [{ key: "cron", label: "Cron expression", placeholder: "0 9 * * *" }, { key: "timezone", label: "Timezone", placeholder: "Europe/London" }],
   Webhook: [{ key: "contextHeaders", label: "Recorded headers (JSON array; default content-type and x-kasuri-event-id)", placeholder: '["content-type", "x-kasuri-event-id"]' }, { key: "contextQuery", label: "Recorded query fields (JSON array; default none)", placeholder: '["topic"]' }, { key: "authentication", label: "Authentication: none, bearer, query, hmac_sha256 or legacy hmac", placeholder: "none" }, { key: "queryParameter", label: "Secret query parameter (query only)", placeholder: "key" }, { key: "signingSecret", label: "HMAC signing secret name", placeholder: "incoming_webhook_key" }],

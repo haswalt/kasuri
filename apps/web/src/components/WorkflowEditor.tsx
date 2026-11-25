@@ -81,7 +81,7 @@ export function WorkflowEditor({
     [pending, setPending] = useState(false)
   const node = workflow.nodes.find((n) => n.id === nodeId),
     manifest = connectors.find((c) => c.kind === node?.type),
-    triggers = ['Manual Trigger', 'Webhook', 'Schedule', 'Execute Workflow Trigger']
+    triggers = ['Manual Trigger', 'Webhook', 'Email Trigger', 'Schedule', 'Execute Workflow Trigger']
   const simulate = mode === 'simulate',
     errors = validateWorkflow(workflow)
   const graphKey = JSON.stringify({
@@ -654,7 +654,8 @@ export function WorkflowEditor({
                           'body',
                           'headers',
                           'query',
-                          'simulationResponse'
+                          'simulationResponse',
+                          'text'
                         ].includes(key) || property?.type === 'object' || property?.type === 'array'
                       return (
                         <label key={key}>
@@ -791,6 +792,10 @@ export function WorkflowEditor({
                         ? 'Returns valid, errors and value. Use IF to route the result; validation does not send a response or choose a branch.'
                         : node.type === 'Respond to Webhook'
                         ? 'Responds at this point, then passes input onward. A second response attempt is an error. Run and Simulate only preview the response.'
+                        : node.type === 'Email Trigger'
+                        ? 'A configured Cloudflare Email route starts the published workflow.'
+                        : node.type === 'Send Email'
+                        ? 'Enter fixed values or bind to, subject, text and optionally inReplyTo. Simulation previews delivery.'
                         : node.type === 'Clairic'
                         ? 'Live runs send the selected text to Workers AI. Simulations use the saved fixture.'
                         : node.type === 'HTTP Request'

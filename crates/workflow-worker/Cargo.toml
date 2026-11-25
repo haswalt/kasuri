@@ -17,6 +17,7 @@ sha2 = "0.11"
 subtle = "2"
 futures-util = "0.3"
 connectors-clairic = { path = "../connectors-clairic" }
+connectors-email = { path = "../connectors-email" }
 connectors-http = { path = "../connectors-http" }
 connector-sdk.workspace = true
 connectors-webhook = { path = "../connectors-webhook" }

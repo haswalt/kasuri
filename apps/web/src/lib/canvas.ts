@@ -1,7 +1,7 @@
 import type { Workflow, WorkflowNode } from './workflows.ts'
 import { uid } from './workflows.ts'
 export type Point = { x: number; y: number }
-export const isTrigger = (type: string) => ['Manual Trigger', 'Webhook', 'Schedule', 'Execute Workflow Trigger'].includes(type)
+export const isTrigger = (type: string) => ['Manual Trigger', 'Webhook', 'Email Trigger', 'Schedule', 'Execute Workflow Trigger'].includes(type)
 export { ports } from './node-ports.ts'
 import { ports } from './node-ports.ts'
 export const NODE_WIDTH = 200

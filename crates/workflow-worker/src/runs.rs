@@ -481,8 +481,9 @@ impl DurableObject for WorkflowRun {
                     }
                     Step::Perform { run, task } => {
                         let env = self.env.clone();
+                        let workspace = row.workspace.clone();
                         in_flight.push(async move {
-                            let outcome = crate::external::execute(&task, &env).await;
+                            let outcome = crate::external::execute(&task, &env, &workspace).await;
                             (run, task, outcome)
                         });
                     }
@@ -722,7 +723,7 @@ pub(crate) async fn consume(envelope: &Envelope, env: &Env) -> Result<()> {
             let run = claimed.run.as_deref().unwrap_or(&envelope.run);
             perform_data(env, &envelope.workspace, run, &task, time).await?
         }
-        None => crate::external::execute(&task, env).await,
+        None => crate::external::execute(&task, env, &envelope.workspace).await,
     };
     let finish = Finish {
         run: claimed.run,

@@ -194,6 +194,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "connectors-email"
+version = "0.1.0"
+dependencies = [
+ "connector-sdk",
+ "email_address",
+ "mail-parser",
+ "serde",
+ "serde_json",
+]
+
+[[package]]
 name = "connectors-http"
 version = "0.1.0"
 dependencies = [
@@ -399,6 +410,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "encodify"
+version = "1.0.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "ab7f638cb35e10aa08efd439d11ddcbeef7d52dd987c4956a6ff2cc1061020f3"
+dependencies = [
+ "memchr",
+ "simdutf8",
+]
+
+[[package]]
 name = "equivalent"
 version = "1.0.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -558,6 +579,17 @@ dependencies = [
  "allocator-api2",
  "equivalent",
  "foldhash",
+]
+
+[[package]]
+name = "hashify"
+version = "0.3.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "04a037b1848eada162d6534c206770180e6bfc0eaa97292250c3e7179d8b1f73"
+dependencies = [
+ "proc-macro2",
+ "quote",
+ "syn 3.0.10",
 ]
 
 [[package]]
@@ -824,6 +856,18 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "224399e74b87b5f3557511d98dff8b14089b3dadafcab6bb93eab67d3aace965"
 dependencies = [
  "scopeguard",
+]
+
+[[package]]
+name = "mail-parser"
+version = "1.0.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "2e57f7caaeb0071026b4be388c81e9c253853d9ed072a3061d425ef1c1b1b569"
+dependencies = [
+ "encodify",
+ "hashify",
+ "memchr",
+ "simdutf8",
 ]
 
 [[package]]
@@ -1292,6 +1336,12 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "f8fadd59c855ef2080decdef8ff161eb6661b86933c9d82e5ba29dc602a55aba"
 
 [[package]]
+name = "simdutf8"
+version = "0.1.5"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "e3a9fe34e3e7a50316060351f37187a3f546bce95496156754b601a5fa71b76e"
+
+[[package]]
 name = "siphasher"
 version = "1.0.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1750,6 +1800,7 @@ dependencies = [
  "connectors-clairic",
  "connectors-core",
  "connectors-data",
+ "connectors-email",
  "connectors-http",
  "connectors-webhook",
  "croner",
@@ -1771,6 +1822,7 @@ dependencies = [
  "connector-sdk",
  "connectors-clairic",
  "connectors-data",
+ "connectors-email",
  "connectors-http",
  "connectors-webhook",
  "futures-util",

@@ -91,7 +91,7 @@ fn discovery_and_every_tool_schema_are_valid_offline_and_public() {
             .all(|e| e.get("workflow").is_none())
     );
     let connectors = data(&mut ws, &mut auth, &token, "connectors_list", json!({}));
-    assert_eq!(connectors["connectors"].as_array().unwrap().len(), 28);
+    assert_eq!(connectors["connectors"].as_array().unwrap().len(), 30);
     assert!(!connectors.to_string().contains("[REDACTED]"));
     for connector in connectors["connectors"].as_array().unwrap() {
         assert!(

@@ -105,6 +105,18 @@ pub fn describe(kind: &str, config: &Map<String, Value>) -> Value {
             );
             "Dispatches a bounded HTTPS request. Result body is JSON or text, inside /body; status is /status. Simulation uses an explicit fixture."
         }
+        connectors_email::TRIGGER => {
+            output = connectors_email::inbound_schema();
+            "Starts a published workflow from a configured Cloudflare Email route. Outputs the SMTP envelope, subject, plain-text body, message ID and automatic-message indicator."
+        }
+        connectors_email::SEND => {
+            input = connectors_email::send_input_schema();
+            output = object(
+                json!({"status":{"enum":["accepted","preview"]},"messageId":{"type":["string","null"]}}),
+                &["status", "messageId"],
+            );
+            "Sends one plain-text email via Cloudflare Email Sending. Literal configuration overrides corresponding input fields. Simulations validate the message and return preview without delivery."
+        }
         connectors_clairic::KIND => {
             selection = json!({"pointer":config.get("inputPointer").and_then(Value::as_str).unwrap_or(""),"selectedSchema":{"type":"string","minLength":1}});
             if selection["pointer"] == "" {

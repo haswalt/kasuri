@@ -5,7 +5,10 @@ use serde_json::Value;
 use std::time::Duration;
 use worker::{Delay, Env};
 
-pub(crate) async fn execute(task: &Task, env: &Env) -> Outcome {
+pub(crate) async fn execute(task: &Task, env: &Env, workspace: &str) -> Outcome {
+    if task.node.kind == connectors_email::SEND {
+        return crate::email::send(task, env, workspace).await;
+    }
     if task.node.kind != connectors_clairic::KIND {
         return crate::http::execute(task, env).await;
     }

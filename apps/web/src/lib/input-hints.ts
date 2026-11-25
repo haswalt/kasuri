@@ -93,6 +93,15 @@ export function workflowInputHints(workflow: Workflow, nodeId: string | undefine
     } else if(node.type==='Filter'||node.type==='Sort') {
       const pointer=typeof node.config.arrayPointer==='string'?node.config.arrayPointer:''
       hint={sample:inputValue(parent.sample,pointer)??null,schema:schemaAt(parent.schema,pointer)}
+    } else if(node.type==='Email Trigger') {
+      hint={sample:initial,schema:{type:'object',properties:{
+        from:{type:'string'},to:{type:'string'},subject:{type:'string'},body:{type:'string'},
+        messageId:{type:['string','null']},automatic:{type:'boolean'}
+      }}}
+    } else if(node.type==='Send Email') {
+      hint={sample:{status:'preview',messageId:null},schema:{type:'object',properties:{
+        status:{enum:['accepted','preview']},messageId:{type:['string','null']}
+      }}}
     } else if(node.type==='Clairic') {
       const fields=Array.isArray(node.config.fields)?node.config.fields.map(object):[]
       const fixture=object(node.config.simulationResponse)

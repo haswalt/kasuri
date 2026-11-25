@@ -1,0 +1,368 @@
+{
+  "schemaVersion": 2,
+  "id": "34-email-booking-enquiry",
+  "name": "Email booking enquiry",
+  "description": "Simulate with {}. A synthetic email is classified and a reply is previewed without sending mail. An optional branch sends the original enquiry to a person.",
+  "status": "draft",
+  "revision": 0,
+  "updatedAt": "",
+  "nodes": [
+    {
+      "id": "start",
+      "type": "Email Trigger",
+      "label": "Incoming email",
+      "config": {}
+    },
+    {
+      "id": "email",
+      "type": "Expressions",
+      "label": "Read email (synthetic defaults for simulation)",
+      "config": {
+        "fields": {
+          "body": {
+            "op": "coalesce",
+            "args": [
+              {
+                "op": "input",
+                "path": "/body"
+              },
+              {
+                "op": "literal",
+                "value": "Hello, can we book the Example Quartet for 2027-06-12? We expect 80 guests and have a budget of GBP 1500 for the band. Thanks, Jamie Example"
+              }
+            ]
+          },
+          "from": {
+            "op": "coalesce",
+            "args": [
+              {
+                "op": "input",
+                "path": "/from"
+              },
+              {
+                "op": "literal",
+                "value": "jamie@example.test"
+              }
+            ]
+          },
+          "subject": {
+            "op": "coalesce",
+            "args": [
+              {
+                "op": "input",
+                "path": "/subject"
+              },
+              {
+                "op": "literal",
+                "value": "Booking enquiry"
+              }
+            ]
+          },
+          "messageId": {
+            "op": "coalesce",
+            "args": [
+              {
+                "op": "input",
+                "path": "/messageId"
+              },
+              {
+                "op": "literal",
+                "value": "<booking-1@example.test>"
+              }
+            ]
+          },
+          "automatic": {
+            "op": "coalesce",
+            "args": [
+              {
+                "op": "input",
+                "path": "/automatic"
+              },
+              {
+                "op": "literal",
+                "value": false
+              }
+            ]
+          }
+        }
+      }
+    },
+    {
+      "id": "extract",
+      "type": "Clairic",
+      "label": "Extract booking details",
+      "config": {
+        "inputPointer": "/body",
+        "fields": [
+          {
+            "name": "name",
+            "type": "text",
+            "instructions": "Name of the person who sent the enquiry."
+          },
+          {
+            "name": "enquiry",
+            "type": "enum",
+            "enum": [
+              "booking",
+              "other"
+            ],
+            "instructions": "Is the sender enquiring about booking a band?"
+          },
+          {
+            "name": "event_date",
+            "type": "date",
+            "instructions": "Date the band would perform."
+          },
+          {
+            "name": "guest_count",
+            "type": "number",
+            "instructions": "Number of expected guests."
+          },
+          {
+            "name": "budget",
+            "type": "number",
+            "instructions": "Maximum budget for the band, without the currency."
+          },
+          {
+            "name": "currency",
+            "type": "text",
+            "instructions": "Currency explicitly given, if available."
+          },
+          {
+            "name": "band",
+            "type": "text",
+            "instructions": "Name of the requested band."
+          }
+        ],
+        "simulationResponse": {
+          "answers": {
+            "name": {
+              "value": "Jamie Example"
+            },
+            "enquiry": {
+              "value": "booking"
+            },
+            "event_date": {
+              "value": "2027-06-12"
+            },
+            "guest_count": {
+              "value": 80
+            },
+            "budget": {
+              "value": 1500
+            },
+            "currency": {
+              "value": "GBP"
+            },
+            "band": {
+              "value": "Example Quartet"
+            }
+          }
+        }
+      }
+    },
+    {
+      "id": "route",
+      "type": "IF / Condition",
+      "label": "Ready for a reply?",
+      "config": {
+        "match": "all",
+        "conditions": [
+          {
+            "field": "values.enquiry",
+            "operator": "equals",
+            "valueType": "string",
+            "value": "booking"
+          },
+          {
+            "field": "values.event_date",
+            "operator": "is_not_empty"
+          },
+          {
+            "field": "values.budget",
+            "operator": "is_not_empty"
+          },
+          {
+            "field": "values.currency",
+            "operator": "is_not_empty"
+          },
+          {
+            "field": "values.guest_count",
+            "operator": "greater_than",
+            "valueType": "number",
+            "value": 0
+          },
+          {
+            "field": "truncated",
+            "operator": "equals",
+            "valueType": "boolean",
+            "value": false
+          },
+          {
+            "field": "automatic",
+            "operator": "equals",
+            "valueType": "boolean",
+            "value": false
+          },
+          {
+            "field": "values.name",
+            "operator": "is_not_empty"
+          }
+        ]
+      },
+      "inputBindings": {
+        "values": {
+          "op": "input",
+          "path": "/values"
+        },
+        "truncated": {
+          "op": "input",
+          "path": "/truncated"
+        },
+        "automatic": {
+          "op": "node",
+          "nodeId": "email",
+          "path": "/automatic"
+        }
+      }
+    },
+    {
+      "id": "reply",
+      "type": "Send Email",
+      "label": "Reply to the sender",
+      "config": {},
+      "inputBindings": {
+        "to": {
+          "op": "node",
+          "nodeId": "email",
+          "path": "/from"
+        },
+        "subject": {
+          "op": "concat",
+          "args": [
+            {
+              "op": "literal",
+              "value": "Re: "
+            },
+            {
+              "op": "node",
+              "nodeId": "email",
+              "path": "/subject"
+            }
+          ]
+        },
+        "text": {
+          "op": "concat",
+          "args": [
+            {
+              "op": "literal",
+              "value": "Thanks for your enquiry, "
+            },
+            {
+              "op": "input",
+              "path": "/values/name"
+            },
+            {
+              "op": "literal",
+              "value": ". We will confirm availability shortly."
+            }
+          ]
+        },
+        "inReplyTo": {
+          "op": "node",
+          "nodeId": "email",
+          "path": "/messageId"
+        }
+      }
+    },
+    {
+      "id": "handoff",
+      "type": "Send Email",
+      "label": "Send enquiry for review",
+      "config": {
+        "to": "bookings@example.test"
+      },
+      "inputBindings": {
+        "subject": {
+          "op": "concat",
+          "args": [
+            {
+              "op": "literal",
+              "value": "Review booking: "
+            },
+            {
+              "op": "node",
+              "nodeId": "email",
+              "path": "/subject"
+            }
+          ]
+        },
+        "text": {
+          "op": "concat",
+          "args": [
+            {
+              "op": "literal",
+              "value": "Original enquiry from "
+            },
+            {
+              "op": "node",
+              "nodeId": "email",
+              "path": "/from"
+            },
+            {
+              "op": "literal",
+              "value": ":\n"
+            },
+            {
+              "op": "node",
+              "nodeId": "email",
+              "path": "/body"
+            },
+            {
+              "op": "literal",
+              "value": "\n\nExtracted details: "
+            },
+            {
+              "op": "to_text",
+              "args": [
+                {
+                  "op": "input",
+                  "path": "/values"
+                }
+              ]
+            }
+          ]
+        }
+      }
+    }
+  ],
+  "edges": [
+    {
+      "id": "start-email",
+      "source": "start",
+      "target": "email"
+    },
+    {
+      "id": "email-extract",
+      "source": "email",
+      "target": "extract"
+    },
+    {
+      "id": "extract-route",
+      "source": "extract",
+      "target": "route"
+    },
+    {
+      "id": "route-reply",
+      "source": "route",
+      "target": "reply",
+      "sourcePort": "true"
+    },
+    {
+      "id": "route-handoff",
+      "source": "route",
+      "target": "handoff",
+      "sourcePort": "false"
+    }
+  ]
+}

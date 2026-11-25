@@ -2,7 +2,7 @@
 
 Download a JSON file from [workflows](workflows/) (use GitHub's **Download raw file**), open your Kasuri installation, choose **Workflows → Import JSON**, and select it. The files are ordinary workflow exports committed with the project, not preloaded workspace data or an application demo mode.
 
-Every example accepts the default `{}` input. No accounts, API keys, environment variables or installation-specific URLs are required. For example 19, import and publish the reusable workflow 18 first; for examples 24/25, import and publish 23 first; importing the caller automatically binds both calls to that imported child, without ID edits. Use **Simulate → Play** for the Clairic examples. The other examples can immediately use **Run now** or **Simulate → Play**. Imported workflows are drafts with fresh IDs, so importing does not activate recurring jobs or webhook endpoints.
+Every example accepts the default `{}` input. No accounts, API keys, environment variables or installation-specific URLs are required. For example 19, import and publish the reusable workflow 18 first; for examples 24/25, import and publish 23 first; importing the caller automatically binds both calls to that imported child, without ID edits. Use **Simulate → Play** for the Clairic and email examples. The other examples can immediately use **Run now** or **Simulate → Play**. Imported workflows are drafts with fresh IDs, so importing does not activate recurring jobs or webhook endpoints.
 
 | Example | Level | What to inspect |
 | --- | --- | --- |
@@ -34,7 +34,9 @@ Every example accepts the default `{}` input. No accounts, API keys, environment
 | [32 Clairic booking reply](workflows/32-clairic-booking-reply.json) | Offline AI extraction | Extract typed booking details from a synthetic email and prepare a reply. |
 | [33 Clairic booking handoff](workflows/33-clairic-booking-handoff.json) | Offline AI extraction | Route an enquiry with missing details to a person, with the original email and extracted fields. |
 
-Together these cover every currently implemented node: Manual Trigger, Webhook, Schedule, Map / Transform, IF / Condition, Merge, Wait / Delay, JSON Utilities, Error Handler, HTTP Request, Filter, Sort and Clairic.
+| [34 Email booking enquiry](workflows/34-email-booking-enquiry.json) | Offline email routing | Route a synthetic email through Clairic and preview a threaded reply, without sending mail. |
+
+Together these cover every currently implemented node: Manual Trigger, Webhook, Schedule, Map / Transform, IF / Condition, Merge, Wait / Delay, JSON Utilities, Error Handler, HTTP Request, Filter, Sort, Clairic, Email Trigger and Send Email.
 
 ## Public APIs and simulation
 

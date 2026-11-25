@@ -18,6 +18,8 @@
   },
   // Enable on trusted deployments that want live Clairic inference.
   // "ai": { "binding": "AI" },
+  // Enable only with an onboarded sending domain and explicitly routed workspaces.
+  // "send_email": [{ "name": "EMAIL" }],
   "durable_objects": {
     "bindings": [
       {

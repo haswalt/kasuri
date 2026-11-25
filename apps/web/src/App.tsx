@@ -986,7 +986,7 @@ function App() {
                         {visibleWorkflows.map((w) => {
                           const latest = runs.find((r) => r.workflowId === w.id)
                           const trigger = w.nodes.find((n) =>
-                            ['Manual Trigger', 'Webhook', 'Schedule'].includes(
+                            ['Manual Trigger', 'Webhook', 'Email Trigger', 'Schedule'].includes(
                               n.type
                             )
                           )

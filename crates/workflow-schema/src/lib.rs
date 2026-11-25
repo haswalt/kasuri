@@ -11,6 +11,7 @@ pub const SUPPORTED_SCHEMA_VERSIONS: &[u32] = &[1, 2];
 pub const TRIGGER_KINDS: &[&str] = &[
     "Manual Trigger",
     "Webhook",
+    "Email Trigger",
     "Schedule",
     "Execute Workflow Trigger",
 ];
