@@ -518,6 +518,16 @@ impl<E: SqlExec> SqlStore<E> {
             })
             .collect()
     }
+    /// Whether any remote run tree created before `before` has never reported
+    /// (see [`SqlStore::unstarted_remote_runs`]), without reading them.
+    pub fn has_unstarted_remote_runs(&self, before: u64) -> Result<bool, StoreError> {
+        Ok(!self
+            .rows(
+                "SELECT 1 FROM ws_runs WHERE remote=1 AND report_version=0 AND parent_id IS NULL AND created_at<? LIMIT 1",
+                vec![unsigned(before)],
+            )?
+            .is_empty())
+    }
     /// A remote tree's runs as the index has them, in list order (newest first).
     fn remote_tree(&self, root: &str) -> Result<Vec<RunRecord>, StoreError> {
         self.rows(

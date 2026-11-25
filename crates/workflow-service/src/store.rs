@@ -635,8 +635,14 @@ impl Tracked {
         let mut run_orders = HashMap::new();
         if let Some((_, entities)) = collections.iter_mut().find(|(c, _)| *c == Collection::Run) {
             let orders = assign_orders(entities, &self.baseline, self.run_floor);
+            // Finished runs nothing depends on are archived; runs leaving for run
+            // stores become remote index rows. Both keep their places.
+            let leaving: Vec<bool> = entities
+                .iter()
+                .map(|(key, _)| self.workspace.leaving.contains(&key.id))
+                .collect();
             let archive: Vec<bool> = (0..entities.len())
-                .map(|index| self.workspace.run_archivable(index))
+                .map(|index| leaving[index] || self.workspace.run_archivable(index))
                 .collect();
             let mut resident = Vec::with_capacity(entities.len());
             for (index, ((key, body), order)) in entities.drain(..).zip(orders).enumerate() {
@@ -649,7 +655,7 @@ impl Tracked {
                         body,
                         columns: Some(columns),
                         archived: true,
-                        remote: false,
+                        remote: leaving[index],
                     });
                 } else {
                     run_orders.insert(key.clone(), order);
@@ -661,59 +667,6 @@ impl Tracked {
             self.workspace.runs.retain(|_| {
                 index += 1;
                 !archive[index - 1]
-            });
-        }
-
-        // Runs started for execution elsewhere: written once, as index rows that
-        // are never loaded, below every other run (they are the newest).
-        let mut lowest = changes
-            .upserts
-            .iter()
-            .map(|r| r.order)
-            .chain(run_orders.values().copied())
-            .chain(self.run_floor)
-            .min()
-            .unwrap_or(0);
-        // A tree's root comes first; its children are listed just above it, as
-        // children its run store creates later are (see `apply_report`).
-        let mut roots: HashMap<String, (i64, i64)> = HashMap::new();
-        for record in &self.workspace.offloaded {
-            let id = record
-                .id_string()
-                .map_err(|_| StoreError::MissingKey(Collection::Run))?;
-            let key = EntityKey {
-                collection: Collection::Run,
-                id: id.clone(),
-            };
-            // A run that was stored here keeps its place in the list.
-            let stored = self.baseline.get(&key).map(|(order, _)| *order);
-            let order = match record
-                .parent
-                .as_ref()
-                .and_then(|p| roots.get_mut(&p.root_id))
-            {
-                Some((root, children)) => {
-                    *children += 1;
-                    stored.unwrap_or(*root - (*children).min(ORDER_SPACING - 1))
-                }
-                None => {
-                    let order = stored.unwrap_or_else(|| {
-                        lowest = lowest.saturating_sub(ORDER_SPACING);
-                        lowest
-                    });
-                    roots.insert(id, (order, 0));
-                    order
-                }
-            };
-            // Rewritten as a remote index row, not deleted.
-            seen.insert(key.clone(), ());
-            changes.upserts.push(Record {
-                key,
-                order,
-                body: encode(record)?,
-                columns: Some(RunColumns::of(record).map_err(invalid)?),
-                archived: true,
-                remote: true,
             });
         }
 
@@ -818,7 +771,7 @@ impl Tracked {
         }
         store.apply(&changes)?;
         // Handed to the host through the change set; never written twice.
-        self.workspace.offloaded.clear();
+        self.workspace.leaving.clear();
         // Count limits can only be newly exceeded in workflows whose runs were just
         // archived; age limits are checked on every commit (an indexed lookup).
         let mut workflows: Vec<String> = changes
