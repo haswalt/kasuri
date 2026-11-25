@@ -19,6 +19,7 @@ impl Workspace {
             let workflow_write = parts.len() >= 3 && parts[0] == "api" && parts[1] == "workflows";
             let relevant = workflow_write
                 && ((method == "PUT" && parts.len() == 3)
+                    || (method == "DELETE" && parts.get(3..) == Some(&["trash"]))
                     || (method == "POST"
                         && (parts.len() == 4
                             && matches!(

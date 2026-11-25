@@ -19,10 +19,11 @@ This is an explicit migration from API v1: unversioned writes to existing workfl
 | `POST /api/workflows/<id>/resume` | `{"expectedVersion": 3}` |
 | `POST /api/workflows/<id>/archive` | `{"expectedVersion": 3}` |
 | `POST /api/workflows/<id>/restore` | `{"expectedVersion": 3}` |
+| `DELETE /api/workflows/<id>/trash` | `{"expectedVersion": 3}` |
 | `POST /api/workflows/<id>/revisions/<revision>/restore` | `{"expectedVersion": 3}` |
 | `POST /api/runs` | `{"workflowId":"flow","mode":"simulation","input":{},"expectedVersion":3}` |
 
-The example number must be replaced with the version actually read. Each changed mutation returns the next edit version. No-op saves, unchanged publication and repeated activation commands retain the current version. Keep using the returned version for the next operation.
+The example number must be replaced with the version actually read. Mutations that update a workflow return its current edit version. No-op saves, unchanged publication and repeated activation commands retain the current version. Keep using the returned version for the next operation.
 
 A missing edit precondition returns **428**. A precondition of the wrong type returns **400**; versions must be non-negative JSON integers. A stale version returns **409**. After a conflict, fetch and review the latest workflow before resubmitting; do not silently replace the version on an old graph and overwrite another client's edits.
 
@@ -34,4 +35,6 @@ Creating a new workflow ID does not require a version. The server starts its edi
 
 `GET /api/workflows/<id>/revisions` returns retained immutable definitions. Restore copies one into the draft; explicit publication then creates a new monotonic revision. Legacy baselines are marked, and unavailable historical definitions are not reconstructed.
 
-Archive moves a workflow to recoverable trash, blocks new triggers and hides it from normal workspace lists. `GET /api/workflows/trash` lists retained archived workflows. Restore leaves triggers paused; in-flight runs are not cancelled by archive or restore. No permanent-delete endpoint is provided.
+Archive moves a workflow to recoverable trash and blocks new triggers. The dashboard hides the workflow and its runs. `GET /api/workflows/trash` lists archived workflows. Restoring makes their runs visible again and leaves triggers paused.
+
+Permanent deletion requires the workflow to be in trash and returns `{"deleted":true}`. It removes the saved workflow, publication history and webhook registration. Existing run records follow the workspace retention policy and remain available by run ID.

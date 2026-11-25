@@ -1444,6 +1444,51 @@ fn list_filters_cover_archived_and_active_runs<S: TestStore>() {
     assert_eq!(ids(None, Some("running")), ["wait-2", "wait-0"]);
     assert_eq!(ids(Some("flow"), Some("running")), Vec::<String>::new());
     assert_eq!(tracked.workspace.list_runs(2, None, None).unwrap().len(), 2);
+    let mut tracked = tracked;
+    let version = tracked
+        .workspace
+        .workflows
+        .iter()
+        .find(|doc| doc.graph.id == "flow")
+        .unwrap()
+        .version;
+    let archived = handle(
+        &mut tracked.workspace,
+        "POST",
+        "/api/workflows/flow/archive",
+        json!({"expectedVersion":version}),
+        5,
+        "archive-flow",
+    );
+    let (mut tracked, _) = cycle(&mut store, &mut tracked);
+    assert_eq!(
+        store.list_run_entries(1, None, None, true).unwrap()[0]["id"],
+        "wait-2"
+    );
+    handle(
+        &mut tracked.workspace,
+        "DELETE",
+        "/api/workflows/flow/trash",
+        json!({"expectedVersion":archived["version"]}),
+        6,
+        "delete-flow",
+    );
+    let (tracked, _) = cycle(&mut store, &mut tracked);
+    assert_eq!(
+        tracked.workspace.snapshot().unwrap()["runs"]
+            .as_array()
+            .unwrap()
+            .len(),
+        2
+    );
+    assert_eq!(
+        tracked
+            .workspace
+            .list_runs(10, Some("flow"), None)
+            .unwrap()
+            .len(),
+        3
+    );
 }
 
 fn pruning_never_removes_runs_in_memory<S: TestStore>() {

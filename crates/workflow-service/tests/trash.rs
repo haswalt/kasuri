@@ -52,6 +52,7 @@ fn trash_disables_new_triggers_retains_history_and_allows_inflight_runs_to_finis
     assert_eq!(archived["lifecycle"]["enabled"], false);
     assert!(archived["archivedAt"].is_string());
     assert_eq!(ws.snapshot().unwrap()["workflows"], json!([]));
+    assert_eq!(ws.snapshot().unwrap()["runs"], json!([]));
     assert_eq!(ws.revisions.len(), 1);
     assert_eq!(ws.live_document("scheduled").unwrap_err().status, 404);
     assert_eq!(ws.next_alarm(), Some(160000));
@@ -100,6 +101,7 @@ fn trash_disables_new_triggers_retains_history_and_allows_inflight_runs_to_finis
     );
     assert_eq!(restored["status"], "paused");
     assert_eq!(restored["archivedAt"], Value::Null);
+    assert_eq!(ws.snapshot().unwrap()["runs"].as_array().unwrap().len(), 1);
     assert_eq!(ws.next_alarm(), None);
     assert_eq!(
         ws.snapshot().unwrap()["workflows"]
@@ -163,4 +165,79 @@ fn archived_drafts_cannot_be_replaced_and_restore_without_publication() {
     assert_eq!(restored["revision"], 0);
     assert_eq!(restored["lifecycle"]["enabled"], false);
     assert!(ws.revisions.is_empty());
+}
+
+#[test]
+fn permanent_delete_requires_archived_version_and_removes_workflow_history() {
+    let mut ws = Workspace::default();
+    let workflow_path = "/api/workflows/01-hello";
+    let delete_path = "/api/workflows/01-hello/trash";
+    let (_, draft) = ws
+        .handle(
+            "PUT",
+            workflow_path,
+            include_bytes!("../../../examples/workflows/01-hello.json"),
+            0,
+            "",
+        )
+        .unwrap();
+    let published = call(
+        &mut ws,
+        "/api/workflows/01-hello/publish",
+        json!({"expectedVersion": draft["version"]}),
+        1,
+    );
+    let precondition = |doc: &Value| json!({"expectedVersion": doc["version"]}).to_string();
+    assert_eq!(
+        ws.handle_http_v2(
+            "DELETE",
+            delete_path,
+            precondition(&published).as_bytes(),
+            2,
+            ""
+        )
+        .unwrap_err()
+        .status,
+        409
+    );
+    let archived = call(
+        &mut ws,
+        "/api/workflows/01-hello/archive",
+        json!({"expectedVersion": published["version"]}),
+        3,
+    );
+    for (input, status) in [(String::from("{}"), 428), (precondition(&published), 409)] {
+        assert_eq!(
+            ws.handle_http_v2("DELETE", delete_path, input.as_bytes(), 4, "")
+                .unwrap_err()
+                .status,
+            status
+        );
+    }
+    assert_eq!(ws.revisions.len(), 1);
+    assert_eq!(
+        ws.handle_http_v2(
+            "DELETE",
+            delete_path,
+            precondition(&archived).as_bytes(),
+            5,
+            "purge"
+        )
+        .unwrap(),
+        (200, json!({"deleted":true}))
+    );
+    assert!(ws.revisions.is_empty());
+    assert_eq!(
+        ws.handle("GET", "/api/workflows/trash", b"", 6, "")
+            .unwrap()
+            .1["workflows"],
+        json!([])
+    );
+    assert_eq!(
+        ws.handle("GET", workflow_path, b"", 6, "")
+            .unwrap_err()
+            .status,
+        404
+    );
+    assert_eq!(ws.audit.last().unwrap()["action"], "workflow.deleted");
 }

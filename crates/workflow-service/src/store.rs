@@ -233,6 +233,16 @@ pub trait RunArchive {
         limit: usize,
         workflow_id: Option<&str>,
         status: Option<&str>,
+    ) -> Result<Vec<Value>, StoreError> {
+        self.list_run_entries(limit, workflow_id, status, false)
+    }
+    /// Dashboard listings can exclude archived and deleted workflows before applying the limit.
+    fn list_run_entries(
+        &self,
+        limit: usize,
+        workflow_id: Option<&str>,
+        status: Option<&str>,
+        visible_workflows_only: bool,
     ) -> Result<Vec<Value>, StoreError>;
     /// Remote runs that are running or paused, as last reported.
     fn remote_active(&self) -> Result<usize, StoreError>;
@@ -446,15 +456,27 @@ impl RunArchive for MemoryStore {
             .map(|row| decode_run(&row.body))
             .transpose()
     }
-    fn list_runs(
+    fn list_run_entries(
         &self,
         limit: usize,
         workflow_id: Option<&str>,
         status: Option<&str>,
+        visible_workflows_only: bool,
     ) -> Result<Vec<Value>, StoreError> {
         self.run_columns()
             .filter(|(_, _, c)| workflow_id.is_none_or(|w| c.workflow_id == w))
             .filter(|(_, _, c)| status.is_none_or(|s| c.status == s))
+            .filter(|(_, _, c)| {
+                !visible_workflows_only
+                    || self
+                        .records
+                        .get(&EntityKey {
+                            collection: Collection::Workflow,
+                            id: c.workflow_id.clone(),
+                        })
+                        .and_then(|row| serde_json::from_str::<Value>(&row.body).ok())
+                        .is_some_and(|workflow| workflow["archivedAt"].is_null())
+            })
             .take(limit)
             .map(|(_, _, c)| {
                 serde_json::from_str(&c.summary).map_err(|e| StoreError::Invalid(e.to_string()))
