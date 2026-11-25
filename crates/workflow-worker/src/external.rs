@@ -6,6 +6,9 @@ use std::time::Duration;
 use worker::{Delay, Env};
 
 pub(crate) async fn execute(task: &Task, env: &Env, workspace: &str) -> Outcome {
+    if task.node.kind == connectors_mcp_client::KIND {
+        return crate::mcp_client::execute(task, env, workspace).await;
+    }
     if task.node.kind == connectors_email::SEND {
         return crate::email::send(task, env, workspace).await;
     }

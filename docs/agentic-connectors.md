@@ -1,13 +1,13 @@
 # Agentic connector roadmap
 
-Status: Clairic extraction and classification from text and private image/PDF references is implemented. The remaining adapters are planned.
+Status: Clairic supports extraction and classification from text and private image/PDF references. MCP Client supports approved tool discovery and calls. The remaining adapters are planned.
 
 | Option | Role in a workflow | Required capabilities |
 | --- | --- | --- |
 | Clairic | Extract typed fields and classify workflow inputs | Bind text or supported media, define the fields Clairic should extract, and expose the answers for routing |
 | Cloudflare Workers AI | Native model execution | Model discovery/selection, typed input/output, structured results and usage budgets |
 | Cloudflare AI Gateway | Model access through a configured gateway | Connect using operator-owned gateway/provider configuration; secret-backed authentication; supported model requests and tool-call round trips; correlate usage/errors with runs |
-| MCP Client | Call a remote MCP server directly | Discover approved tool schemas, invoke tools, handle authentication/session lifecycle, and persist invocation outcomes |
+| [MCP Client](mcp-client.md) | Call a remote MCP server directly | List approved tool schemas or invoke an explicitly selected tool |
 | Cloudflare MCP Portals | Access tools through a Cloudflare-managed MCP portal | Connect to an operator-provided portal endpoint; discover permitted native/aggregated tools; invoke tools within portal and Kasuri policies; support appropriate machine authentication and reconnect behavior |
 | AI Agent | Orchestrate model and tool calls | Combine a model/provider or gateway connection with direct MCP/portal tool sources; bounded iterative execution, structured results, explicit permission/approval policies and audit events |
 

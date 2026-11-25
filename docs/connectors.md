@@ -1,10 +1,14 @@
 # Implemented connectors
 
-The runtime advertises 30 node types: Manual Trigger, Webhook, Email Trigger, Schedule, Map / Transform, IF / Condition, Merge, Wait / Delay, JSON Utilities, Error Handler, Filter, Sort, HTTP Request, Clairic, Send Email, Data Tables, Context Store, Request Context, Respond to Webhook, Validate Schema, Parse Body, Execute Workflow Trigger, Execute Workflow, Split / Parallel, Join, Split / Batch, Each / Loop, Aggregate, Expressions and Switch / Router. A catalogue entry marked Planned is not executable.
+The runtime advertises 31 node types: Manual Trigger, Webhook, Email Trigger, Schedule, Map / Transform, IF / Condition, Merge, Wait / Delay, JSON Utilities, Error Handler, Filter, Sort, HTTP Request, Clairic, Send Email, MCP Client, Data Tables, Context Store, Request Context, Respond to Webhook, Validate Schema, Parse Body, Execute Workflow Trigger, Execute Workflow, Split / Parallel, Join, Split / Batch, Each / Loop, Aggregate, Expressions and Switch / Router. A catalogue entry marked Planned is not executable.
 
 ## Cloudflare Email
 
 **Email Trigger** starts a published workflow for an address explicitly routed to it. **Send Email** sends a single plain-text message through the deployment's Workers binding. It can send a threaded reply or a handoff. See [setup and booking example](email.md).
+
+## MCP Client
+
+Use a workspace-approved remote MCP connection to list tool schemas or call one selected tool. The connector maintains an HTTP session for the operation, and simulations use a fixture. See [connection setup and examples](mcp-client.md).
 
 ## Clairic
 

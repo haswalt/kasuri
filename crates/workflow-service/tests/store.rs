@@ -565,7 +565,12 @@ fn every_published_example_runs_through_the_store<S: TestStore>() {
         let has_network_node = doc["nodes"].as_array().unwrap().iter().any(|n| {
             matches!(
                 n["type"].as_str(),
-                Some("HTTP Request" | connectors_clairic::KIND | connectors_email::SEND)
+                Some(
+                    "HTTP Request"
+                        | connectors_clairic::KIND
+                        | connectors_mcp_client::KIND
+                        | connectors_email::SEND
+                )
             )
         });
         for mode in ["simulation", "run"] {

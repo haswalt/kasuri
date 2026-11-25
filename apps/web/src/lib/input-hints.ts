@@ -93,6 +93,14 @@ export function workflowInputHints(workflow: Workflow, nodeId: string | undefine
     } else if(node.type==='Filter'||node.type==='Sort') {
       const pointer=typeof node.config.arrayPointer==='string'?node.config.arrayPointer:''
       hint={sample:inputValue(parent.sample,pointer)??null,schema:schemaAt(parent.schema,pointer)}
+    } else if(node.type==='MCP Client') {
+      const fixture=object(node.config.simulationResponse)
+      hint=node.config.operation==='list'
+        ? {sample:{tools:fixture.tools??[],truncated:!!fixture.nextCursor},schema:{type:'object',properties:{
+          tools:{type:'array',items:{type:'object',properties:{name:{type:'string'},inputSchema:{type:'object'}}}},truncated:{type:'boolean'}
+        }}}
+        : {sample:{tool:node.config.tool??'',content:fixture.content??[],structuredContent:fixture.structuredContent??null},
+          schema:{type:'object',properties:{tool:{type:'string'},content:{type:'array'},structuredContent:{type:['object','null']}}}}
     } else if(node.type==='Email Trigger') {
       hint={sample:initial,schema:{type:'object',properties:{
         from:{type:'string'},to:{type:'string'},subject:{type:'string'},body:{type:'string'},
