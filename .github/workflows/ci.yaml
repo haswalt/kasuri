@@ -43,10 +43,10 @@ jobs:
                 crates/*|Cargo.toml|Cargo.lock|rust-toolchain.toml|examples/*) rust=true ;;
                 # TypeScript: the web app and shared packages.
                 apps/*|packages/*|package.json|pnpm-lock.yaml|pnpm-workspace.yaml) web=true ;;
-                # The runtime harness and deployment configuration.
-                scripts/*|deploy/*|wrangler.jsonc|Dockerfile|compose.yaml|.dockerignore) runtime=true ;;
+                # The runtime harness and Worker configuration.
+                scripts/*|wrangler.jsonc) runtime=true ;;
                 # Documentation and repository metadata: nothing to build or test.
-                docs/*|*.md|LICENSE|.gitignore|.env.example|.github/ISSUE_TEMPLATE/*|.github/dependabot.yml) ;;
+                docs/*|*.md|LICENSE|.gitignore|.dev.vars.example|.github/ISSUE_TEMPLATE/*|.github/dependabot.yml) ;;
                 *) all=true ;;
               esac
             done
@@ -85,8 +85,8 @@ jobs:
         run: pnpm install --frozen-lockfile
       - if: needs.changes.outputs.web == 'true'
         run: pnpm --filter web lint
-  # Unit tests for what changed, then the runtime suite, which exercises the
-  # assembled application and so runs for any code change.
+  # Unit tests for what changed, then the runtime suite (default objects mode),
+  # which exercises the assembled application and so runs for any code change.
   application:
     needs: changes
     if: needs.changes.outputs.code == 'true'
@@ -103,10 +103,10 @@ jobs:
         run: pnpm test:web
       - if: needs.changes.outputs.rust == 'true'
         run: pnpm test:rust
-      - run: pnpm build:selfhost
+      - run: pnpm build
       - run: pnpm test:runtime
-  # The runtime suite again, with eligible runs executed by run objects, stepped
-  # by their alarms (objects) or by queue messages (queues).
+  # Explicit execution modes, including the workspace fallback. The application
+  # job above exercises the unset/default objects mode.
   run-objects:
     needs: changes
     if: needs.changes.outputs.code == 'true'
@@ -115,7 +115,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        execution: [objects, queues]
+        execution: [workspace, objects, queues]
     env:
       RUN_EXECUTION: ${{ matrix.execution }}
     steps:
@@ -125,20 +125,10 @@ jobs:
           node-version: "24"
       - run: npm install --global pnpm@12.21.0
       - run: pnpm install --frozen-lockfile
-      - run: pnpm build:selfhost
+      - run: pnpm build
       - run: pnpm test:runtime
       # Many runs at once, some with 50 KB of state: all finish, and cancels apply.
-      - run: node scripts/scale-check.mjs --runs 300 --no-latency
-      - run: node scripts/scale-check.mjs --runs 100 --size 51200 --no-latency
-  container:
-    needs: changes
-    if: needs.changes.outputs.code == 'true'
-    runs-on: ubuntu-latest
-    timeout-minutes: 30
-    steps:
-      - uses: actions/checkout@v7
-      - uses: actions/setup-node@v7
-        with:
-          node-version: "24"
-      - run: docker build -t kasuri:ci .
-      - run: node scripts/test-container.mjs kasuri:ci
+      - if: matrix.execution != 'workspace'
+        run: node scripts/scale-check.mjs --runs 300 --no-latency
+      - if: matrix.execution != 'workspace'
+        run: node scripts/scale-check.mjs --runs 100 --size 51200 --no-latency

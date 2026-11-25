@@ -1,17 +1,10 @@
 # Scalable workspace storage and execution
 
-Status: **stage 1 implemented.** Every workspace is stored in per-entity tables (workspaces from earlier releases migrate on first load), finished runs are archived out of memory, and run history follows configurable retention policies (see [run history](deployment.md#run-history)). What a workspace holds in memory is bounded by a 6 MB budget that protects the Durable Object's memory, not its storage. Stage 2 is not started.
+Workspace data and run trees are stored in SQLite-backed Cloudflare Durable Objects. Finished runs are archived out of memory according to the [run history policy](deployment.md#run-history). Workspace commits write changed rows but still scan resident entities. Run objects use SQLite and advance through Durable Object alarms by default or through Cloudflare Queues when configured.
 
-Priorities, in order: **scalability** (concurrent runs and history grow with demand, not with one object's limits), **performance** (an operation's latency and CPU don't grow with workspace size), then **cost** (no work or writes beyond what an operation changes).
+## Original storage bottleneck
 
-The design has two stages:
-
-1. **Per-entity storage.** Replace the whole-workspace document with per-entity rows that are loaded on demand and written only when they change. This removes the 1.5 MB workspace budget and makes each operation's cost proportional to what it touches.
-2. **Queue-driven execution.** Run steps execute in stateless queue consumers, which scale out like any Worker, instead of inside the workspace's single Durable Object. Run state lives in a store with compare-and-swap, so duplicate deliveries are harmless, and both the queue and the store sit behind interfaces so another bus (SQS, RabbitMQ, NATS) can replace Cloudflare Queues. The workspace object becomes a control plane: definitions, publication, credentials, the run index and admission.
-
-The primary target is Cloudflare; self-hosting is a compatibility constraint. Stage 1 is a prerequisite for stage 2 and is useful on its own. Stage 2 is what makes a single busy workspace scale.
-
-## The problem
+Before the per-entity storage migration:
 
 Each workspace is one Durable Object, and the service treats its whole state as a single `Workspace` value (`crates/workflow-service/src/lib.rs`). That value holds:
 
@@ -49,13 +42,12 @@ Goals:
 - **Budgets:** per-item limits (run checkpoint, value, request) replace the per-workspace byte budget. Total size is bounded by retention policy and the Durable Object's 10 GB storage quota.
 - **Safety:** atomicity is unchanged. An operation's writes commit together or not at all.
 - **Compatibility:** the engine, checkpoint format, HTTP API, MCP tools and export format are unchanged. Existing workspaces migrate in place.
-- **One codebase:** the same Rust service runs on Cloudflare and self-hosted, with native tests that need no SQLite.
+- **One codebase:** the Rust service runs on Cloudflare and is exercised by native tests.
 
 Non-goals:
 
 - **Spreading one run:** a single run stays on one object. Parallel branches inside a run still share that run's thread, bounded by the run's own concurrency settings.
 - **Engine and checkpoint changes:** no change to engine semantics or to the run checkpoint format.
-- **Sharding:** no change to [self-hosted sharding](self-host-sharding.md). Each shard simply gets the new layout.
 
 ## Stage 1: per-entity storage
 
@@ -153,66 +145,22 @@ Notes:
 
 - **Downgrade:** releases before phase 3 can't read the tables. Phase 3 can migrate tables back to generations (`WORKSPACE_STORAGE=generations`); from phase 4 on, migration is one-way and `WORKSPACE_STORAGE` is no longer read.
 - **Size:** the migration's own transaction rewrites at most the current 1.5 MB workspace, so it stays within today's limits.
-- **Backups:** backups remain whole-volume or whole-object, so the procedures in the self-hosting guide don't change.
+- **Backups:** preserve both the workspace and run Durable Object namespaces when upgrading.
 
-## Stage 2: queue-driven execution
+## Run objects
 
-### Why stage 1 isn't enough
+### Alarm scheduling
 
-Stateless Workers scale out automatically, but Kasuri doesn't run workflows in them. The entry Worker only authenticates and routes requests to the workspace's Durable Object, and runs execute inside that object:
+Before Queues carry work, runs move out of the workspace onto **one Durable Object per run tree**, whose own alarm is the bus. This works the same on Cloudflare and on workerd, needs no extra resources, and takes runs out of the workspace's memory (on-demand loading). It is selected with `RUN_EXECUTION=objects` or an unset/empty value. Objects became the default after Cloudflare functional verification on 25 November 2026 (see deployment documentation); `workspace` remains an explicit fallback and `queues` an optional bus.
 
-- starting runs and advancing them on its alarms (`WorkflowWorkspace::alarm`);
-- dispatching HTTP calls;
-- Data Tables;
-- webhook responses.
-
-A Durable Object is a single instance: single-threaded, in one location, with a soft limit of about 1,000 requests per second. Stage 1 makes each operation cheap, but one busy workspace is still capped by that one instance. Stage 2 moves run execution into stateless Workers, fed by a message queue, so it scales the way Workers do.
-
-### Requirements
-
-- **Cloudflare first.** The design targets Workers, Durable Objects and Queues. Self-hosting is a compatibility constraint, not a design driver.
-- **A replaceable bus.** Execution must not depend on Cloudflare Queues specifically. The same design must run on SQS, RabbitMQ, NATS JetStream or similar, behind a small adapter.
-- **Correct under at-least-once delivery.** Queues (like most buses) may deliver a message more than once or out of order. Effects must still happen exactly as often as they do today.
-
-### Shape
-
-| Component | Role |
-| --- | --- |
-| **Workspace Durable Object** (control plane) | Workflows, revisions, publication, schedules, webhook registrations, MCP and OAuth state, audit, the run index, and admission (`MAX_ACTIVE_RUNS`). It no longer advances runs. |
-| **Run store** | The durable state of each run: its checkpoint (stage 1's `ws_runs` row format), version and pending timers. |
-| **Work queue** | Carries small "this run has work" messages. On Cloudflare this is a Queue, consumed by the same Worker. |
-| **Step workers** | Stateless queue consumers. Each message loads one run, advances it with the existing engine, executes the dispatched task (HTTP, data, child start), and saves the run. |
-| **Timer table** | Due times for waits and retries longer than the bus can delay, swept by a scheduler. |
-
-Two interfaces make the bus and the store replaceable:
-
-```rust
-/// A message bus with at-least-once delivery and optional delay.
-pub trait WorkBus {
-    fn send(&self, message: WorkMessage, delay: Option<Duration>) -> Result<(), BusError>;
-}
-/// Durable run state with compare-and-swap on a version.
-pub trait RunStore {
-    fn load(&self, run: &RunId) -> Result<Option<(RunRecord, Version)>, StoreError>;
-    fn save(&self, run: &RunId, record: &RunRecord, expected: Version) -> Result<Version, StoreError>;
-}
-```
-
-- **On Cloudflare:** `WorkBus` sends to a Queue. `RunStore` is one Durable Object per run, holding that run's row, called over RPC. Each run object is a separate instance, so runs don't contend with each other or with the workspace.
-- **Elsewhere:** `WorkBus` maps to SQS, RabbitMQ or NATS. `RunStore` maps to Postgres (or another SQL store) with a version column, used for compare-and-swap.
-
-### First deployment: run objects (B1)
-
-Before Queues carry work, runs move out of the workspace onto **one Durable Object per run**, whose own alarm is the bus. This works the same on Cloudflare and on workerd, needs no extra resources, and takes runs out of the workspace's memory (on-demand loading). It is selected with `RUN_EXECUTION=objects`; the default stays `workspace` until it is proven.
-
-- **Eligible runs:** every top-level run except simulations that use data operations, directly or in a workflow they may invoke (`execution::eligible`); those keep their data snapshot in the workspace. A run that invokes other workflows moves with its children as one run tree (see "Run trees"). Data operations and webhook responses are covered in "Data and webhook responses (B4)".
+- **Eligible runs:** every top-level run except simulations that use data operations, directly or in a workflow they may invoke (`execution::eligible`); those keep their data snapshot in the workspace. A run that invokes other workflows moves with its children as one run tree (see "Run trees"). Data operations and webhook responses are covered in "Data and webhook responses".
 - **Starting:** the workspace starts the run as always. Before each commit the host calls `Workspace::offload_waiting`, which marks runs that are waiting (not on a data task, with no HTTP request in flight from the workspace) as leaving; the commit writes them as index rows (`ws_runs`, `remote = 1`, archived so they are never loaded into memory) in the same pass that archives finished runs, so they keep their places in the list, and a run already waiting leaves in the commit that starts it. A run whose next step is a data task leaves after the save has performed it, in a second commit. The host then calls the run object, which creates the run (`execution::start`) and sets its alarm. Starting is idempotent by run ID.
 - **Stepping:** the run object's alarm processes the current version (`execution::begin`), performs a claimed HTTP task with the worker's existing HTTP executor, and applies the outcome (`execution::finish`). The alarm is the run's single live message: the latest scheduled time wins.
 - **Index reports:** after every save, the run object reports `{version, columns, body}` to the workspace (in the background, so a busy workspace never holds up the next step; the final report is awaited before the run object deletes its storage), which updates the index row in one statement, ignoring reports older than the row's version. Lists, details, MCP reads, admission (`MAX_ACTIVE_RUNS`) and retention read the index, which lags the run by at most one report. The workspace never loads these runs.
 - **Control:** pause, resume and cancel on a remote run are forwarded to its run object, which applies them with compare-and-swap and reports.
 - **Finishing:** once a run is terminal and its final report is acknowledged, the run object deletes its storage. The index row is then an ordinary archived run, kept by retention.
 
-### Second deployment: Queues (B2)
+### Cloudflare Queues scheduling
 
 `RUN_EXECUTION=queues` keeps the run objects as the `RunStore` and makes Cloudflare Queues the `WorkBus`:
 
@@ -220,10 +168,9 @@ Before Queues carry work, runs move out of the workspace onto **one Durable Obje
 - **Consuming:** the consumer (`#[event(queue)]`, batches of up to 10) handles each message by calling the run object's `/begin` with the message version. The run object runs `execution::begin`, saving a claim before any I/O, and returns the claimed task, if any. The consumer performs the HTTP call itself, then calls `/finish`, which applies the outcome with compare-and-swap. A failed message is retried; the version check makes that safe.
 - **Parallel requests:** a claim's next message is due at once while another request is ready, so parallel branches' requests are in flight together on separate consumer invocations. Once none is ready, the next message waits for the earliest claimed deadline, which settles a request whose consumer never reported back.
 - **Long waits:** Queues delays stop at 24 hours, so a longer wait uses the run object's alarm, which sends the message once it is due within a day.
-- **Reports and final deletion** are unchanged from B1; the alarm retries a final report that failed.
-- **Self-hosting:** workerd's built-in Queues Worker (experimental, stored in Durable Objects on the data volume) provides the same binding, in a separate `workerd-queues.capnp`. Elsewhere the same consumer maps to SQS, NATS or RabbitMQ.
+- **Reports and final deletion** are the same as with alarm scheduling; the alarm retries a final report that failed.
 
-### Run trees (B3)
+### Run trees
 
 A top-level run and every run it invokes (Execute Workflow and Each children, and theirs) form a **run tree**, and the tree, not the run, is the unit of execution outside the workspace:
 
@@ -234,111 +181,20 @@ A top-level run and every run it invokes (Execute Workflow and Each children, an
 - **Parallelism:** a tree's engine steps run on one object, but its HTTP calls still run concurrently (on consumers with queues), and Each runs at most 4 items at a time, so one object per tree costs little. Trees are independent of each other and of the workspace.
 - **Not yet:** children are not refused by `MAX_ACTIVE_RUNS` inside a run object (they count once reported), and a tree's state must fit one object's memory, bounded by the child budgets (16 children, or 256 with Each).
 
-### Data and webhook responses (B4)
+### Data and webhook responses
 
 - **Data operations:** a data task is not claimed. `execution::begin` saves the tree, sends a retry message (`DATA_RETRY_MS`, 10 s) and returns `Step::Data`; the host asks the workspace (`/internal/runs/data`) to apply it with `execution::perform_data` in one SQLite transaction with its receipt, keyed by the task's idempotency key, then reports the outcome with `execution::finish_data`. If the outcome is lost, the retry message performs the task again, and the receipt replays the first result, so an effect is applied once. Receipts of runs active in run objects are kept until they finish. A failed effect is rolled back before its outcome is recorded, as in the workspace. Data tasks are performed straight after the save that created them, so their times match the workspace's.
 - **Why not per-dataset objects yet:** data stays in the workspace's SQLite database, where management, MCP and imports already use it transactionally. Each operation is a short transaction, so the workspace is not a bottleneck for run state; moving datasets to their own objects remains possible behind the same call.
 - **Simulations with data** stay in the workspace: they run against a snapshot of the live tables taken when they start.
 - **Webhook responses:** the handler holding the request (in the workspace) polls the run object (`/reply`) instead of the workspace while the run is there. The run object applies the workspace's `webhook_reply` to its tree (`execution::reply`), saving a submitted response before returning it. A tree is kept while a run in it holds an open response window, and wakes at the window's deadline to close it, as the workspace's alarm does, so a response is never lost to deletion and an abandoned one times out.
 
-### Portable store and bus
+### Acceptance targets
 
-`workflow_service::execution::sql` implements both interfaces on plain SQL through `SqlExec`, the same "run one statement" interface the workspace tables use, so a host outside Cloudflare only supplies a database connection:
-
-- **`SqlRunStore`:** one row per run tree (`exec_trees`), saved with compare-and-swap on its version (`UPDATE ... WHERE version=? RETURNING`).
-- **`SqlWorkBus`:** an outbox table (`exec_messages`). `receive` leases due messages, `ack` deletes one once handled, and a message whose consumer fails is delivered again when its lease expires: at-least-once delivery with delays, which is all the core needs. Several consumers can share it; on Postgres, `FOR UPDATE SKIP LOCKED` in the leasing subquery avoids contention.
-- **Proof:** the equivalence harness runs every eligible example on SQLite through these, with three consumers handling each batch in a scrambled order, and requires the workspace's result; a consumer that dies after applying an increment is redelivered when its lease expires, and the counter is still 1.
-- **Other buses:** a broker (SQS, NATS JetStream, RabbitMQ) replaces `SqlWorkBus` directly: `send` with a delay, and redelivery of unacknowledged messages.
-
-A host outside Cloudflare would pair these with the workspace's own store (`store::sql::SqlStore`, also on `SqlExec`) and its HTTP executor; no such host is shipped yet, as self-hosting uses workerd, which runs the Cloudflare implementations.
-
-### Messages
-
-A message identifies work and never carries data:
-
-```json
-{ "workspace": "…", "run": "…", "version": 17, "reason": "advance" }
-```
-
-- **Small and portable:** well under Cloudflare's 128 KB message limit and every common bus's. Inputs, outputs and checkpoints stay in the run store.
-- **Always re-read:** a consumer loads the current run and works from that, not from the message, so stale and duplicate messages are harmless.
-
-### Processing a message
-
-1. **Load** the run and its version from the run store. If the run has already moved past the message's version, or is terminal, acknowledge the message and stop.
-2. **Advance** it with the existing engine (`Run::next`), which returns either a task to dispatch or a wake time.
-3. **Persist the dispatch marker** with compare-and-swap before doing anything external, exactly as the workspace does today. If the swap fails, another consumer owns this step: acknowledge and stop.
-4. **Execute the task.** HTTP calls run in the consumer Worker. The task's existing idempotency key (`Task::idempotency_key`) is sent with every external effect.
-5. **Record the outcome** with compare-and-swap, then send the next message: immediately, or with a delay for waits and retries.
-6. **Report status changes** (started, paused, succeeded, failed, cancelled) to the workspace index, idempotently, keyed by run and version.
-
-Each run's steps go through one compare-and-swap at a time. That gives the same ordering guarantees as today's single-object execution, without a lock service. Different runs progress fully in parallel across consumer invocations.
-
-### Timers
-
-Waits and retries are delays on the next message.
-
-- **Short delays:** delays within the bus's limit (24 hours on Cloudflare Queues, 15 minutes on SQS) are sent as delayed messages.
-- **Long delays:** Wait / Delay has no upper bound (`delayMs` only has to be 0 or more), so longer delays are written to the timer table. A scheduler sends their messages when they come due. On Cloudflare that's a Cron Trigger or a Durable Object alarm, and elsewhere any cron. The timer row is written in the same compare-and-swap as the run, so a timer is never lost.
-
-### Children, Each and webhook responses
-
-- **Execute Workflow / Each children:** the parent's consumer asks the workspace to admit the child, writes the child run, and sends its first message. When the child finishes, its final step sends an "advance" message to the parent, keyed by the parent task's idempotency key. Each fan-out becomes many independent runs processed in parallel, bounded by the node's concurrency setting.
-- **Webhook response windows:** a delivery that waits for a Respond to Webhook node is held by a small per-request Durable Object (the waiter). The step that decides the response calls the waiter. Waiters only last for the response window (5 seconds), so they don't become a bottleneck. *Implemented differently* (see "Data and webhook responses"): the workspace's handler already holds the request, so it polls the run object.
-- **Data Tables and Context Store:** data operations are already explicit, transactional commands with receipts (`crates/workflow-worker/src/data.rs`). Consumers call them over RPC on per-dataset Durable Objects on Cloudflare, or on SQL transactions elsewhere. *Implemented* as calls to the workspace, which keeps the data (see "Data and webhook responses").
-
-### Throughput on Cloudflare
-
-| Limit | Value | Effect |
-| --- | --- | --- |
-| Consumer invocations per queue | 250 concurrent, each taking batches of up to 100 messages | Thousands of run steps in flight at once |
-| Messages per queue | 5,000 per second | Use several queues (for example, sharded by workspace or run) for more |
-| Consumer CPU | Up to 5 minutes per invocation | Per-step CPU is generous; steps normally take milliseconds |
-| Durable Objects | Unlimited objects, about 1,000 requests per second each | Per-run objects never approach the per-object limit |
-
-Admission (`MAX_ACTIVE_RUNS`) and per-node concurrency remain the controls for how much work a workspace generates. Queue consumers can also be capped (`max_concurrency`) to protect downstream APIs.
-
-### Cost
-
-- **Requests:** each step costs one queue message and one run-object request. Today it costs one alarm and a whole-workspace rewrite. Writes fall sharply.
-- **Idle runs cost nothing:** waits are delayed messages or timer rows, not objects held in memory. A run object only runs during a step.
-- **Duration:** HTTP calls run in consumer Workers, which bill CPU rather than wall time. Today a workspace Durable Object waiting on HTTP accrues duration for up to 15 minutes per pending call.
-
-### Self-hosting
-
-Self-hosting implements `WorkBus` and `RunStore` with whatever it has: a small in-process queue plus SQLite for a single node, or a real bus plus Postgres to scale out. That replaces the per-workspace sharding design as the way to scale self-hosted, because state no longer lives in one process.
-
-## Risks
-
-- **Change tracking:** a mutation that forgets to mark its entity as changed would be lost silently. Mitigations:
-  - make every write go through `Workspace` methods that record the change;
-  - have the in-memory store assert in tests that each operation's result equals a full reload after commit;
-  - run the existing suites against both stores.
-- **Invariants spanning runs:** parent and child relations, Each iteration state and webhook response windows currently rely on scanning one in-memory list. Each one needs an explicit query and a test.
-- **Ordering:** audit order, run list order and pagination are API-visible. They need explicit `ORDER BY` clauses and keys.
-- **At-least-once delivery (stage 2):** every handler must be idempotent and version-checked, and external effects must carry idempotency keys. A test harness should deliver every message twice, out of order and after crashes.
-- **Eventual consistency (stage 2):** run lists and `MAX_ACTIVE_RUNS` admission read the workspace's index, which lags runs by one status report. Admission must count runs it has admitted but not yet heard from, so the cap is never exceeded. Lists need a documented staleness bound.
-- **Per-step latency (stage 2):** each step adds a queue hop and a run-store round trip, so a single run's steps may be slightly slower while total throughput rises a lot. Short chains of fast nodes could run several steps per message to compensate. Measure both.
-- **Scope:** `workflow-service` accesses `self.runs` in about 67 places and `self.workflows` in about 29. They move behind the store in phases rather than in one change.
-
-## Phases and acceptance
-
-1. **Store trait with an in-memory implementation** that reproduces today's behaviour, with no storage format change. All existing tests pass through it.
-2. **Run queries:** move run lookups, listing, due-run selection, `next_wake`, and invocation and Each queries onto the trait. Add the summary columns.
-3. **SQLite store and migration** in the worker. The old layout is still readable for rollback if that option is chosen. *Implemented:* `SqlStore` over a minimal SQL interface (Durable Object SQLite in the worker, SQLite in native tests), opt-in with `WORKSPACE_STORAGE=tables`, migrating in both directions.
-4. **Incremental commits** become the default. Record generations, the decode cache and whole-document `checkpoint()` are removed. *Implemented:* tables are the only layout and older layouts migrate one way. Saves no longer encode the whole workspace: retention works from the per-entity encodings the commit already produces (`Workspace::retain`), and a test checks it removes exactly what whole-document retention would. The generation decode cache is gone; the worker keeps the last committed workspace, keyed by commit token, until entities are loaded on demand. A save still encodes every entity to find what changed, and admission still measures the workspace; on-demand loading and phase 5 remove both.
-5. **Retention policies** replace `MAX_STATE_BYTES`, and the admission guard is removed or replaced with the indexed active-bytes check. *Implemented:* finished runs are archived out of memory (format 2 adds `ws_runs.archived` and `ws_runs.workflow_id`), history follows `RUN_HISTORY`, `RUN_HISTORY_DAYS` and `FAILED_RUN_HISTORY_DAYS` (format 3 adds the age index; older tables upgrade in place), and `MAX_STATE_BYTES` and its admission guard now protect memory at 6 MB instead of storage at 1.5 MB, because measurement showed memory is the binding limit (see budgets above).
-6. **`WorkBus` and `RunStore`** (stage 2): define both, with Cloudflare Queues and per-run Durable Object implementations plus in-memory ones for tests. Move top-level runs onto queue-driven execution behind a flag. *First part implemented:* `workflow_service::execution` defines `WorkBus`, `RunStore` and the per-run step (`start`, `begin`, `finish`, with network I/O performed by the host between `begin` and `finish`). Top-level runs without children, Each, data operations or webhook responses are eligible. A native harness runs every eligible published example on an in-memory bus and store, in live and simulation mode, and requires the result to equal the workspace's under clean, duplicated and shuffled delivery and a consumer crash; separate tests show racing consumers can't both claim or complete a task and stale messages do nothing. Loading runs on demand (previously listed separately) is folded into this stage: the workspace keeps an index while runs live in the run store. *Run objects implemented* (`RUN_EXECUTION=objects`, see "First deployment: run objects"): a run still waiting after its first advance moves to its own Durable Object (`WorkflowRun`), which steps it on its alarm, performs ready HTTP tasks concurrently, and reports every save to the workspace's index (storage format 4 adds `ws_runs.remote` and `ws_runs.report_version`). The full runtime suite passes in both modes, and a runtime check inspects workerd's storage to show waiting runs live in run objects, survive restarts, accept forwarded control requests, and are deleted once finished. *Queues bus implemented* (`RUN_EXECUTION=queues`, see "Second deployment: Queues"): run objects keep the run store, and each step is a queue message processed by the queue consumer. The full runtime suite also passes in this mode, on workerd's Queues Worker, and the runtime check shows waiting runs have a queued message and no alarm. *Children and Each implemented* (see "Run trees"): runs that invoke other workflows execute outside the workspace with their children, one run object per tree; only data operations and webhook responses keep a run in the workspace. *Data and webhook responses implemented* (see "Data and webhook responses"): every run can now leave the workspace except simulations that use data.
-7. **Timers, children and Each:** the timer table and scheduler, child admission and completion messages, and Each fan-out as independent runs. *Children and Each implemented as run trees* (above), which keeps the workspace's semantics and needs no cross-run messages; long waits already use the run object's alarm, so no timer table is needed on Cloudflare.
-8. **Data and webhook responses:** data operations behind per-dataset objects, and webhook response waiters. *Implemented* with data operations applied by the workspace for run objects (exactly once, through receipts) and webhook responses answered by run objects; per-dataset objects are deferred.
-9. **A second bus:** one non-Cloudflare `WorkBus` and `RunStore` implementation (for example SQS or NATS with Postgres), to prove the interfaces are portable. *Implemented* on plain SQL (see "Portable store and bus").
-
-Acceptance:
-
-- **Constant cost:** an alarm tick or webhook delivery writes a constant number of rows regardless of workspace size, and its duration doesn't grow with the number of retained runs. Measure at 100, 1,000 and 10,000 retained runs.
-- **Concurrency:** 200 concurrently active runs with 50 KB outputs each succeed, which is impossible today, and remain cancellable.
-- **Migration:** workspaces from every existing format (legacy row, record generations, with and without `webhook_auth`) migrate. A failure injected mid-migration leaves the old layout intact.
-- **Scale (stage 2):** 1,000 concurrently active runs in one workspace with median step latency within 2× of a single isolated run, and webhook acceptance latency independent of active-run count.
+- Workspace operations should write only changed rows. Measure save cost at 100, 1,000 and 10,000 entities and move to explicit change tracking.
+- Keep at least 200 concurrent runs with 50 KB state cancellable.
+- Verify 1,000 concurrent runs in a Cloudflare workspace with median step latency within twice that of a single isolated run.
+- Measure webhook acceptance latency against active-run count.
+- Exercise duplicate delivery, stale messages, interrupted consumers, run recovery and workspace migrations.
 
 ### Measured on workerd
 
@@ -354,14 +210,13 @@ workerd runs every Durable Object of a worker on one isolate, so these figures a
 | 1,000 | small | queues | 1.0 s | 0.2 s / 0.6 s | 0.6 s / 1.3 s |
 | 200 | 50 KB | queues | 1.0 s | 0.6 s / 1.1 s | 0.6 s / 4.8 s |
 
-(Negative lateness: the step ran before the start's acknowledgement reached the client. A single queued run is about 1 s late because of the consumer's batch timeout and whole-second delays.)
+(Negative lateness: the step ran before the start's acknowledgement reached the client.)
 
 - **Large state:** 200 concurrently active runs with 50 KB inputs all finish and stay cancellable. Before stage 2, the 6 MB memory budget admitted about 85.
-- **1,000 runs:** all finish in both modes. Queues mode meets the latency target; objects mode on workerd does not (0.6 s median against a single run's 0), because a thousand run objects and the workspace share one thread there.
+- **1,000 runs:** all finish locally in both modes. Median lateness was 0.6 s with alarms and 0.2 s with queues. The 1,000-run production latency target remains unverified.
 - **Not yet measured:** webhook acceptance latency against active-run count.
 - **Next bottleneck:** starting runs. Every start goes through the workspace: admission, a commit and the run object start.
 - **Cheaper starts:** a start now commits once (a run already waiting leaves in the commit that starts it), records cache their list entry so indexing a run or applying its report never restores its checkpoint, a full view decodes it once, values are measured without encoding a copy, and arming the workspace's alarm only checks whether an unstarted run exists. Started one at a time on workerd, a start's acknowledgement took 20 ms (small input) and 33 ms (50 KB) before, and 16 ms and 23 ms after. Natively, the workspace's CPU per 50 KB start fell from 3.8 ms to 1.9 ms; most of the rest is the engine measuring its state against the checkpoint limit on every step.
-- **Recovery (stage 2):** duplicating, reordering and dropping-then-redelivering every message, killing consumers mid-step and restarting the workspace object never loses a run or repeats a completed effect.
 - **Regression:** the full `pnpm test:runtime` suite passes unchanged, including storage atomicity, restart persistence and webhook response windows.
 - **Change tracking:** every operation in the native suites matches a fresh reload after commit.
 
@@ -369,6 +224,22 @@ workerd runs every Durable Object of a worker on one isolate, so these figures a
 
 - **Raise `MAX_STATE_BYTES`:** quick, but it keeps whole-document cost per operation and makes every request slower as the budget fills. It can't go far past the per-row limit for a single run anyway. Not a fix.
 - **Keep the document but write only the records that changed:** this removes the write amplification but not the load cost or the budget. Useful as an interim step (phase 4 without phases 1–3) if the full change is too large at once.
-- **One Durable Object per run, driven by its own alarms (no queue):** scales well on Cloudflare and needs no bus. But execution and state would both be tied to Durable Objects, with no portable equivalent, and HTTP calls would wait inside Durable Objects (billed by wall time) instead of in consumer Workers. Rejected in favour of the portable queue design. Per-run objects are still used, but only as the run store on Cloudflare.
-- **Cloudflare Workflows:** durable steps, sleeps and retries, up to 50,000 concurrent instances per account. But the documented entrypoints are JavaScript, TypeScript and Python only, so Kasuri's Rust engine would need a JavaScript wrapper. Its step model would also duplicate the engine's own retry, wait and checkpoint semantics, and there's no equivalent outside Cloudflare. Rejected for portability and to keep a single execution model.
-- **Run shards** (N execution objects per workspace): fewer objects, but each shard is still one thread shared by its runs and needs rebalancing as load changes. The queue design scales without tuning.
+
+### Resident save-cost baseline (25 November 2026)
+
+Run `cargo run --release --locked -p workflow-service --example workspace_save_cost -- --samples 25` to measure change detection and commits at 100, 1,000 and 10,000 entities. The native benchmark uses separate workflow-heavy and revision-heavy workspaces, excludes fixture construction/load, warms up three times, and reports JSON lines with median/p95 timings, resident bytes and actual writes. Both no-op commits and one-workflow edits are measured; edits assert exactly one upsert. It uses the current memory budget unchanged.
+
+An initial optimization makes `split_meta` serialize only management, audit sequence and legacy webhook-event metadata. Previously it built a JSON value for every collection and then discarded those collections, after the entity split had already encoded them. Metadata bytes/key ordering remain identical; a parity test compares the projection with the persisted Workspace contract, and the SQLite rollback/migration suite covers storage behavior.
+
+Illustrative native release measurements on one development machine, 25 samples (milliseconds; not Cloudflare CPU or end-to-end HTTP latency):
+
+| Resident profile | Entities | Before median commit | After median commit | Speedup |
+| --- | ---: | ---: | ---: | ---: |
+| workflows | 100 | 0.278 | 0.099 | 2.82× |
+| workflows | 1,000 | 2.867 | 0.954 | 3.01× |
+| workflows | 10,000 | 29.889 | 9.687 | 3.09× |
+| revisions | 100 | 0.263 | 0.104 | 2.53× |
+| revisions | 1,000 | 2.647 | 1.053 | 2.51× |
+| revisions | 10,000 | 27.243 | 10.636 | 2.56× |
+
+These results do **not** meet the constant-cost target. The remaining entity encoding, digest comparisons, ordering, deletion detection, retention and host workspace cloning still grow with resident state. The next change needs an explicit mutation journal/dirty-record boundary that captures inserts, updates and deletes across all mutation paths, including migration and rollback, rather than assuming SQL upsert count measures save CPU. The benchmark isolates `Tracked::changes` and `Tracked::commit` with MemoryStore; SQL, host cloning, HTTP handling, workspace loading and alarm/webhook acceptance need separate host-level measurements. No timing threshold is asserted in CI.

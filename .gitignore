@@ -10,10 +10,10 @@ dist/
 # Generated Wasm and local Worker configuration
 apps/api/generated/
 .dev.vars*
+!.dev.vars.example
 .env*
-!.env.example
 
-# Standalone server data
+# Local data and secrets
 data/
 secrets/
 

@@ -166,7 +166,7 @@ export function Settings({
                 ['Host', location.host],
                 ['Backend', 'Rust · WebAssembly'],
                 ['State', 'SQLite Durable Objects'],
-                ['Hosting', 'Cloudflare or self-hosted workerd']
+                ['Hosting', 'Cloudflare Workers']
               ].map(([label, value]) => (
                 <div className={styles.settingRow} key={label}>
                   <span>{label}</span>

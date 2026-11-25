@@ -27,7 +27,7 @@ const config :Workerd.Config = (
       durableObjectStorage = (localDisk = "storage")
     )),
     (name = "assets", disk = (path = "public")),
-    (name = "storage", disk = (path = "../data", writable = true))
+    (name = "storage", disk = (path = ".", writable = true))
   ],
-  sockets = [(name = "http", address = "*:8080", http = (), service = "main")]
+  sockets = [(name = "http", address = "127.0.0.1:8080", http = (), service = "main")]
 );

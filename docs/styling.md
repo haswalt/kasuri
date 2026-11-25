@@ -33,8 +33,8 @@ Keep continuously changing values, such as canvas coordinates, progress percenta
 
 ## Development and builds
 
-Use Node 22 or newer (Docker uses Node 24) and run `pnpm install`. The frontend's `prepare` script generates its typed `styled-system` API. That directory is ignored by Git and Docker.
+Use Node 22 or newer and run `pnpm install`. The frontend's `prepare` script generates its typed `styled-system` API. That directory is ignored by Git.
 
 `pnpm dev:web` starts Vite with Panda generation and hot updates. `pnpm build:web` explicitly runs code generation before TypeScript, then Vite generates the production stylesheet. This also works when building from a fresh checkout without generated files. `pnpm --filter web styles:check` generates the standalone Panda output for inspection.
 
-The Docker dependency stage copies the Panda configuration and theme before installing dependencies, so its `prepare` hook has the same inputs. No generated styling code needs to be committed or manually copied into a release.
+No generated styling code needs to be committed or manually copied into a release.

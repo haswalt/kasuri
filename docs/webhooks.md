@@ -1,6 +1,6 @@
 # Webhook triggers
 
-Webhook triggers accept JSON POSTs and start durable runs of a published workflow. The Rust/Wasm implementation works on Cloudflare and self-hosted workerd. New triggers default to **no authentication**; protection is an explicit choice.
+Webhook triggers accept JSON POSTs and start durable runs of a published workflow. The Rust/Wasm implementation works on Cloudflare. New triggers default to **no authentication**; protection is an explicit choice.
 
 ## Configure an endpoint
 
@@ -39,7 +39,7 @@ Examples of explicit trigger configuration:
 
 A query-authenticated sender appends the generated key to the configured parameter. Keep secret-bearing URLs out of logs and workflow exports; bearer headers avoid putting credentials into URLs. Query authentication does not accept a bearer header as a substitute.
 
-For HMAC modes, configure the named alias in the installation's `HTTP_SECRETS` JSON map using a Worker secret or a self-hosted secret mount. Send `X-Kasuri-Timestamp` as Unix seconds within five minutes of server time and `X-Kasuri-Signature` as lowercase HMAC-SHA256 hex (optionally prefixed with `sha256=`).
+For HMAC modes, configure the named alias in the installation's `HTTP_SECRETS` JSON map using a Worker secret. Send `X-Kasuri-Timestamp` as Unix seconds within five minutes of server time and `X-Kasuri-Signature` as lowercase HMAC-SHA256 hex (optionally prefixed with `sha256=`).
 
 - `hmac_sha256` signs exact bytes of `timestamp + "." + rawRequestBody`.
 - Legacy `hmac` signs `timestamp + "." + eventId + "." + rawRequestBody`, with `X-Kasuri-Event-Id` containing 1–128 ASCII letters, digits, dots, underscores or hyphens. That ID is part of this legacy signing format only; it does not deduplicate deliveries.

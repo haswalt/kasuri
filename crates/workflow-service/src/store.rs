@@ -982,16 +982,27 @@ fn split(workspace: &Workspace) -> Result<(String, Vec<(Collection, Entities)>),
 }
 /// The metadata entity: the workspace without its keyed collections.
 fn split_meta(workspace: &Workspace) -> Result<String, StoreError> {
-    let mut meta =
-        serde_json::to_value(workspace).map_err(|e| StoreError::Invalid(e.to_string()))?;
-    let object = meta
-        .as_object_mut()
-        .ok_or_else(|| StoreError::Invalid("workspace is not an object".into()))?;
-    for collection in Collection::ALL {
-        object.remove(collection.field());
+    // Keep this projection small: serializing Workspace here would encode every
+    // collection again only to discard it. Entity bodies are encoded by split.
+    // The parity test below catches persisted metadata added to Workspace.
+    #[derive(serde::Serialize)]
+    #[serde(rename_all = "camelCase")]
+    struct Metadata<'a> {
+        management: &'a Value,
+        audit_sequence: u64,
+        webhook_events: &'a [crate::WebhookEvent],
     }
-    Ok(meta.to_string())
+    // Preserve the canonical object-key order used by the previous Value-based
+    // encoding, so unchanged metadata doesn't produce an upgrade-only write.
+    let value = serde_json::to_value(Metadata {
+        management: &workspace.management,
+        audit_sequence: workspace.audit_sequence,
+        webhook_events: &workspace.webhook_events,
+    })
+    .map_err(|e| StoreError::Invalid(e.to_string()))?;
+    Ok(value.to_string())
 }
+
 /// The size of the workspace encoded as one document, computed from its parts:
 /// the metadata object plus `,"field":[...]` for each collection.
 fn encoded_total(meta: &str, collections: &[(Collection, Entities)]) -> usize {
@@ -1138,6 +1149,30 @@ mod tests {
         assert_eq!(
             assign_orders(&entities(&["a", "x", "b"]), &stored, None),
             renumber(3, None)
+        );
+    }
+
+    #[test]
+    fn metadata_projection_matches_every_persisted_workspace_field() {
+        let mut workspace = Workspace::default();
+        workspace.management = serde_json::json!({"receipts":[{"id":"fixture"}]});
+        workspace.audit_sequence = 42;
+        workspace.webhook_events.push(crate::WebhookEvent {
+            endpoint_id: "fixture-endpoint".into(),
+            event_id: "fixture-event".into(),
+            fingerprint: "fixture-fingerprint".into(),
+            run_id: "fixture-run".into(),
+            received_at: 123,
+        });
+        let mut expected = serde_json::to_value(&workspace).unwrap();
+        for collection in Collection::ALL {
+            expected.as_object_mut().unwrap().remove(collection.field());
+        }
+        let actual = split_meta(&workspace).unwrap();
+        assert_eq!(
+            actual,
+            expected.to_string(),
+            "Metadata projection must track the persisted Workspace contract exactly"
         );
     }
 

@@ -38,9 +38,6 @@ body:
       label: Deployment
       options:
         - Cloudflare Workers
-        - Self-hosted (Docker / Compose)
-        - Self-hosted (Kubernetes)
-        - Self-hosted (workerd without Docker)
         - Local development (pnpm dev)
     validations:
       required: true
@@ -57,7 +54,7 @@ body:
         - Data Tables / Context Store
         - MCP / agents
         - HTTP management API
-        - Deployment / self-hosting
+        - Cloudflare deployment
         - Other
   - type: input
     id: version

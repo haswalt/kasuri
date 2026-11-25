@@ -23,8 +23,8 @@ pub(crate) enum RunExecution {
 }
 pub(crate) fn parse_run_execution(value: &str) -> std::result::Result<RunExecution, String> {
     match value.trim() {
-        "" | "workspace" => Ok(RunExecution::Workspace),
-        "objects" => Ok(RunExecution::Objects),
+        "workspace" => Ok(RunExecution::Workspace),
+        "" | "objects" => Ok(RunExecution::Objects),
         "queues" => Ok(RunExecution::Queues),
         other => Err(format!(
             "RUN_EXECUTION must be 'workspace', 'objects' or 'queues', not '{other}'"
@@ -295,8 +295,9 @@ impl WorkflowWorkspace {
         )
         .map_err(internal)
     }
-    /// `RUN_EXECUTION`: unset, empty or `workspace` runs everything in the
-    /// workspace; `objects` runs eligible top-level runs in run objects.
+    /// `RUN_EXECUTION`: unset, empty or `objects` uses run objects; `workspace`
+    /// keeps execution in the workspace, and `queues` steps run objects through
+    /// the queue. Only eligible runs leave the workspace.
     pub(crate) fn run_execution(&self) -> Result<RunExecution> {
         let value = self
             .env
@@ -501,5 +502,22 @@ impl WorkflowWorkspace {
             self.state.storage().delete_alarm().await?;
         }
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod execution_mode_tests {
+    use super::{RunExecution, parse_run_execution};
+    #[test]
+    fn default_is_objects_and_alternatives_remain_explicit() {
+        for value in ["", " ", "objects", " objects "] {
+            assert_eq!(parse_run_execution(value), Ok(RunExecution::Objects));
+        }
+        assert_eq!(
+            parse_run_execution("workspace"),
+            Ok(RunExecution::Workspace)
+        );
+        assert_eq!(parse_run_execution("queues"), Ok(RunExecution::Queues));
+        assert!(parse_run_execution("object").is_err());
     }
 }

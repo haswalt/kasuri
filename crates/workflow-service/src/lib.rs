@@ -1,4 +1,4 @@
-//! The Rust application layer shared by Cloudflare and self-hosted Wasm deployments.
+//! The Rust application layer for the Cloudflare Worker.
 //! All workspace data is persistent. No sample workflows, seed data or expiry mode.
 mod audit;
 pub mod contracts;

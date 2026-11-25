@@ -20,7 +20,7 @@ Initial adapter paths:
 - Standards-based OIDC: integrate a maintained authentication library/provider SDK compatible with Rust/Wasm, using provider discovery, authorization code + PKCE, state and nonce. Delegate sign-in and MFA to the configured provider. Do not write an OAuth/OIDC protocol implementation ourselves.
 - Trusted authentication proxy: support third-party identity middleware without making arbitrary client headers authoritative. Require a verified signed assertion, or a tightly enforced private/mutually authenticated proxy boundary with incoming identity headers stripped and replaced. Specify and test that trust contract before enabling an adapter.
 
-Cloudflare Access is an optional adapter on Cloudflare or self-hosted ingress. Provider choice is independent of where workflow execution runs. Secrets and provider registration live in installation configuration, never workflow exports or public examples. Proposed configuration names are not usable runtime settings until implementation lands.
+Cloudflare Access is an optional adapter on Cloudflare. Provider choice is independent of where workflow execution runs. Secrets and provider registration live in installation configuration, never workflow exports or public examples. Proposed configuration names are not usable runtime settings until implementation lands.
 
 ## Protected surfaces and separate credentials
 
@@ -32,6 +32,6 @@ MCP transport continues to use its audience-bound token/OAuth flows and explicit
 
 Migrate existing cookie-owned directories through an explicit, authenticated owner-claim procedure with proof of existing ownership. Never silently assign existing workspaces to the first user who logs in. Retain compatibility until owners can migrate; keep migration atomic, audited and reversible from a backup. Define workspace owner/member roles and default-deny access before enabling multiple users.
 
-Test the same provider contract on Cloudflare and self-hosted workerd: valid sign-in, expired/revoked sessions and key rotation, forged identity headers, origin bypass, two-user workspace isolation, CSRF, logout, owner migration and unchanged MCP/webhook authentication. Missing provider configuration must fail closed in production mode, with a separate explicit loopback development mode. Deployment helpers must identify a third-party auth prerequisite rather than create local password accounts as the final production setup.
+Test the provider contract on Cloudflare: valid sign-in, expired/revoked sessions and key rotation, forged identity headers, origin bypass, two-user workspace isolation, CSRF, logout, owner migration and unchanged MCP/webhook authentication. Missing provider configuration must fail closed in production mode, with a separate explicit loopback development mode. Deployment helpers must identify a third-party auth prerequisite rather than create local password accounts as the final production setup.
 
 Reference: [Cloudflare Access JWT validation](https://developers.cloudflare.com/cloudflare-one/access-controls/applications/http-apps/authorization-cookie/validating-json/). Access assertions require cryptographic validation, including audience and issuer checks; adapter implementation must verify current provider documentation and select a maintained compatible library.

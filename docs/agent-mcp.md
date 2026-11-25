@@ -10,7 +10,7 @@ Kasuri must expose an MCP server so agents can discover, build, validate, manage
 
 ## Architecture and access
 
-- Expose a remote HTTP MCP endpoint from the Rust Wasm backend, available on both Cloudflare and self-hosted workerd deployments.
+- Expose a remote HTTP MCP endpoint from the Rust Wasm backend, available on Cloudflare deployments.
 - Reuse the workflow schema, validation, application services, engine and connector manifests used by the UI and HTTP API. Do not add a TypeScript backend or a separate execution engine.
 - Authenticate agents with revocable, scoped credentials and an explicit workspace identity. Browser-session cookies and possession of an MCP session identifier must not grant agent management access.
 - Enforce permissions on every tool/resource call. Support separate read/audit, draft-edit, publish/schedule, run-execution and run-control permissions, scoped to the appropriate workspace and resources.
@@ -62,7 +62,7 @@ Workflow deletion, rollback and replay can be added when their underlying applic
 4. Concurrent UI and agent edits produce a revision conflict rather than losing changes. A repeated run-start request with the same idempotency key returns the original run.
 5. Pause/cancel operations remain effective while external requests are outstanding, and late results cannot overwrite the requested state.
 6. Cross-workspace calls, revoked credentials and insufficient scopes are rejected. Shared installation secrets and browser-session capabilities are not exposed through discovery, resources or audit exports.
-7. The same interface and permission rules work on Cloudflare and self-hosted workerd, with connection instructions and conformance tests for both.
+7. The same interface and permission rules work on Cloudflare, with connection instructions and local conformance tests.
 
 ## Implemented workflow construction contract
 

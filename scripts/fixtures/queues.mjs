@@ -1,9 +1,4 @@
-// Builds workerd-queues.capnp, the self-host config for RUN_EXECUTION=queues:
-// the default config plus a RUN_QUEUE binding and workerd's built-in Queues
-// Worker. That Worker is experimental in workerd, so it is kept out of the
-// default config and the launchers add --experimental only for this one.
-import { readFileSync, writeFileSync } from 'node:fs'
-
+// Add workerd's experimental Queues Worker to the local integration fixture.
 export function queuesConfig(base) {
   const binding = '        (name = "RUNS", durableObjectNamespace = "WorkflowRun"),\n'
   const service = '    (name = "assets", disk = (path = "public")),\n'
@@ -27,9 +22,4 @@ export function queuesConfig(base) {
       durableObjectStorage = (localDisk = "storage")
     )),
 ` + service)
-}
-
-if (process.argv[1] === new URL(import.meta.url).pathname) {
-  const [input, output] = process.argv.slice(2)
-  writeFileSync(output, queuesConfig(readFileSync(input, 'utf8')))
 }
