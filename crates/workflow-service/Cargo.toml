@@ -26,4 +26,4 @@ workflow-data = { path = "../workflow-data" }
 jsonschema = { version = "=0.62.0", default-features = false }
 
 [dev-dependencies]
-rusqlite = { version = "0.41", features = ["bundled"] }
+rusqlite = { version = "0.43", features = ["bundled"] }
