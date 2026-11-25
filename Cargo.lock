@@ -132,6 +132,7 @@ checksum = "1aa79e62e7697b8e29b513a68abacf485adcd1fe8284a4316c5ae868e6633327"
 dependencies = [
  "js-sys",
  "num-traits",
+ "serde",
  "wasm-bindgen",
 ]
 
@@ -158,6 +159,16 @@ dependencies = [
  "serde",
  "serde_json",
  "workflow-schema",
+]
+
+[[package]]
+name = "connectors-clairic"
+version = "0.1.0"
+dependencies = [
+ "chrono",
+ "connector-sdk",
+ "serde",
+ "serde_json",
 ]
 
 [[package]]
@@ -1736,6 +1747,7 @@ dependencies = [
  "chrono",
  "chrono-tz",
  "connector-sdk",
+ "connectors-clairic",
  "connectors-core",
  "connectors-data",
  "connectors-http",
@@ -1757,6 +1769,7 @@ version = "0.1.0"
 dependencies = [
  "base64",
  "connector-sdk",
+ "connectors-clairic",
  "connectors-data",
  "connectors-http",
  "connectors-webhook",

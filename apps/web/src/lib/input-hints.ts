@@ -93,6 +93,28 @@ export function workflowInputHints(workflow: Workflow, nodeId: string | undefine
     } else if(node.type==='Filter'||node.type==='Sort') {
       const pointer=typeof node.config.arrayPointer==='string'?node.config.arrayPointer:''
       hint={sample:inputValue(parent.sample,pointer)??null,schema:schemaAt(parent.schema,pointer)}
+    } else if(node.type==='Clairic') {
+      const fields=Array.isArray(node.config.fields)?node.config.fields.map(object):[]
+      const fixture=object(node.config.simulationResponse)
+      const answers=object(fixture.answers)
+      const fieldSchemas: [string, Json][]=fields.flatMap(field=>{
+        if (typeof field.name!=='string'||!field.name) return []
+        const type=field.type==='number'||field.type==='boolean'?field.type:'string'
+        const schema: Json = field.type==='enum'&&Array.isArray(field.enum)
+          ? {enum:[...field.enum,null]} : {type:[type,'null']}
+        return [[field.name,schema]]
+      })
+      const names=fieldSchemas.map(([name])=>name)
+      const answer=(name:string,key:'value'|'confidence')=>{
+        const value=object(answers[name])
+        return value.valid===false||value.complete===false?null:value[key]??null
+      }
+      hint={sample:{values:Object.fromEntries(names.map(name=>[name,answer(name,'value')])),
+        confidence:Object.fromEntries(names.map(name=>[name,answer(name,'confidence')])),
+        truncated:fixture.truncated??false},
+        schema:{type:'object',properties:{values:{type:'object',properties:Object.fromEntries(fieldSchemas)},
+        confidence:{type:'object',properties:Object.fromEntries(names.map(name=>[name,{type:['number','null']}]))},
+        truncated:{type:'boolean'}}}}
     } else if(node.type==='HTTP Request') {
       const fixture=object(decodeJson(node.config.simulationResponse));hint={sample:{status:fixture.status??200,contentType:'application/json',body:fixture.body??null}}
     }

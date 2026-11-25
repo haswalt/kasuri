@@ -1,6 +1,6 @@
 # Agentic connector roadmap
 
-Status: selected requirements; not implemented yet. Catalogue entries must remain Planned until executable adapters exist.
+Status: Clairic text extraction and classification is implemented. The remaining adapters and Clairic media support are planned.
 
 | Option | Role in a workflow | Required capabilities |
 | --- | --- | --- |
@@ -13,13 +13,13 @@ Status: selected requirements; not implemented yet. Catalogue entries must remai
 
 AI Gateway and MCP Portals are separate integration options. AI Gateway fronts model requests; an MCP portal provides an endpoint for curated MCP server capabilities. Neither replaces Kasuri's inbound [MCP management server](agent-mcp.md), which allows external agents to manage Kasuri itself.
 
-## First connector: Clairic
+## Clairic
 
-Build this as a standalone Workers AI node backed by [Clairic](https://developers.cloudflare.com/workers-ai/models/clairic/). Bind text from an earlier node and configure field names, types and optional instructions. Clairic extracts the fields in one model request. An enum field can also classify the input into a fixed set of labels in that request. Expose the typed values, including null for undetermined fields, and any confidence metadata Clairic returns so IF and Switch can use them directly.
+Clairic is a standalone Workers AI node backed by [Clairic](https://developers.cloudflare.com/workers-ai/models/clairic/). Bind text from an earlier node and configure field names, types and optional instructions. Clairic extracts the fields in one model request. An enum field can also classify the input into a fixed set of labels in that request. Expose the typed values, including null for undetermined fields, and any confidence metadata Clairic returns so IF and Switch can use them directly.
 
 For an incoming booking enquiry, pass the email body to Clairic and request the sender's name, enquiry, event date, guest count, budget and requested band. Use a date field for the event date and a number for the guest count. Keep the amount and currency distinct, and leave absent or ambiguous information unset. IF or Switch then applies the workflow's rules to route the result to a reply or forward the original email and extracted details to a person. Keep provider failures distinct from undetermined fields.
 
-Use the deployment's Workers AI binding for live runs and explicit fixture results for offline simulations. Add an importable example using a synthetic email and fixture answers so both routing branches can be tried without credentials. Receiving and sending live email are separate connector work.
+Live runs use the deployment's Workers AI binding. The [Clairic connector guide](connectors.md#clairic) links to importable examples for both routing branches, using synthetic emails and offline fixture answers. Receiving and sending live email are separate connector work.
 
 Use the same field builder for general document extraction. For example, a booking enquiry might arrive with its details in a PDF or an image attachment. Start with email text, then accept Clairic's supported images and PDFs once Kasuri can pass authorized file references between nodes. Resolve the references for the model call and enforce its format and size limits. Keep attachment bytes out of workflow documents and run checkpoints.
 

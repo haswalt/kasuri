@@ -105,6 +105,14 @@ pub fn describe(kind: &str, config: &Map<String, Value>) -> Value {
             );
             "Dispatches a bounded HTTPS request. Result body is JSON or text, inside /body; status is /status. Simulation uses an explicit fixture."
         }
+        connectors_clairic::KIND => {
+            selection = json!({"pointer":config.get("inputPointer").and_then(Value::as_str).unwrap_or(""),"selectedSchema":{"type":"string","minLength":1}});
+            if selection["pointer"] == "" {
+                input = json!({"type":"string","minLength":1});
+            }
+            output = connectors_clairic::output_schema(config);
+            "Extracts configured typed values from selected text with Cloudflare Workers AI. Read /values and /confidence by field name; null means there is no usable answer or score. Simulations require a fixture and never call the model."
+        }
         "Parse Body" => {
             output = object(
                 json!({"valid":{"type":"boolean"},"value":{},"errors":{"type":"array"}}),
