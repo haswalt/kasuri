@@ -1,5 +1,6 @@
 //! HTTP, SQLite persistence and alarms, implemented directly with workers-rs.
 mod data;
+mod external;
 mod http;
 mod mcp;
 mod runs;
@@ -412,7 +413,7 @@ impl DurableObject for WorkflowWorkspace {
         let execute = |id: String, task: connector_sdk::Task| {
             let env = self.env.clone();
             async move {
-                let outcome = http::execute(&task, &env).await;
+                let outcome = external::execute(&task, &env).await;
                 (id, task, outcome)
             }
         };

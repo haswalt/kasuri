@@ -402,7 +402,10 @@ impl RunRecord {
                 Dispatch::Task(task) => {
                     if matches!(task.node.kind.as_str(), "Execute Workflow" | "Each / Loop")
                         || connectors_data::handles(&task.node.kind)
-                        || (task.node.kind == "HTTP Request" && self.mode != Mode::Simulation)
+                        || (matches!(
+                            task.node.kind.as_str(),
+                            "HTTP Request" | connectors_clairic::KIND
+                        ) && self.mode != Mode::Simulation)
                     {
                         let external = ExternalTask {
                             task: *task,
@@ -486,6 +489,8 @@ impl RunRecord {
                         })
                     } else if task.node.kind == "HTTP Request" {
                         connectors_http::simulate(&task)
+                    } else if task.node.kind == connectors_clairic::KIND {
+                        connectors_clairic::simulate(&task)
                     } else {
                         CoreConnector.execute(&task)
                     };
@@ -1049,6 +1054,11 @@ impl Workspace {
                     node.config.remove("query");
                     node.config.remove("body");
                     connectors_http::validate(&Task{context:Value::Null,id:"validate".into(),idempotency_key:"validate".into(),node,input:Value::Null,attempt:1,deadline_ms:1}).map_err(|_|error(400,"Invalid HTTP request: use HTTPS, a supported auth configuration and one attempt for writes"))?;
+                }
+                if node.kind == connectors_clairic::KIND {
+                    connectors_clairic::validate(&node.config).map_err(|_| {
+                        error(400, "Invalid Clairic configuration: check field names, types, allowed labels and simulation answers")
+                    })?;
                 }
                 if !manifests
                     .iter()
@@ -2116,6 +2126,7 @@ pub fn manifests() -> Vec<connector_sdk::NodeManifest> {
     manifests.push(connector_sdk::NodeManifest{kind:"Execute Workflow".into(),version:1,config_schema:json!({"type":"object","properties":{"workflowId":{"type":"string"},"revision":{"type":"integer","minimum":1},"mode":{"enum":["await","background"]},"inputPointer":{"type":"string"}},"required":["workflowId"],"additionalProperties":false}),output_ports:vec!["success".into(),"error".into()],has_external_side_effects:true});
 
     manifests.push(connectors_http::manifest());
+    manifests.push(connectors_clairic::manifest());
     manifests.extend(connectors_data::manifests());
     manifests.push(connector_sdk::NodeManifest{kind:"Respond to Webhook".into(),version:1,config_schema:json!({"type":"object","properties":{"status":{"oneOf":[{"type":"integer","minimum":200,"maximum":599},{"type":"string","description":"Numeric status or JSON-encoded $input reference"},{"type":"object","properties":{"$input":{"type":"string"}},"required":["$input"],"additionalProperties":false}],"default":200},"responseType":{"enum":["json","text"]},"headers":{"oneOf":[{"type":"object"},{"type":"string","description":"JSON-encoded response headers"}]},"body":{}},"additionalProperties":false}),output_ports:vec!["success".into(),"error".into()],has_external_side_effects:true});
     manifests.push(connector_sdk::NodeManifest {kind:"Request Context".into(),version:1,config_schema:json!({"type":"object","properties":{"part":{"enum":["metadata","body","raw_body","headers","query"]}},"additionalProperties":false}),output_ports:vec!["success".into(),"error".into()],has_external_side_effects:false});

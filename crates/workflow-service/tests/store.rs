@@ -562,14 +562,15 @@ fn every_published_example_runs_through_the_store<S: TestStore>() {
     for case in cases {
         let doc = read(case["file"].as_str().unwrap());
         let id = doc["id"].as_str().unwrap().to_string();
-        let has_http = doc["nodes"]
-            .as_array()
-            .unwrap()
-            .iter()
-            .any(|n| n["type"] == "HTTP Request");
+        let has_network_node = doc["nodes"].as_array().unwrap().iter().any(|n| {
+            matches!(
+                n["type"].as_str(),
+                Some("HTTP Request" | connectors_clairic::KIND)
+            )
+        });
         for mode in ["simulation", "run"] {
-            if mode == "run" && has_http {
-                continue; // real HTTP is not available in native tests
+            if mode == "run" && has_network_node {
+                continue; // native tests do not dispatch network effects
             }
             let mut store = S::fresh();
             let loaded = Tracked::load(&store).unwrap();
