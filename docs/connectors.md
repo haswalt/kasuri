@@ -1,6 +1,16 @@
 # Implemented connectors
 
-The runtime advertises 27 node types: Manual Trigger, Webhook, Schedule, Map / Transform, IF / Condition, Merge, Wait / Delay, JSON Utilities, Error Handler, Filter, Sort, HTTP Request, Data Tables, Context Store, Request Context Respond to Webhook, Validate Schema, Parse Body, Execute Workflow Trigger, Execute Workflow, Split / Parallel, Join, Split / Batch, Each / Loop, Aggregate, Expressions and Switch / Router. A catalogue entry marked Planned is not executable.
+The runtime advertises 28 node types: Manual Trigger, Webhook, Schedule, Map / Transform, IF / Condition, Merge, Wait / Delay, JSON Utilities, Error Handler, Filter, Sort, HTTP Request, Clairic, Data Tables, Context Store, Request Context, Respond to Webhook, Validate Schema, Parse Body, Execute Workflow Trigger, Execute Workflow, Split / Parallel, Join, Split / Batch, Each / Loop, Aggregate, Expressions and Switch / Router. A catalogue entry marked Planned is not executable.
+
+## Clairic
+
+Extract named text, number, date, boolean and enum fields in one [Workers AI request](https://developers.cloudflare.com/workers-ai/models/clairic/). In the editor, select the input text and add each field using the type picker. Use the whole input when it is already a string, or select a field such as `/body` on an email object. For relative dates, an optional reference date uses `YYYY-MM-DD`.
+
+Use `/values/<field>` in IF or Switch. An absent or incomplete answer is null, and `/confidence/<field>` contains the model's score when available. Route incomplete results to review using `/truncated` and check the fields the workflow requires. A provider failure, timeout or invalid provider response follows the error output.
+
+For simulations, set `simulationResponse` to an object such as `{"answers":{"guest_count":{"value":80,"confidence":0.95}}}`, with one answer per configured field. Simulations validate the selected input and use the fixture without calling Workers AI. Try the [booking reply](../examples/workflows/32-clairic-booking-reply.json) and [human handoff](../examples/workflows/33-clairic-booking-handoff.json) examples with the default `{}` input.
+
+For live runs on a trusted deployment, enable the `"ai": { "binding": "AI" }` entry in `wrangler.jsonc` and deploy. The Worker uses the installation's Workers AI binding and account usage. Only selected text and configured field definitions are sent. This version accepts text. Image and PDF inputs will use Kasuri's file references when those are available.
 
 ## Data Tables and Context Store
 

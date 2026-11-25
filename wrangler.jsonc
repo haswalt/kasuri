@@ -16,6 +16,8 @@
       "/.well-known/*"
     ]
   },
+  // Enable on trusted deployments that want live Clairic inference.
+  // "ai": { "binding": "AI" },
   "durable_objects": {
     "bindings": [
       {

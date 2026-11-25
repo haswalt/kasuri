@@ -471,5 +471,88 @@
     "statuses": {
       "rejected": "skipped"
     }
+  },
+  {
+    "file": "workflows/32-clairic-booking-reply.json",
+    "outputs": {
+      "extract": {
+        "values": {
+          "name": "Jamie Example",
+          "enquiry": "booking",
+          "event_date": "2027-06-12",
+          "guest_count": 80,
+          "budget": 1500,
+          "currency": "GBP",
+          "band": "Example Quartet"
+        },
+        "confidence": {
+          "name": null,
+          "enquiry": null,
+          "event_date": null,
+          "guest_count": null,
+          "budget": null,
+          "currency": null,
+          "band": null
+        },
+        "truncated": false
+      },
+      "reply": {
+        "action": "reply",
+        "booking": {
+          "name": "Jamie Example",
+          "enquiry": "booking",
+          "event_date": "2027-06-12",
+          "guest_count": 80,
+          "budget": 1500,
+          "currency": "GBP",
+          "band": "Example Quartet"
+        }
+      }
+    },
+    "statuses": {
+      "handoff": "skipped"
+    }
+  },
+  {
+    "file": "workflows/33-clairic-booking-handoff.json",
+    "outputs": {
+      "extract": {
+        "values": {
+          "name": "Jamie Example",
+          "enquiry": "booking",
+          "event_date": null,
+          "guest_count": 80,
+          "budget": null,
+          "currency": null,
+          "band": "Example Quartet"
+        },
+        "confidence": {
+          "name": null,
+          "enquiry": null,
+          "event_date": null,
+          "guest_count": null,
+          "budget": null,
+          "currency": null,
+          "band": null
+        },
+        "truncated": false
+      },
+      "handoff": {
+        "action": "handoff",
+        "email": "Hello, is the Example Quartet taking bookings? We expect about 80 guests but are still choosing a date and budget. Thanks, Jamie Example",
+        "booking": {
+          "name": "Jamie Example",
+          "enquiry": "booking",
+          "event_date": null,
+          "guest_count": 80,
+          "budget": null,
+          "currency": null,
+          "band": "Example Quartet"
+        }
+      }
+    },
+    "statuses": {
+      "reply": "skipped"
+    }
   }
 ]

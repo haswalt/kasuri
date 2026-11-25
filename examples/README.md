@@ -2,7 +2,7 @@
 
 Download a JSON file from [workflows](workflows/) (use GitHub's **Download raw file**), open your Kasuri installation, choose **Workflows → Import JSON**, and select it. The files are ordinary workflow exports committed with the project, not preloaded workspace data or an application demo mode.
 
-Every example accepts the default `{}` input. No accounts, API keys, environment variables or installation-specific URLs are required. For example 19, import and publish the reusable workflow 18 first; for examples 24/25, import and publish 23 first; importing the caller automatically binds both calls to that imported child, without ID edits. The other examples can immediately use **Run now** or **Simulate → Play**. Imported workflows are drafts with fresh IDs, so importing does not activate recurring jobs or webhook endpoints.
+Every example accepts the default `{}` input. No accounts, API keys, environment variables or installation-specific URLs are required. For example 19, import and publish the reusable workflow 18 first; for examples 24/25, import and publish 23 first; importing the caller automatically binds both calls to that imported child, without ID edits. Use **Simulate → Play** for the Clairic examples. The other examples can immediately use **Run now** or **Simulate → Play**. Imported workflows are drafts with fresh IDs, so importing does not activate recurring jobs or webhook endpoints.
 
 | Example | Level | What to inspect |
 | --- | --- | --- |
@@ -31,8 +31,10 @@ Every example accepts the default `{}` input. No accounts, API keys, environment
 | [23 Item worker](workflows/23-item-worker.json) | Reusable child | Tag one input object; runs independently from {}. Publish before importing 24/25. |
 | [24 Each items](workflows/24-each-items.json) | Durable items | Process three items with concurrency two, then aggregate ordered results. |
 | [25 Collect item errors](workflows/25-collect-item-errors.json) | Failure handling | Reject an invalid item, preserve successful results and aggregate them explicitly. |
+| [32 Clairic booking reply](workflows/32-clairic-booking-reply.json) | Offline AI extraction | Extract typed booking details from a synthetic email and prepare a reply. |
+| [33 Clairic booking handoff](workflows/33-clairic-booking-handoff.json) | Offline AI extraction | Route an enquiry with missing details to a person, with the original email and extracted fields. |
 
-Together these cover every currently implemented node: Manual Trigger, Webhook, Schedule, Map / Transform, IF / Condition, Merge, Wait / Delay, JSON Utilities, Error Handler, HTTP Request, Filter and Sort.
+Together these cover every currently implemented node: Manual Trigger, Webhook, Schedule, Map / Transform, IF / Condition, Merge, Wait / Delay, JSON Utilities, Error Handler, HTTP Request, Filter, Sort and Clairic.
 
 ## Public APIs and simulation
 

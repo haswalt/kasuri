@@ -1,0 +1,210 @@
+{
+  "schemaVersion": 2,
+  "id": "33-clairic-booking-handoff",
+  "name": "Clairic booking enquiry: handoff",
+  "description": "Simulate with {}. Uses a synthetic booking email and offline answers to preview routing. This example does not send email.",
+  "status": "draft",
+  "revision": 0,
+  "updatedAt": "",
+  "nodes": [
+    {
+      "id": "start",
+      "type": "Manual Trigger",
+      "label": "Start offline example",
+      "config": {}
+    },
+    {
+      "id": "email",
+      "type": "Map / Transform",
+      "label": "Example email",
+      "config": {
+        "mapping": {
+          "body": "Hello, is the Example Quartet taking bookings? We expect about 80 guests but are still choosing a date and budget. Thanks, Jamie Example"
+        }
+      }
+    },
+    {
+      "id": "extract",
+      "type": "Clairic",
+      "label": "Extract booking details",
+      "config": {
+        "inputPointer": "/body",
+        "fields": [
+          {
+            "name": "name",
+            "type": "text",
+            "instructions": "Name of the person who sent the enquiry."
+          },
+          {
+            "name": "enquiry",
+            "type": "enum",
+            "enum": [
+              "booking",
+              "other"
+            ],
+            "instructions": "Is the sender enquiring about booking a band?"
+          },
+          {
+            "name": "event_date",
+            "type": "date",
+            "instructions": "Date the band would perform."
+          },
+          {
+            "name": "guest_count",
+            "type": "number",
+            "instructions": "Number of expected guests."
+          },
+          {
+            "name": "budget",
+            "type": "number",
+            "instructions": "Maximum budget for the band, without the currency."
+          },
+          {
+            "name": "currency",
+            "type": "text",
+            "instructions": "Currency explicitly given, if available."
+          },
+          {
+            "name": "band",
+            "type": "text",
+            "instructions": "Name of the requested band."
+          }
+        ],
+        "simulationResponse": {
+          "answers": {
+            "name": {
+              "value": "Jamie Example"
+            },
+            "enquiry": {
+              "value": "booking"
+            },
+            "event_date": {
+              "value": null
+            },
+            "guest_count": {
+              "value": 80
+            },
+            "budget": {
+              "value": null
+            },
+            "currency": {
+              "value": null
+            },
+            "band": {
+              "value": "Example Quartet"
+            }
+          }
+        }
+      }
+    },
+    {
+      "id": "route",
+      "type": "IF / Condition",
+      "label": "Ready for a reply?",
+      "config": {
+        "match": "all",
+        "conditions": [
+          {
+            "field": "values.enquiry",
+            "operator": "equals",
+            "valueType": "string",
+            "value": "booking"
+          },
+          {
+            "field": "values.event_date",
+            "operator": "is_not_empty"
+          },
+          {
+            "field": "values.budget",
+            "operator": "is_not_empty"
+          },
+          {
+            "field": "values.currency",
+            "operator": "is_not_empty"
+          },
+          {
+            "field": "values.guest_count",
+            "operator": "greater_than",
+            "valueType": "number",
+            "value": 0
+          },
+          {
+            "field": "truncated",
+            "operator": "equals",
+            "valueType": "boolean",
+            "value": false
+          }
+        ]
+      }
+    },
+    {
+      "id": "reply",
+      "type": "Map / Transform",
+      "label": "Prepare reply",
+      "config": {
+        "mapping": {
+          "action": "reply",
+          "booking": {
+            "$input": "/values"
+          }
+        }
+      }
+    },
+    {
+      "id": "handoff",
+      "type": "Map / Transform",
+      "label": "Prepare human handoff",
+      "config": {
+        "mapping": {
+          "action": "handoff",
+          "booking": {
+            "$input": "/values"
+          },
+          "email": {
+            "$input": "/email"
+          }
+        }
+      },
+      "inputBindings": {
+        "values": {
+          "op": "input",
+          "path": "/values"
+        },
+        "email": {
+          "op": "node",
+          "nodeId": "email",
+          "path": "/body"
+        }
+      }
+    }
+  ],
+  "edges": [
+    {
+      "id": "start-email",
+      "source": "start",
+      "target": "email"
+    },
+    {
+      "id": "email-extract",
+      "source": "email",
+      "target": "extract"
+    },
+    {
+      "id": "extract-route",
+      "source": "extract",
+      "target": "route"
+    },
+    {
+      "id": "route-reply",
+      "source": "route",
+      "target": "reply",
+      "sourcePort": "true"
+    },
+    {
+      "id": "route-handoff",
+      "source": "route",
+      "target": "handoff",
+      "sourcePort": "false"
+    }
+  ]
+}

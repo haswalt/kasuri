@@ -132,6 +132,7 @@ checksum = "1aa79e62e7697b8e29b513a68abacf485adcd1fe8284a4316c5ae868e6633327"
 dependencies = [
  "js-sys",
  "num-traits",
+ "serde",
  "wasm-bindgen",
 ]
 
@@ -158,6 +159,16 @@ dependencies = [
  "serde",
  "serde_json",
  "workflow-schema",
+]
+
+[[package]]
+name = "connectors-clairic"
+version = "0.1.0"
+dependencies = [
+ "chrono",
+ "connector-sdk",
+ "serde",
+ "serde_json",
 ]
 
 [[package]]
@@ -731,9 +742,9 @@ dependencies = [
 
 [[package]]
 name = "jsonschema"
-version = "0.61.2"
+version = "0.62.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "0e37f27df77c7887edbc5f5a59ecd8e5ec4a669319266ec1b61068667a603183"
+checksum = "4c5400a8dc340fa3ed743068cf8f3c1719f4f71e1260115dffc64da6bf339135"
 dependencies = [
  "ahash",
  "bytecount",
@@ -759,18 +770,18 @@ dependencies = [
 
 [[package]]
 name = "jsonschema-regex"
-version = "0.61.2"
+version = "0.62.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "7e41151614b6c927e21982be8bef5a26741ae5a0ae6a781eedee2aa930a980e6"
+checksum = "7fdaef5fd9b5ee4cc56b9f8d373d811fc4d7b8fdcb0902cf3b7749e5c478118d"
 dependencies = [
  "regex-syntax",
 ]
 
 [[package]]
 name = "jsonschema-value"
-version = "0.61.2"
+version = "0.62.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "1515b9a91134ef67d7bac95c2d76fbc7e383c4c55ee544204ceec8088f881fef"
+checksum = "fcb55c1402635417a02ce0a53e890ce191cf5b276fc1ec92284fc544d257d127"
 dependencies = [
  "ahash",
  "bytecount",
@@ -791,9 +802,9 @@ checksum = "65cd87c9a6d60536580b316ad985726104730a5151c99845f2490428ef91240a"
 
 [[package]]
 name = "libsqlite3-sys"
-version = "0.39.1"
+version = "0.40.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "14a5f01b87b92705d07b433c06f96cbc764637d81a0bffb5734ce17cf0f9a2b3"
+checksum = "b06e69070b7e12262b0cd90832f0a7396f142a2b330181255562decf9f0c6215"
 dependencies = [
  "cc",
  "pkg-config",
@@ -1066,9 +1077,9 @@ dependencies = [
 
 [[package]]
 name = "referencing"
-version = "0.61.2"
+version = "0.62.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "a028057ef852c58a42d75e09da87b5e733f4030f4c7411728955e4f87203a577"
+checksum = "5658eec40ff1065debe70c744f3c36accc3b41566359e098942a101e30d0029e"
 dependencies = [
  "ahash",
  "fluent-uri",
@@ -1130,9 +1141,9 @@ dependencies = [
 
 [[package]]
 name = "rusqlite"
-version = "0.41.1"
+version = "0.43.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "da9bba6f3506135e120a6586df05be18b48d18896600646a4bec8f993d91a594"
+checksum = "f172c4812a19b26d1c23cdb0070e69db335503dfa378b910eb857386e5b8beba"
 dependencies = [
  "bitflags",
  "fallible-iterator",
@@ -1736,6 +1747,7 @@ dependencies = [
  "chrono",
  "chrono-tz",
  "connector-sdk",
+ "connectors-clairic",
  "connectors-core",
  "connectors-data",
  "connectors-http",
@@ -1757,6 +1769,7 @@ version = "0.1.0"
 dependencies = [
  "base64",
  "connector-sdk",
+ "connectors-clairic",
  "connectors-data",
  "connectors-http",
  "connectors-webhook",
