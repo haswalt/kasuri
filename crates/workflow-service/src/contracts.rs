@@ -279,6 +279,10 @@ pub fn describe(kind: &str, config: &Map<String, Value>) -> Value {
         "Error Handler" => {
             "Receives the explicit failed-node error output and passes it onward. It does not independently intercept unrelated node failures."
         }
+        "Fail Workflow" => {
+            output = json!(false);
+            "Ends the run as failed with workflow_failed. Put cleanup and any Respond to Webhook node before it. It has no output ports."
+        }
         _ => UNDESCRIBED,
     };
     let mut contract = json!({"description":description,"inputSchema":input,"outputSchema":output,"selectedInput":selection,"schemaSemantics":"Schemas describe successful runtime results and may be open where user data or selected contracts determine the shape. Failure routing is separate. inputSchema describes the value the connector receives; with format 2 inputBindings that value is the assembled object, not the parent output. No sample values or secrets are inferred from workspace data.","documentationUrl":"https://github.com/haswalt/kasuri","documentationPath":"docs/connectors.md"});

@@ -34,6 +34,7 @@ pub enum FailureCode {
     BudgetExceeded,
     DeadlineExceeded,
     InvocationFailed,
+    WorkflowFailed,
 }
 
 /// Operator-friendly diagnostics authored by the host or connector. Never copy upstream bodies.

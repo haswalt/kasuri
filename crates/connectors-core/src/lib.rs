@@ -37,6 +37,10 @@ impl Connector for CoreConnector {
             | "Split / Parallel"
             | "Join"
             | "Error Handler" => Outcome::success(task.input.clone()),
+            "Fail Workflow" => Outcome::Failed {
+                failure: Failure::permanent(FailureCode::WorkflowFailed)
+                    .with_detail("", "The workflow ended at a Fail Workflow node."),
+            },
             "Expressions" => expressions::execute(task),
             "Switch / Router" => routing::switch(&node.config, &task.input),
             "Merge" => routing::merge(&node.config, &task.input),
@@ -209,6 +213,7 @@ pub fn manifests() -> Vec<connector_sdk::NodeManifest> {
         ("Expressions", expressions::schema()),
         ("Switch / Router", routing::switch_schema()),
         ("Error Handler", json!({"type":"object","properties":{}})),
+        ("Fail Workflow", json!({"type":"object","properties":{},"additionalProperties":false})),
         ("Map / Transform", json!({"type":"object","properties":{"mapping":{"oneOf":[{"type":"object"},{"type":"string","description":"JSON-encoded mapping object"}]}},"required":["mapping"]})),
         ("IF / Condition", conditions::schema()),
         ("Wait / Delay", json!({"type":"object","properties":{"delayMs":{"oneOf":[{"type":"integer","minimum":0},{"type":"string","pattern":"^\\+?[0-9]+$"}]}},"required":["delayMs"]})),
@@ -216,7 +221,7 @@ pub fn manifests() -> Vec<connector_sdk::NodeManifest> {
         ("JSON Utilities", json!({"type":"object","properties":{"operation":{"enum":["parse","stringify"]}},"required":["operation"]})),
     ].into_iter().map(|(kind, config_schema)| connector_sdk::NodeManifest {
         kind: kind.into(), version: 1, config_schema,
-        output_ports: if kind == "IF / Condition" { vec!["true".into(),"false".into(),"error".into()] } else if kind == "Switch / Router" { vec!["fallback".into(),"error".into()] } else { vec!["success".into(),"error".into()] },
+        output_ports: if kind == "Fail Workflow" { vec![] } else if kind == "IF / Condition" { vec!["true".into(),"false".into(),"error".into()] } else if kind == "Switch / Router" { vec!["fallback".into(),"error".into()] } else { vec!["success".into(),"error".into()] },
         has_external_side_effects: false,
     }).chain(std::iter::once(validation::manifest())).collect()
 }

@@ -572,7 +572,7 @@ export function WorkflowEditor({
               <div className={styles.inspectorScroll}>
                 <label>From node
                   <select value={edge.source} onChange={(e) => editConnection(e.target.value, edge.target, ports(workflow.nodes.find((n) => n.id === e.target.value)!.type,workflow.nodes.find((n) => n.id === e.target.value)!.config)[0])}>
-                    {workflow.nodes.map((n) => <option key={n.id} value={n.id}>{n.label}</option>)}
+                    {workflow.nodes.filter((n) => n.id === edge.source || ports(n.type, n.config).length > 0).map((n) => <option key={n.id} value={n.id}>{n.label}</option>)}
                   </select>
                 </label>
                 <label>Output
@@ -820,6 +820,8 @@ export function WorkflowEditor({
                         ? 'Enter fixed values or bind to, subject, text and optionally inReplyTo. Simulation previews delivery.'
                         : node.type === 'Error Handler'
                         ? 'A node’s error output supplies a failure code at /error/code. Other outputs, including IF false, pass their data through unchanged. Connect Sentry downstream to report an error.'
+                        : node.type === 'Fail Workflow'
+                        ? 'Ends the run as failed. Put cleanup and any webhook response before this node.'
                         : node.type === 'MCP Client'
                         ? 'Live runs use an approved connection. Simulations use the saved fixture.'
                         : node.type === 'Clairic'
@@ -954,7 +956,7 @@ export function WorkflowEditor({
                           </Button>
                         </div>
                       ))}
-                    <p className={styles.muted}>Drag from an output handle on the canvas to connect another node.</p>
+                    <p className={styles.muted}>{node.type === 'Fail Workflow' ? 'This node ends the run.' : 'Drag from an output handle on the canvas to connect another node.'}</p>
                   </>
                 )}
                 <Button

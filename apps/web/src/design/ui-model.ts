@@ -4,7 +4,7 @@ import type { Run } from '../../../../packages/contracts/src/index.ts'
 export function category(kind: string): NodeCategory {
   if (['Manual Trigger', 'Webhook', 'Email Trigger', 'Schedule', 'Execute Workflow Trigger'].includes(kind)) return 'trigger'
   if (kind === 'Clairic' || /HTTP|AI|OpenAI|Claude|MCP|Embeddings/.test(kind)) return 'http'
-  if (/Error|Sentry|PagerDuty/.test(kind)) return 'error'
+  if (/Error|Fail Workflow|Sentry|PagerDuty/.test(kind)) return 'error'
   if (/Cloudflare|D1|R2|KV|Queues/.test(kind)) return 'cf'
   if (
     /Parse Body|Validate Schema|Respond to Webhook|Data Tables|Context Store|Request Context|Expressions|Switch|Split|Aggregate|Join|Map|IF|Sort|Filter|Merge|Wait|JSON|CSV|XML|Loop|Batch|Code|Execute/.test(

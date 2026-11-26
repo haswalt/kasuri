@@ -94,6 +94,8 @@ The response decision survives restart, but an interrupted HTTP connection canno
 
 See [example 13](../examples/workflows/13-webhook-response.json), which previews without configuration and can be published on your own installation for a live `201` followed by background processing.
 
+To record a rejection as a failed run, perform any cleanup and return the desired HTTP response before **Fail Workflow**. The node ends the run with `workflow_failed`, and the caller receives the response already prepared by **Respond to Webhook**. A branch that handles an error and completes normally can still succeed. [Example 40](../examples/workflows/40-webhook-failure-after-response.json) returns `422` before failing the run.
+
 ## Request Context
 
 The Request Context node has a `part` setting:

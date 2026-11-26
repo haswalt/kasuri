@@ -74,6 +74,8 @@ export function addCanvasNode(workflow: Workflow, type: string, position: Point,
   }
   const edge = workflow.edges.find(e => e.id === anchor?.edgeId)
   if (edge) {
+    const outputPort = ports(type, node.config)[0]
+    if (!outputPort) throw new Error('Add this terminal node at the end of a branch.')
     const positions = layout(workflow)
     const shift = Math.max(0, position.y + NODE_GAP - positions.get(edge.target)!.y)
     const downstream = new Set<string>(); const pending = [edge.target]
@@ -81,7 +83,7 @@ export function addCanvasNode(workflow: Workflow, type: string, position: Point,
     next.nodes = next.nodes.map(n => downstream.has(n.id) ? { ...n, position: { x: positions.get(n.id)!.x, y: positions.get(n.id)!.y + shift } } : n)
     next.edges = workflow.edges.filter(e => e.id !== edge.id)
     next = connect(next, edge.source, node.id, edge.sourcePort ?? 'success', edge.id)
-    next = connect(next, node.id, edge.target, ports(type,node.config)[0])
+    next = connect(next, node.id, edge.target, outputPort)
     return { workflow: next, nodeId: node.id, message: 'Inserted into the connection.' }
   }
   const positions = layout(workflow)

@@ -1,0 +1,37 @@
+{
+  "schemaVersion": 1,
+  "id": "40-webhook-failure-after-response",
+  "name": "Reject a webhook and fail the run",
+  "description": "Return a 422 response to the caller, then record the rejection as a failed run.",
+  "status": "draft",
+  "revision": 0,
+  "updatedAt": "",
+  "nodes": [
+    {
+      "id": "start",
+      "type": "Webhook",
+      "label": "Incoming request",
+      "config": { "authentication": "none" }
+    },
+    {
+      "id": "respond",
+      "type": "Respond to Webhook",
+      "label": "Reply 422",
+      "config": {
+        "status": 422,
+        "responseType": "json",
+        "body": { "accepted": false, "error": "Example rejection" }
+      }
+    },
+    {
+      "id": "fail",
+      "type": "Fail Workflow",
+      "label": "Record a failed run",
+      "config": {}
+    }
+  ],
+  "edges": [
+    { "id": "a", "source": "start", "target": "respond" },
+    { "id": "b", "source": "respond", "target": "fail" }
+  ]
+}

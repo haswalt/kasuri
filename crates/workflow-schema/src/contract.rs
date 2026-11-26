@@ -369,7 +369,9 @@ impl Workflow {
     }
 }
 pub fn output_ports(node: &super::Node) -> Vec<String> {
-    if node.kind == "IF / Condition" {
+    if node.kind == "Fail Workflow" {
+        vec![]
+    } else if node.kind == "IF / Condition" {
         vec!["true".into(), "false".into(), "error".into()]
     } else if node.kind == "Switch / Router" {
         node.config

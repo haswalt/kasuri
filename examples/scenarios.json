@@ -645,5 +645,21 @@
         "error": "Send an Idempotency-Key header between 1 and 128 characters"
       }
     }
+  },
+  {
+    "file": "workflows/40-webhook-failure-after-response.json",
+    "expectedStatus": "failed",
+    "outputs": {},
+    "statuses": {
+      "respond": "succeeded",
+      "fail": "failed"
+    },
+    "response": {
+      "status": 422,
+      "body": {
+        "accepted": false,
+        "error": "Example rejection"
+      }
+    }
   }
 ]

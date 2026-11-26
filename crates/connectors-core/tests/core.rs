@@ -112,7 +112,7 @@ fn unsupported_nodes_never_execute_code_or_perform_http() {
 #[test]
 fn manifests_only_advertise_implemented_versioned_nodes() {
     let manifests = connectors_core::manifests();
-    assert_eq!(manifests.len(), 19);
+    assert_eq!(manifests.len(), 20);
     assert!(
         manifests
             .iter()
@@ -130,6 +130,14 @@ fn manifests_only_advertise_implemented_versioned_nodes() {
             .unwrap()
             .output_ports,
         ["true", "false", "error"]
+    );
+    assert!(
+        manifests
+            .iter()
+            .find(|m| m.kind == "Fail Workflow")
+            .unwrap()
+            .output_ports
+            .is_empty()
     );
 }
 

@@ -144,6 +144,37 @@ fn exhausted_or_permanent_failures_route_to_explicit_error_edges() {
     );
 }
 #[test]
+fn explicit_failure_stops_remaining_work_and_survives_checkpoint_restore() {
+    let workflow = Workflow::from_json(
+        &json!({
+            "schemaVersion": 1,
+            "id": "terminal",
+            "name": "Terminal failure",
+            "nodes": [
+                {"id":"start","type":"Manual Trigger","label":"Start"},
+                {"id":"split","type":"Split / Parallel","label":"Split"},
+                {"id":"fail","type":"Fail Workflow","label":"End run"},
+                {"id":"later","type":"Error Handler","label":"Remaining work"}
+            ],
+            "edges": [
+                {"id":"a","source":"start","target":"split"},
+                {"id":"b","source":"split","target":"fail"},
+                {"id":"c","source":"split","target":"later"}
+            ]
+        })
+        .to_string(),
+    )
+    .unwrap();
+    let mut run = run(workflow);
+    complete(&mut run, 0);
+    complete(&mut run, 0);
+    assert_eq!(complete(&mut run, 0).node.id, "fail");
+    let mut run = Run::restore(&run.checkpoint().unwrap()).unwrap();
+    assert_eq!(run.failure(), Some(&FailureCode::WorkflowFailed));
+    assert_eq!(run.dispatches(), 3);
+    assert_eq!(run.next(0).unwrap(), Dispatch::Finished(RunStatus::Failed));
+}
+#[test]
 fn duplicate_and_stale_results_are_rejected_without_mutating_state() {
     let mut run = run(single());
     let first = complete(&mut run, 0);
