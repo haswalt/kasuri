@@ -17,4 +17,31 @@ export async function checkValidation(origin,credentials,restart) {
  origin=await restart()||origin;const repeated=await post({eventId:'validated-event',amount:10});assert.equal(repeated.status,409);assert.deepEqual(await repeated.json(),{duplicate:true})
  const row=(await api('data','POST',{command:{operation:'get',tableId:'example-request-events',key:'validated-event'}})).result.row;assert.equal(row.value.accepted,true)
  console.log('Passed: offline schema validation in Wasm, rejected external/unsupported schemas, header/body validation branches, safe diagnostics and validated atomic 201/409 event handling across restart.')
+
+ const headerGraph = JSON.parse(readFileSync('examples/workflows/38-header-idempotency.json', 'utf8'))
+ await api('workflows/' + headerGraph.id, 'PUT', headerGraph)
+ const headerEndpoint = await api('workflows/' + headerGraph.id + '/webhook/rotate', 'POST')
+ await api('workflows/' + headerGraph.id + '/publish', 'POST')
+ async function request(key, body = {}) {
+  const result = await fetch(origin + headerEndpoint.path, {
+   method: 'POST',
+   headers: {'Content-Type': 'application/json', ...(key === undefined ? {} : {'Idempotency-Key': key})},
+   body: JSON.stringify(body)
+  })
+  return {status: result.status, body: await result.json()}
+ }
+ const invalidKey = {status: 400, body: {error: 'Send an Idempotency-Key header between 1 and 128 characters'}}
+ assert.deepEqual(await request(), invalidKey)
+ assert.deepEqual(await request('a'.repeat(129)), invalidKey)
+ const accepted = {status: 201, body: {accepted: true}}
+ const duplicate = {status: 409, body: {duplicate: true}}
+ assert.deepEqual(await request('synthetic-order-001'), accepted)
+ assert.deepEqual(await request('synthetic-order-001', {changed: true}), duplicate)
+ const concurrent = await Promise.all([request('synthetic-order-002'), request('synthetic-order-002')])
+ assert.deepEqual(concurrent.sort((a, b) => a.status - b.status), [accepted, duplicate])
+ const claim = await api('data', 'POST', {
+  command: {operation: 'get', tableId: 'example-api-request-claims', key: 'synthetic-order-001'}
+ })
+ assert.deepEqual(claim.result.row.value, {accepted: true})
+ console.log('Passed: header-based Data Tables example rejects missing or oversized keys and atomically accepts one request per key.')
 }

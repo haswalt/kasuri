@@ -1,0 +1,224 @@
+{
+  "schemaVersion": 1,
+  "id": "38-header-idempotency",
+  "name": "Deduplicate API requests by header",
+  "description": "Publish a webhook and send an Idempotency-Key header. Data Tables atomically claims the key and returns 201 for the first request or 409 for a duplicate. Simulation with {} previews a missing-header 400.",
+  "status": "draft",
+  "revision": 0,
+  "updatedAt": "",
+  "nodes": [
+    {
+      "id": "start",
+      "type": "Webhook",
+      "label": "Receive API request",
+      "config": {
+        "authentication": "none",
+        "contextHeaders": [
+          "idempotency-key"
+        ]
+      }
+    },
+    {
+      "id": "headers",
+      "type": "Request Context",
+      "label": "Read request headers",
+      "config": {
+        "part": "headers"
+      }
+    },
+    {
+      "id": "validate",
+      "type": "Validate Schema",
+      "label": "Validate idempotency key",
+      "config": {
+        "schema": {
+          "type": "object",
+          "required": [
+            "idempotency-key"
+          ],
+          "properties": {
+            "idempotency-key": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 128
+            }
+          }
+        }
+      }
+    },
+    {
+      "id": "check-key",
+      "type": "IF / Condition",
+      "label": "Is the key valid?",
+      "config": {
+        "match": "all",
+        "conditions": [
+          {
+            "field": "/valid",
+            "operator": "equals",
+            "valueType": "boolean",
+            "value": true
+          }
+        ]
+      }
+    },
+    {
+      "id": "invalid",
+      "type": "Respond to Webhook",
+      "label": "Reject missing or invalid key",
+      "config": {
+        "status": 400,
+        "body": {
+          "error": "Send an Idempotency-Key header between 1 and 128 characters"
+        }
+      }
+    },
+    {
+      "id": "table",
+      "type": "Data Tables",
+      "label": "Ensure request claims table",
+      "config": {
+        "command": {
+          "operation": "create_table",
+          "definition": {
+            "id": "example-api-request-claims",
+            "name": "Example API request claims",
+            "kind": "table",
+            "fields": [
+              {
+                "name": "accepted",
+                "kind": "boolean",
+                "required": true
+              }
+            ]
+          }
+        }
+      }
+    },
+    {
+      "id": "key",
+      "type": "Request Context",
+      "label": "Read original key after table setup",
+      "config": {
+        "part": "headers"
+      }
+    },
+    {
+      "id": "claim",
+      "type": "Data Tables",
+      "label": "Claim request key atomically",
+      "config": {
+        "command": {
+          "operation": "insert_if_absent",
+          "tableId": "example-api-request-claims",
+          "key": {
+            "$input": "/idempotency-key"
+          },
+          "value": {
+            "accepted": true
+          }
+        }
+      }
+    },
+    {
+      "id": "check-claim",
+      "type": "IF / Condition",
+      "label": "Was a row inserted?",
+      "config": {
+        "match": "all",
+        "conditions": [
+          {
+            "field": "/inserted",
+            "operator": "equals",
+            "valueType": "boolean",
+            "value": true
+          }
+        ]
+      }
+    },
+    {
+      "id": "accepted",
+      "type": "Respond to Webhook",
+      "label": "Accept first request",
+      "config": {
+        "status": 201,
+        "body": {
+          "accepted": true
+        }
+      }
+    },
+    {
+      "id": "duplicate",
+      "type": "Respond to Webhook",
+      "label": "Reject duplicate request",
+      "config": {
+        "status": 409,
+        "body": {
+          "duplicate": true
+        }
+      }
+    }
+  ],
+  "edges": [
+    {
+      "id": "start-headers",
+      "source": "start",
+      "target": "headers",
+      "sourcePort": "success"
+    },
+    {
+      "id": "headers-validate",
+      "source": "headers",
+      "target": "validate",
+      "sourcePort": "success"
+    },
+    {
+      "id": "validate-check-key",
+      "source": "validate",
+      "target": "check-key",
+      "sourcePort": "success"
+    },
+    {
+      "id": "check-key-invalid",
+      "source": "check-key",
+      "target": "invalid",
+      "sourcePort": "false"
+    },
+    {
+      "id": "check-key-table",
+      "source": "check-key",
+      "target": "table",
+      "sourcePort": "true"
+    },
+    {
+      "id": "table-key",
+      "source": "table",
+      "target": "key",
+      "sourcePort": "success"
+    },
+    {
+      "id": "key-claim",
+      "source": "key",
+      "target": "claim",
+      "sourcePort": "success"
+    },
+    {
+      "id": "claim-check-claim",
+      "source": "claim",
+      "target": "check-claim",
+      "sourcePort": "success"
+    },
+    {
+      "id": "check-claim-accepted",
+      "source": "check-claim",
+      "target": "accepted",
+      "sourcePort": "true"
+    },
+    {
+      "id": "check-claim-duplicate",
+      "source": "check-claim",
+      "target": "duplicate",
+      "sourcePort": "false"
+    }
+  ]
+}
