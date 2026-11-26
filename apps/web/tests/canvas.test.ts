@@ -64,6 +64,11 @@ test('export/import retains positions and rejects malformed coordinates', () => 
 test('a second trigger cannot be dropped into an existing workflow', () => {
   assert.throws(() => addCanvasNode(createWorkflow(), 'Schedule', { x: 0, y: 0 }), /existing trigger/)
 })
+test('a newly placed webhook matches the server default for new triggers', () => {
+  const manual = createWorkflow()
+  const webhook = addCanvasNode(manual, 'Webhook', { x: 0, y: 0 }, { nodeId: manual.nodes[0].id })
+  assert.deepEqual(webhook.workflow.nodes[0].config, { authentication: 'none' })
+})
 test('dropping an error handler after IF connects its error output', () => {
   const original = appendNode(createWorkflow(), 'IF / Condition')
   const condition = original.nodes[1]

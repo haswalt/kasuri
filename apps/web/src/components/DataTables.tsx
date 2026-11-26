@@ -6,6 +6,7 @@ import { go, path, readRoute } from '../lib/navigation'
 import { Button, Dialog, Empty, Icon, PageHeader } from '../design/ui'
 import { styles } from '../design/styles'
 import {DataTransfer} from './DataTransfer'
+import { DataFieldsEditor } from './DataFieldsEditor'
 import {ConditionBuilder} from './ConditionBuilder'
 import {conditionOperators} from '../lib/conditions'
 import {filterConfig,dataFilters} from '../lib/data-filters'
@@ -27,7 +28,7 @@ export function DataTables({ tableId }: { tableId?: string }) {
   const [id, setId] = useState('')
   const [idEdited, setIdEdited] = useState(false)
   const [kind, setKind] = useState<DataKind>('table')
-  const [fields, setFields] = useState('[]')
+  const [fields, setFields] = useState<DataField[]>([])
   const [selectedRow, setSelectedRow] = useState<DataRow | null>(null)
   const [rowKey, setRowKey] = useState('')
   const [rowValue, setRowValue] = useState('{}')
@@ -76,7 +77,7 @@ export function DataTables({ tableId }: { tableId?: string }) {
     return () => { mounted.current = false }
   }, [refresh])
   function open(next: NonNullable<typeof dialog>) { setFormError(''); setDialog(next) }
-  function create() { setName(''); setId('data-' + uid().slice(0, 8)); setIdEdited(false); setKind('table'); setFields('[]'); open('create') }
+  function create() { setName(''); setId('data-' + uid().slice(0, 8)); setIdEdited(false); setKind('table'); setFields([]); open('create') }
   function edit(row?: DataRow) {
     setSelectedRow(row || null); setRowKey(row?.key || '')
     const defaults: Record<string, Json> = {}
@@ -96,9 +97,10 @@ export function DataTables({ tableId }: { tableId?: string }) {
   function close() { if (!busy) setDialog(null) }
   async function submit() {
     if (dialog === 'create') {
-      const parsed: unknown = kind === 'context' ? [] : JSON.parse(fields)
-      if (!Array.isArray(parsed)) throw Error('Fields must be a JSON array.')
-      const definition: DataDefinition = { id, name: name.trim(), kind, fields: parsed as DataField[] }
+      if (kind === 'table' && (fields.some(field => !/^[a-z0-9_-]{1,64}$/i.test(field.name)) || new Set(fields.map(field => field.name)).size !== fields.length)) {
+        throw Error('Use a unique name for each field with letters, numbers, hyphens or underscores.')
+      }
+      const definition: DataDefinition = { id, name: name.trim(), kind, fields: kind === 'table' ? fields : [] }
       const result = await api.data({ operation: 'create_table', definition }, uid())
       if (!active()) return
       if (result.result.status === 'conflict') throw Error('That ID belongs to a different data set. Choose another ID.')
@@ -169,7 +171,7 @@ export function DataTables({ tableId }: { tableId?: string }) {
         <label>Stable ID<input required pattern="[A-Za-z0-9_-]+" maxLength={64} value={id} onChange={(e) => { setIdEdited(true); setId(e.target.value) }} /></label>
         <small>Use letters, numbers, hyphens or underscores. Renaming keeps this ID.</small>
         <label>Kind<select value={kind} onChange={(e) => setKind(e.target.value as DataKind)}><option value="table">Table · JSON objects</option><option value="context">Context · any JSON value</option></select></label>
-        {kind === 'table' && <label>Fields · JSON array<textarea className={styles.mono} rows={7} value={fields} onChange={(e) => setFields(e.target.value)} /><small>Example: {`[{"name":"active","kind":"boolean","required":true}]`}. Leave [] for flexible object records.</small></label>}
+        {kind === 'table' && <DataFieldsEditor fields={fields} onChange={setFields} />}
       </> : dialog === 'row' ? <>
         <label>Key<input required maxLength={512} disabled={!!selectedRow} value={rowKey} onChange={(e) => setRowKey(e.target.value)} /></label>
         <label>Value · JSON<textarea className={styles.mono} rows={12} value={rowValue} onChange={(e) => setRowValue(e.target.value)} /></label>
