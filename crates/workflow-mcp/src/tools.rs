@@ -224,7 +224,7 @@ fn definitions() -> Vec<(&'static str, &'static str, &'static str, bool, Value)>
         (
             "workflows_update",
             "write",
-            "Replace a draft graph/configuration only if expectedVersion still matches. Does not publish.",
+            "Replace a draft graph/configuration only if expectedVersion still matches. Keep redaction placeholders at their original node and field to preserve saved credentials. Does not publish.",
             true,
             mutate(
                 json!({"workflow":workflow,"expectedVersion":version}),
@@ -624,19 +624,17 @@ fn execute(
                 if ws.workflows.iter().any(|w| w.graph.id == id) {
                     return Err(err("conflict", "Workflow already exists"));
                 }
+                restore_redacted_nodes(&mut doc, None)?;
                 doc["version"] = json!(0)
             } else {
                 let current = existing(ws, &id)?;
-                if doc.to_string().contains("[REDACTED]") {
-                    return Err(err(
-                        "redacted_configuration",
-                        "Cannot save redaction placeholders. Use named secret aliases or replace the redacted fields explicitly.",
-                    ));
-                };
                 if args["expectedVersion"].as_u64() != Some(current.version) {
                     return Err(err("conflict", "Workflow changed; reload before saving"));
                 }
-                doc["version"] = json!(current.version)
+                let version = current.version;
+                let saved = serde_json::to_value(current).unwrap();
+                restore_redacted_nodes(&mut doc, Some(&saved))?;
+                doc["version"] = json!(version)
             }
             doc["status"] = json!("draft");
             doc["updatedAt"] = json!("");
@@ -733,6 +731,123 @@ fn execute(
         _ => Err(err("unknown_tool", "Tool not found")),
     }
 }
+const REDACTED: &str = "[REDACTED]";
+
+fn restore_redacted_nodes(doc: &mut Value, saved: Option<&Value>) -> Result<(), Value> {
+    let Some(nodes) = doc["nodes"].as_array_mut() else {
+        return Ok(());
+    };
+    let originals = saved.and_then(|doc| doc["nodes"].as_array());
+    for node in nodes {
+        let original = originals.and_then(|nodes| {
+            nodes.iter().find(|original| {
+                node["id"].is_string()
+                    && original["id"] == node["id"]
+                    && original["type"] == node["type"]
+                    && original["version"].as_u64().unwrap_or(1)
+                        == node["version"].as_u64().unwrap_or(1)
+            })
+        });
+        let masked = original.cloned().map(redact);
+        let same_destination = original.is_some_and(|saved| {
+            if node["type"] != "HTTP Request" || node["config"]["url"] == saved["config"]["url"] {
+                return true;
+            }
+            let origin = |value: &Value| {
+                url::Url::parse(value.as_str()?)
+                    .ok()
+                    .filter(|url| url.scheme() == "https")
+                    .map(|url| url.origin())
+            };
+            origin(&node["config"]["url"])
+                .is_some_and(|origin_now| origin(&saved["config"]["url"]) == Some(origin_now))
+        });
+        for field in ["config", "inputBindings"] {
+            if let Some(value) = node.get_mut(field) {
+                restore_redacted_value(
+                    value,
+                    original.filter(|_| same_destination).and_then(|node| node.get(field)),
+                    masked.as_ref().and_then(|node| node.get(field)),
+                ).map_err(|()| err("redacted_configuration", "Keep redacted values at their original node and field on the same HTTP origin, or supply an explicit value or secret reference."))?;
+            }
+        }
+    }
+    Ok(())
+}
+
+// Look at the real value and its redacted projection at the same path. A
+// placeholder supplied for an ordinary field must never retrieve a saved value.
+fn restore_redacted_value(
+    value: &mut Value,
+    saved: Option<&Value>,
+    masked: Option<&Value>,
+) -> Result<bool, ()> {
+    if value.as_str() == Some(REDACTED) {
+        let original = saved.filter(|v| v.as_str() != Some(REDACTED)).ok_or(())?;
+        if masked.and_then(Value::as_str) != Some(REDACTED) {
+            return Err(());
+        }
+        *value = original.clone();
+        return Ok(true);
+    }
+    let decode = |value: Option<&Value>| {
+        value
+            .and_then(Value::as_str)
+            .and_then(|s| serde_json::from_str::<Value>(s).ok())
+    };
+    match value {
+        Value::Object(_) | Value::Array(_) => {
+            let decoded_saved = decode(saved);
+            let decoded_mask = decode(masked);
+            let saved = decoded_saved.as_ref().or(saved);
+            let masked = decoded_mask.as_ref().or(masked);
+            let mut changed = false;
+            match value {
+                Value::Object(entries) => {
+                    for (key, entry) in entries {
+                        changed |= restore_redacted_value(
+                            entry,
+                            saved.and_then(|v| v.get(key.as_str())),
+                            masked.and_then(|v| v.get(key.as_str())),
+                        )?;
+                    }
+                }
+                Value::Array(entries) => {
+                    for (index, entry) in entries.iter_mut().enumerate() {
+                        changed |= restore_redacted_value(
+                            entry,
+                            saved.and_then(|v| v.get(index)),
+                            masked.and_then(|v| v.get(index)),
+                        )?;
+                    }
+                }
+                _ => unreachable!(),
+            }
+            Ok(changed)
+        }
+        Value::String(text) if text.trim_start().starts_with(['{', '[']) => {
+            if let Ok(mut parsed) = serde_json::from_str::<Value>(text) {
+                let changed = restore_redacted_value(&mut parsed, saved, masked)?;
+                if changed {
+                    *text = saved
+                        .and_then(Value::as_str)
+                        .filter(|s| serde_json::from_str::<Value>(s).ok().as_ref() == Some(&parsed))
+                        .map(str::to_owned)
+                        .unwrap_or_else(|| parsed.to_string());
+                }
+                return Ok(changed);
+            }
+            if text.contains(REDACTED) {
+                Err(())
+            } else {
+                Ok(false)
+            }
+        }
+        Value::String(text) if text.contains(REDACTED) => Err(()),
+        _ => Ok(false),
+    }
+}
+
 /// Defense in depth for inline credentials. Host-managed secrets are never read here.
 pub fn redact(value: Value) -> Value {
     match value {
@@ -761,7 +876,7 @@ pub fn redact(value: Value) -> Value {
                     (
                         k,
                         if sensitive && !alias {
-                            json!("[REDACTED]")
+                            json!(REDACTED)
                         } else {
                             redact(v)
                         },
