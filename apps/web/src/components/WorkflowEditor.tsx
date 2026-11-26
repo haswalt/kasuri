@@ -15,6 +15,7 @@ import { ExpressionBuilder } from './ExpressionBuilder'
 import { TransformBuilder } from './TransformBuilder'
 import { DataCommandBuilder } from './DataCommandBuilder'
 import { WebhookBuilder } from './WebhookBuilder'
+import { HttpFieldsEditor } from './HttpFieldsEditor'
 import { ValidateSchemaBuilder } from './ValidateSchemaBuilder'
 import { RoutingBuilder } from './RoutingBuilder'
 import { ConditionBuilder } from './ConditionBuilder'
@@ -58,7 +59,7 @@ export function WorkflowEditor({
     [dragging, setDragging] = useState(false),
     [addType, setAddType] = useState<string>(),
     [error, setError] = useState(''),
-    [tab, setTab] = useState('Parameters')
+    [tab, setTab] = useState<'Input' | 'Output' | 'Settings'>('Input')
   const [edgeId, setSelectedEdge] = useState<string>()
   const [inspectorWidth, setInspectorWidth] = useState(400)
   const resizeStart = useRef<{ x: number; width: number }>(null)
@@ -613,7 +614,7 @@ export function WorkflowEditor({
                 </div>
               </div>
               <div className={styles.underlineTabs}>
-                {['Parameters', 'Settings', 'Output'].map((t) => (
+                {(['Input', 'Output', 'Settings'] as const).map((t) => (
                   <Button
                     key={t}
                     aria-pressed={tab === t}
@@ -624,7 +625,7 @@ export function WorkflowEditor({
                 ))}
               </div>
               <div className={styles.inspectorScroll}>
-                {tab === 'Parameters' ? (
+                {tab === 'Input' ? (
                   <>
                     <label>
                       Node name
@@ -633,14 +634,17 @@ export function WorkflowEditor({
                         onChange={(e) => editNode({ label: e.target.value })}
                       />
                     </label>
-                    {isTrigger(node.type)&&Object.keys(node.inputBindings??{}).length>0&&<p role="alert">Triggers expose the original event. <Button onClick={()=>editNode({inputBindings:{}})}>Remove trigger bindings</Button></p>}
-                    {!isTrigger(node.type) && Object.keys(node.inputBindings ?? {}).length > 0 && <InputBindingsBuilder key={`bindings:${node.id}`} workflow={workflow} nodeId={node.id} bindings={node.inputBindings??{}} hints={workflowInputHints(workflow,node.id,result,input,false,true)} nodeHints={id=>workflowInputHints(workflow,id,result,input,true)} triggerHints={workflowInputHints(workflow,workflow.nodes.find(n=>isTrigger(n.type))?.id,result,input)} onChange={inputBindings=>editNode({inputBindings})}/>}
                     {node.type==='MCP Client'?<McpClientBuilder key={`mcp:${node.id}`} config={node.config} hints={inputHints} onChange={config=>editNode({config})}/>:node.type==='Clairic'?<ClairicBuilder key={`clairic:${node.id}`} config={node.config} hints={inputHints} onChange={config=>editNode({config})}/>:node.type==='Map / Transform'?<TransformBuilder key={`mapping:${node.id}`} config={node.config} hints={inputHints} onChange={config=>editNode({config})}/>
                     :node.type==='Data Tables'||node.type==='Context Store'?<DataCommandBuilder key={`data:${node.id}`} workflow={workflow} nodeId={node.id} config={node.config}
                       kind={node.type==='Data Tables'?'table':'context'} hints={inputHints} onChange={config=>editNode({config})}/>
                     :node.type==='Webhook'?<WebhookBuilder key={`webhook:${node.id}`} config={node.config} onChange={config=>editNode({config})}/>
                     :node.type==='Validate Schema'?<ValidateSchemaBuilder key={`schema:${node.id}`} config={node.config} hints={inputHints} onChange={config=>editNode({config})}/>
                     :node.type==='Expressions'?<ExpressionBuilder config={node.config} workflow={workflow} nodeId={node.id} hints={inputHints} nodeHints={id=>workflowInputHints(workflow,id,result,input,true)} triggerHints={workflowInputHints(workflow,workflow.nodes.find(n=>isTrigger(n.type))?.id,result,input)} onChange={config=>editNode({config})}/>:node.type==='Switch / Router'||node.type==='Merge'?<RoutingBuilder kind={node.type} config={node.config} hints={inputHints} workflow={workflow} nodeId={node.id} nodeHints={id=>workflowInputHints(workflow,id,result,input,true)} onChange={config=>editNode({config})}/>:node.type==='Each / Loop'||node.type==='Execute Workflow'||node.type==='Execute Workflow Trigger' ? <InvocationBuilder node={node} workflow={workflow} hints={inputHints} onChange={config=>editNode({config})} /> : node.type === 'IF / Condition' ? <ConditionBuilder config={node.config} sample={inputHints.sample} schema={inputHints.schema} onChange={config => editNode({ config })} /> : node.type==='Filter'||node.type==='Sort'||node.type==='Split / Batch'||node.type==='Aggregate' ? <CollectionBuilder kind={node.type} config={node.config} hints={inputHints} onChange={config=>editNode({config})} /> : parameterKeys.map((key) => {
+                      if (node.type === 'HTTP Request' && (key === 'headers' || key === 'query')) {
+                        return <HttpFieldsEditor key={`${node.id}:${key}`} kind={key}
+                          value={node.config[key]} hints={inputHints} url={node.config.url}
+                          onChange={value => editNode({ config: { ...node.config, [key]: value } })} />
+                      }
                       const meta = fields[node.type]?.find((f) => f.key === key)
                       const property = (
                         (manifest?.configSchema.properties || {}) as Record<
@@ -829,6 +833,13 @@ export function WorkflowEditor({
                   </>
                 ) : tab === 'Settings' ? (
                   <>
+                    {Object.keys(node.inputBindings ?? {}).length > 0 && (isTrigger(node.type)
+                      ? <p role="alert">Triggers expose the original event. <Button onClick={() => editNode({ inputBindings: {} })}>Remove trigger bindings</Button></p>
+                      : <InputBindingsBuilder key={`bindings:${node.id}`} workflow={workflow} nodeId={node.id}
+                          bindings={node.inputBindings ?? {}} hints={workflowInputHints(workflow, node.id, result, input, false, true)}
+                          nodeHints={id => workflowInputHints(workflow, id, result, input, true)}
+                          triggerHints={workflowInputHints(workflow, workflow.nodes.find(n => isTrigger(n.type))?.id, result, input)}
+                          onChange={inputBindings => editNode({ inputBindings })} />)}
                     <h3>Execution</h3>
                     <label>
                       {node.type==='Each / Loop'?'Collection deadline (milliseconds)':'Timeout (milliseconds)'}
@@ -874,6 +885,15 @@ export function WorkflowEditor({
                         />
                       </label>
                     ))}
+                  </>
+                ) : (
+                  <>
+                    <h3>Last simulation output</h3>
+                    <pre>
+                      {selectedResult?.output !== undefined
+                        ? JSON.stringify(selectedResult.output, null, 2)
+                        : '// Simulate this workflow to inspect node output'}
+                    </pre>
                     <h3>Outgoing connections</h3>
                     {workflow.edges
                       .filter((e) => e.source === node.id)
@@ -935,15 +955,6 @@ export function WorkflowEditor({
                       ))}
                     <p className={styles.muted}>Drag from an output handle on the canvas to connect another node.</p>
                   </>
-                ) : (
-                  <>
-                    <h3>Last simulation output</h3>
-                    <pre>
-                      {selectedResult?.output !== undefined
-                        ? JSON.stringify(selectedResult.output, null, 2)
-                        : '// Simulate this workflow to inspect node output'}
-                    </pre>
-                  </>
                 )}
                 <Button
                   visual="ghost"
@@ -960,7 +971,7 @@ export function WorkflowEditor({
             </>
           ) : (
             <Empty title="Select a node">
-              Choose a canvas node to edit its parameters and settings.
+              Choose a canvas node to edit its input or inspect its output.
             </Empty>
           )}
         </aside>

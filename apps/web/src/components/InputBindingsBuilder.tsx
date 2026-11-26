@@ -15,7 +15,7 @@ type Props = {
 }
 
 export function InputBindingsBuilder({ workflow, nodeId, bindings, hints, nodeHints, triggerHints, onChange }: Props) {
-  return <details className={styles.conditionBuilder} open>
+  return <details className={styles.conditionBuilder}>
     <summary>Existing input mapping</summary>
     <p>This workflow maps incoming data into the fields below before the node runs.</p>
     <ExpressionBuilder config={{ fields: bindings }} workflow={workflow} nodeId={nodeId} hints={hints} nodeHints={nodeHints} triggerHints={triggerHints}
