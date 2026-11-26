@@ -1,4 +1,5 @@
 import { McpOutboundConnections } from './components/McpOutboundConnections'
+import { WorkspaceSecrets } from './components/WorkspaceSecrets'
 import { McpManagement, AuditLog } from './components/McpManagement'
 import { Button } from './design/ui'
 import { styles } from './design/styles'
@@ -1495,21 +1496,12 @@ function App() {
                   eyebrow="CREDENTIALS"
                   title="Connections"
                   description="Accounts and credentials your workflows use."
-                  actions={
-                    <Button
-                      disabled
-                      title="The credential vault API is planned"
-                    >
-                      <Icon name="plus" />
-                      New connection
-                    </Button>
-                  }
                 />
                 <div className={styles.connectionsLayout}>
                   <section className={styles.panel}>
                     <div className={styles.listToolbar}>
                       <div className={styles.tabs}>
-                        {['All', 'Needs attention', 'OAuth', 'MCP servers'].map(
+                        {['All', 'Secrets', 'MCP servers'].map(
                           (t) => (
                             <Button
                               key={t}
@@ -1522,12 +1514,11 @@ function App() {
                         )}
                       </div>
                     </div>
-                    {filter === 'All' || filter === 'MCP servers' || selectedConnectionKind === 'MCP Client' ? (
-                      <McpOutboundConnections key={route.workspaceKey} />
-                    ) : (
-                      <Empty icon="key" title="Host-managed credentials">
-                        HTTP Basic authentication and sensitive custom headers use named secrets configured on your installation.
-                      </Empty>
+                    {(filter === 'All' || filter === 'Secrets') && (
+                      <WorkspaceSecrets key={`secrets:${route.workspaceKey}`} />
+                    )}
+                    {(filter === 'All' || filter === 'MCP servers') && (
+                      <McpOutboundConnections key={`mcp:${route.workspaceKey}`} />
                     )}
                   </section>
                   <aside
@@ -1559,11 +1550,10 @@ function App() {
                     {selectedConnectionKind === 'MCP Client' ? (
                       <p>Choose a configured connection in the MCP Client node. Portal access and the approved tools are managed separately.</p>
                     ) : (
-                      <p>For HTTP Request, select Basic authentication and reference a password secret by name. Custom credential headers use a <code>$secret</code> reference.</p>
+                      <p>Use <code>{'{{ secrets.alias }}'}</code> in HTTP Request passwords or custom headers. Use <code>{'Bearer {{ secrets.alias }}'}</code> for bearer authentication.</p>
                     )}
                     <div className={styles.infoBox}>
-                      Secret values stay on the host and are redacted from
-                      echoed responses.
+                      Workspace secrets are sent only to their allowed HTTPS origin.
                     </div>
                     <Button onClick={() => navigate('workflows')}>
                       Open workflows <Icon name="runs" />

@@ -8,6 +8,7 @@ mod mcp;
 mod mcp_client;
 mod platform_auth;
 mod runs;
+mod secrets;
 mod sentry;
 mod storage;
 mod webhook;
@@ -308,8 +309,10 @@ impl DurableObject for WorkflowWorkspace {
     }
     async fn fetch(&self, mut req: Request) -> Result<Response> {
         let path = req.url()?.path().to_string();
-        // Only run objects call this: the entry Worker never forwards `/internal/`
-        // paths to a workspace.
+        // The entry Worker never forwards `/internal/` paths to a workspace.
+        if secrets::is_lookup(&path, req.method()) {
+            return self.secret_lookup(req).await;
+        }
         if path == "/internal/email/check" && req.method() == Method::Post {
             return self.check_email(req).await;
         }
@@ -389,8 +392,14 @@ impl DurableObject for WorkflowWorkspace {
         if let Some(response) = self.webhook_management(&path, req.method()).await? {
             return Ok(response);
         }
+        let is_vault = path == "/api/secrets" || path.starts_with("/api/secrets/");
         let mut body = Vec::new();
-        if !matches!(req.method(), Method::Get | Method::Head) {
+        let has_body = match req.method() {
+            Method::Get | Method::Head => false,
+            Method::Delete if is_vault => false,
+            _ => true,
+        };
+        if has_body {
             let mut stream = req.stream()?;
             while let Some(chunk) = stream.next().await {
                 let chunk = chunk?;
@@ -401,6 +410,14 @@ impl DurableObject for WorkflowWorkspace {
             }
         }
         // All body I/O precedes synchronous read/modify/save of the workspace.
+        if is_vault {
+            let actor = identity
+                .as_ref()
+                .map_or("owner", |owner| owner.0.subject.as_str());
+            return self
+                .secret_management(&path, req.method(), &body, actor)
+                .await;
+        }
         if let Some(response) = self
             .data_management(req.method(), &req.url()?, &body)
             .await?

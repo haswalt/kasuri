@@ -79,7 +79,7 @@ fn custom_headers_basic_auth_and_secret_references_are_resolved_only_at_dispatch
     assert!(authorization_headers(&spec, &std::collections::BTreeMap::new()).is_err());
 }
 #[test]
-fn refuses_header_injection_transport_headers_and_literal_credentials() {
+fn refuses_header_injection_transport_headers_and_conflicting_credentials() {
     for (name, value) in [
         ("Host", json!("attacker.example")),
         ("Content-Length", json!("0")),
@@ -87,8 +87,8 @@ fn refuses_header_injection_transport_headers_and_literal_credentials() {
         ("X-Forwarded-For", json!("127.0.0.1")),
         ("Bad Header", json!("x")),
         ("X-Trace", json!("one\r\ninjected: yes")),
-        ("Authorization", json!("Bearer plaintext")),
-        ("X-Api-Key", json!("plaintext")),
+        ("Authorization", json!("Bearer one\r\ninjected: yes")),
+        ("Cookie", json!("session=plaintext")),
     ] {
         assert!(
             validate(&task(
@@ -100,6 +100,28 @@ fn refuses_header_injection_transport_headers_and_literal_credentials() {
     }
     assert!(validate(&task(json!({"url":"https://api.example.com","headers":{"Authorization":{"$secret":"bearer"}}}))).is_ok());
     assert!(validate(&task(json!({"url":"https://api.example.com","authentication":"basic","username":"u","passwordSecret":"p","headers":{"Authorization":{"$secret":"bearer"}}}))).is_err());
+}
+#[test]
+fn custom_authorization_schemes_and_api_keys_validate_and_redact() {
+    for (name, value, credential) in [
+        ("Authorization", "Bearer fixture-bearer", "fixture-bearer"),
+        ("Authorization", "Api-Key fixture-key", "fixture-key"),
+        ("Authorization", "Custom auth parameters", "auth parameters"),
+        ("Api-Key", "fixture-key", "fixture-key"),
+        ("X-Api-Key", "fixture-key", "fixture-key"),
+    ] {
+        let spec = validate(&task(json!({
+            "url":"https://api.example.com", "authentication":"none",
+            "headers":{name:value}
+        })))
+        .unwrap();
+        let (headers, redactions) = authorization_headers(&spec, &Default::default()).unwrap();
+        assert_eq!(headers[&name.to_ascii_lowercase()], value);
+        let mut output = json!([value, credential]);
+        redact(&mut output, &redactions);
+        assert_eq!(output, json!(["[REDACTED]", "[REDACTED]"]));
+    }
+    assert!(validate(&task(json!({"url":"https://api.example.com","authentication":"basic","username":"u","passwordSecret":"p","headers":{"Authorization":"Bearer fixture"}}))).is_err());
 }
 #[test]
 fn private_and_reserved_ip_ranges_are_not_public() {

@@ -25,6 +25,7 @@ const config :Workerd.Config = (
         (name = "RUN_HISTORY_DAYS", fromEnvironment = "RUN_HISTORY_DAYS"),
         (name = "FAILED_RUN_HISTORY_DAYS", fromEnvironment = "FAILED_RUN_HISTORY_DAYS"),
         (name = "RUN_EXECUTION", fromEnvironment = "RUN_EXECUTION"),
+        (name = "WORKSPACE_SECRETS_KEY", fromEnvironment = "WORKSPACE_SECRETS_KEY"),
         (name = "HTTP_SECRETS", fromEnvironment = "HTTP_SECRETS")
       ],
       durableObjectNamespaces = [(className = "WorkflowWorkspace", uniqueKey = "workspaces", enableSql = true), (className = "WorkflowRun", uniqueKey = "runs", enableSql = true)],

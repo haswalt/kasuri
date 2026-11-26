@@ -103,6 +103,7 @@ function start(policy = {}) {
         MCP_PORTAL_CLIENT_SECRET: '',
         // Run the whole suite with run objects (RUN_EXECUTION=objects) or queues.
         RUN_EXECUTION: process.env.RUN_EXECUTION ?? '',
+        WORKSPACE_SECRETS_KEY: Buffer.alloc(32, 9).toString('base64url'),
         HTTP_SECRETS: JSON.stringify({
           api_password: 'super-private-password',
           api_key: 'private-api-key',
@@ -138,7 +139,9 @@ async function restartPlatform(policy, keys) {
 try {
   start()
   await healthy(origin)
-  if (process.argv.includes('--platform-auth-only')) {
+  if (process.argv.includes('--http-only')) {
+    await checkHttp(origin)
+  } else if (process.argv.includes('--platform-auth-only')) {
     await checkPlatformAuth(origin, restartPlatform)
   } else if (process.argv.includes('--sentry-only')) {
     await checkSentry(origin, async policy => { await stop(); start(policy); await healthy(origin) })

@@ -821,7 +821,7 @@ export function WorkflowEditor({
                         : node.type === 'Clairic'
                         ? 'Live runs send the selected text to Workers AI. Simulations use the saved fixture.'
                         : node.type === 'HTTP Request'
-                        ? 'Public HTTPS is allowed by default. Credentials use named secrets. Simulations require a response fixture.'
+                        ? 'Create a workspace secret in Connections. Use {{ secrets.alias }} for passwords or headers, or Bearer {{ secrets.alias }} for bearer authorization. Simulations use a response fixture.'
                           : node.type === 'Schedule'
                             ? 'Five-field cron in an IANA time zone. Publish to register the schedule.'
                             : 'Configuration is validated by the Rust connector before execution.'}
