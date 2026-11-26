@@ -1,6 +1,6 @@
 //! The original workspace also owns the browser session's membership directory.
 //! Workspace selection is per request, so switching tabs never changes a cookie.
-use crate::{WorkflowWorkspace, api_error, internal};
+use crate::{WorkflowWorkspace, api_error, internal, platform_auth};
 use futures_util::StreamExt;
 use serde::{Deserialize, Serialize};
 use serde_json::json;
@@ -12,6 +12,31 @@ pub(crate) struct Membership {
     pub name: String,
 }
 impl WorkflowWorkspace {
+    pub(crate) fn authorize_account(
+        &self,
+        principal: &platform_auth::Principal,
+        delegated: bool,
+    ) -> Result<bool> {
+        let sql = self.state.storage().sql();
+        if !delegated && self.browser_workspace_key()? != "personal" {
+            return Ok(false);
+        }
+        let key = principal.account_key();
+        sql.exec("CREATE TABLE IF NOT EXISTS account_owner (id INTEGER PRIMARY KEY CHECK(id=1), account_key TEXT NOT NULL)", None)?;
+        sql.exec(
+            "INSERT OR IGNORE INTO account_owner(id, account_key) VALUES(1, ?)",
+            Some(vec![key.clone().into()]),
+        )?;
+        #[derive(Deserialize)]
+        struct Owner {
+            account_key: String,
+        }
+        let owner = sql
+            .exec("SELECT account_key FROM account_owner WHERE id=1", None)?
+            .one::<Owner>()?;
+        Ok(owner.account_key == key)
+    }
+
     async fn catalogue_audit(
         &self,
         action: &str,
@@ -77,7 +102,10 @@ impl WorkflowWorkspace {
                         None,
                     )?
                     .to_array::<Membership>()?;
-                return Ok(Some(Response::from_json(&json!({"workspaces":entries}))?));
+                let user = platform_auth::principal(req)?;
+                return Ok(Some(Response::from_json(&json!({
+                    "workspaces":entries,"personalWorkspaceId":self.state.id().to_string(),"user":user
+                }))?));
             }
             if !((req.method() == Method::Post && path == "/api/workspaces")
                 || req.method() == Method::Patch)
@@ -142,7 +170,11 @@ impl WorkflowWorkspace {
             let id = namespace.unique_id()?;
             let mut initialize =
                 Request::new("https://workspace.internal/api/workspace", Method::Get)?;
-            initialize.headers_mut()?.set("X-Kasuri-Session", token)?;
+            if let Some(principal) = platform_auth::principal(req)? {
+                platform_auth::forward(&mut initialize, &principal)?;
+            } else {
+                initialize.headers_mut()?.set("X-Kasuri-Session", token)?;
+            }
             initialize.headers_mut()?.set("X-Kasuri-Delegated", "1")?;
             let response = id.get_stub()?.fetch_with_request(initialize).await?;
             if response.status_code() != 200 {

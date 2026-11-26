@@ -6,7 +6,7 @@ The button imports the public repository into your own account. Use the reposito
 
 Wrangler provisions `WORKSPACES` using the `WorkflowWorkspace` SQLite Durable Object migration. No D1 database, R2 bucket or external service credentials are required for the current core connectors. New installations start empty; there is no hosted demo or expiry mode.
 
-See [deployment details](deployment.md) for authentication and API behavior. Keep account tokens, domains and secrets in your own deployment environment. Preserve Durable Object migrations and class names on upgrades.
+Configure [platform sign-in](platform-auth.md) before opening the dashboard. See [deployment details](deployment.md) for API behavior. Keep account tokens, domains and secrets in your own deployment environment. Preserve Durable Object migrations and class names on upgrades.
 
 Forks can update the deploy button with:
 

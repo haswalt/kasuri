@@ -373,6 +373,7 @@ impl WorkflowWorkspace {
     pub(crate) async fn mcp_management(&self, mut req: Request) -> Result<Response> {
         let url = req.url()?;
         let (resource, issuer, _) = self.mcp_urls(&url)?;
+        let user = crate::platform_auth::principal(&req)?.map(|p| p.0);
         let method = req.method();
         let path = url.path();
         let parts: Vec<_> = path.trim_matches('/').split('/').collect();
@@ -401,7 +402,7 @@ impl WorkflowWorkspace {
         let consent_context = parts.get(3).and_then(|id| auth.consent_info(id, time).ok());
         let result: std::result::Result<Value, &str> = match parts.as_slice() {
             ["api", "mcp"] if method == Method::Get => Ok(
-                json!({"endpoint":resource,"issuer":issuer,"protocolVersion":workflow_mcp::PROTOCOL,"scopes":SCOPES,"credentials":auth.credentials.iter().map(|c|{let mut v=c.public();v["active"]=json!(!c.revoked&&c.expires_at>time);v["refreshAvailable"]=json!(!c.revoked&&c.refresh_until>time);v}).collect::<Vec<_>>(),"unusedClients":auth.clients.iter().filter(|c|!auth.credentials.iter().any(|g|g.client_id.as_deref()==Some(&c.id))).count(),"roles":{"reader":workflow_mcp::role("reader"),"builder":workflow_mcp::role("builder"),"operator":workflow_mcp::role("operator"),"manager":workflow_mcp::role("manager"),"data_viewer":workflow_mcp::role("data_viewer"),"data_editor":workflow_mcp::role("data_editor")}}),
+                json!({"endpoint":resource,"workspaceId":self.state.id().to_string(),"user":user,"issuer":issuer,"protocolVersion":workflow_mcp::PROTOCOL,"scopes":SCOPES,"credentials":auth.credentials.iter().map(|c|{let mut v=c.public();v["active"]=json!(!c.revoked&&c.expires_at>time);v["refreshAvailable"]=json!(!c.revoked&&c.refresh_until>time);v}).collect::<Vec<_>>(),"unusedClients":auth.clients.iter().filter(|c|!auth.credentials.iter().any(|g|g.client_id.as_deref()==Some(&c.id))).count(),"roles":{"reader":workflow_mcp::role("reader"),"builder":workflow_mcp::role("builder"),"operator":workflow_mcp::role("operator"),"manager":workflow_mcp::role("manager"),"data_viewer":workflow_mcp::role("data_viewer"),"data_editor":workflow_mcp::role("data_editor")}}),
             ),
             ["api", "mcp", "credentials"] if method == Method::Post => {
                 let scopes: Vec<String> = input["scopes"]
@@ -426,6 +427,12 @@ impl WorkflowWorkspace {
                         days * 86400000,
                         &mut entropy,
                     )
+                    .map(|value| {
+                        if let Some(credential) = auth.credentials.last_mut() {
+                            credential.authorized_by = user.clone();
+                        }
+                        value
+                    })
                 }
             }
             ["api", "mcp", "credentials", id] if method == Method::Delete => {
@@ -457,8 +464,13 @@ impl WorkflowWorkspace {
                             .collect()
                     })
                     .unwrap_or_default();
-                auth.consent(id, scopes, time, &mut entropy)
-                    .map(|url| json!({"redirect":url}))
+                auth.consent(id, scopes, time, &mut entropy).map(|url| {
+                    if let Some(grant) = auth.requests.iter_mut().find(|request| request.id == *id)
+                    {
+                        grant.authorized_by = user.clone();
+                    }
+                    json!({"redirect":url})
+                })
             }
             ["api", "mcp", "oauth", id, "deny"] if method == Method::Post => {
                 match auth

@@ -32,6 +32,7 @@ async function request<T>(
   return result as T
 }
 export type WorkflowRevision = { workflowId: string; revision: number; graph: Workflow; fingerprint: string; publishedAt: string; publishedBy: string; legacyBaseline: boolean }
+export type PlatformUser = { issuer: string; subject: string; email?: string }
 export type WorkspaceMembership = { id: string; name: string }
 export const api = {
   exportData: (id:string,format:"json"|"csv",cursor?:string,revision?:number) => request<{content:string;count:number;nextCursor:string|null;dataRevision:number}>(`tables/${id}/export?`+new URLSearchParams({format,...(cursor?{cursor}:{}),...(revision===undefined?{}:{dataRevision:String(revision)})})),
@@ -44,7 +45,7 @@ export const api = {
     request<{deleted: boolean}>(`workflows/${id}/trash`, 'DELETE', {expectedVersion}),
   revisions: (id: string) => request<{revisions: WorkflowRevision[]; needsReview: boolean}>(`workflows/${id}/revisions`),
   restoreRevision: (id: string, revision: number, expectedVersion?: number) => request<Workflow>(`workflows/${id}/revisions/${revision}/restore`, 'POST', {expectedVersion}),
-  workspaces: () => request<{ workspaces: WorkspaceMembership[] }>('workspaces'),
+  workspaces: () => request<{ workspaces: WorkspaceMembership[]; personalWorkspaceId: string; user: PlatformUser | null }>('workspaces'),
   createWorkspace: (name: string) => request<WorkspaceMembership>('workspaces', 'POST', { name }),
   renameWorkspace: (id: string, name: string) => request<WorkspaceMembership>(`workspaces/${id}`, 'PATCH', { name }),
   mcpClientConnections: () => request<{connections:McpClientConnection[]}>('mcp-client/connections'),
@@ -108,6 +109,8 @@ export type McpCredential = {
 }
 export type McpStatus = {
   endpoint: string
+  workspaceId: string
+  user: PlatformUser | null
   issuer: string
   protocolVersion: string
   unusedClients: number

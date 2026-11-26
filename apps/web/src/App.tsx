@@ -13,7 +13,7 @@ import {
 import type { Workflow, Run } from './lib/workflows'
 import type { Json, NodeManifest } from '../../../packages/contracts/src/index'
 import { api } from './lib/api'
-import type { WorkspaceMembership } from './lib/api'
+import type { PlatformUser, WorkspaceMembership } from './lib/api'
 import { useRoute, go, path, savedTheme, applyTheme } from './lib/navigation'
 import type { Theme } from './lib/navigation'
 import {
@@ -61,6 +61,7 @@ export default function WorkspaceApp() {
 }
 function App() {
   const route = useRoute()
+  const [user, setUser] = useState<PlatformUser | null>(null)
   const [memberships, setMemberships] = useState<WorkspaceMembership[]>([])
   const [workspaceDialog, setWorkspaceDialog] = useState<'create' | 'rename' | null>(null)
   const [workspaceName, setWorkspaceName] = useState('')
@@ -121,7 +122,10 @@ function App() {
             : w
         )
       )
-      if (directory) setMemberships(directory.workspaces)
+      if (directory) {
+        setMemberships(directory.workspaces)
+        setUser(directory.user)
+      }
       setRuns(data.runs)
       setClock(Date.now())
       setConnectors(data.connectors)
@@ -657,7 +661,7 @@ function App() {
                 <span className={styles.workspaceAvatar}>P</span>
                 <span className={styles.accountText}>
                   <strong>{workspaceLabel}</strong>
-                  <small>Session access · {workflows.length} workflows</small>
+                  <small>{workflows.length} workflows</small>
                 </span>
                 <Icon name="chevrons" />
               </>
@@ -712,15 +716,15 @@ function App() {
                 <>
                   <span className={styles.avatar}>P</span>
                   <span className={styles.accountText}>
-                    <strong>Your workspace</strong>
-                    <small>Private browser session</small>
+                    <strong>{user?.email || (user ? 'Signed in' : 'Local session')}</strong>
+                    <small>{workspaceLabel}</small>
                   </span>
                   <Icon name="chevrons" />
                 </>
               }
             >
               <div className={styles.menuCaption}>
-                <strong>Browser session</strong>
+                <strong>{user ? 'Signed-in user' : 'Local browser session'}</strong>
                 <small>{workspaceLabel}</small>
               </div>
               <Button onClick={() => navigate('settings/profile')}>

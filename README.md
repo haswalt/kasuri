@@ -122,7 +122,7 @@ All backend logic is Rust. Cloudflare's `worker-build` only generates the JavaSc
 - [Workflow engine](docs/workflow-engine.md)
 - [UI implementation](docs/ui-implementation.md), [Styling](docs/styling.md)
 - [Scalable workspace storage and execution](docs/workspace-storage.md)
-- [Third-party platform authentication](docs/platform-auth.md) (planned)
+- [Platform sign-in and workspace recovery](docs/platform-auth.md)
 - [Agent management requirements](docs/agent-mcp.md), [Agentic connectors](docs/agentic-connectors.md) (planned)
 - [Internal platform plan](docs/internal-platform-plan.md)
 
@@ -130,7 +130,7 @@ All backend logic is Rust. Cloudflare's `worker-build` only generates the JavaSc
 
 Kasuri is under active development. Current limitations:
 
-- **No user accounts.** A browser cookie identifies who owns which workspaces; clearing it loses access to them. Protect private installations with [Cloudflare Access](https://developers.cloudflare.com/cloudflare-one/policies/access/) or the optional Basic authentication. Third-party sign-in is [planned](docs/platform-auth.md).
+- **Platform sign-in.** Cloudflare Access supplies the verified identity used to open your workspace directory. Existing browser-owned deployments can map an old directory to its verified owner. [Setup and recovery](docs/platform-auth.md).
 - **Workspace capacity.** Each workspace runs as one Durable Object. Finished runs are stored as [history](docs/deployment.md#run-history) under configurable retention; workflows, active runs and audit entries share a 6 MB in-memory budget, which limits how many large runs can be active at once. See [concurrent runs](docs/deployment.md#concurrent-runs) and the [storage redesign](docs/workspace-storage.md).
 - **No SaaS connectors yet.** Integrations use HTTP Request. OAuth-based connectors are not implemented.
 

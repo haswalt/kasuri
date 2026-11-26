@@ -31,3 +31,5 @@ url = "2"
 workflow-data = { path = "../workflow-data" }
 
 connectors-data = { path = "../connectors-data" }
+
+web-sys = { version = "0.3", features = ["Crypto", "SubtleCrypto", "CryptoKey"] }

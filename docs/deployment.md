@@ -14,15 +14,9 @@ The build uses the official `worker-build` CLI and `workers-rs` to compile `work
 
 `wrangler.jsonc` creates a Worker named `kasuri`, with an `ASSETS` binding, and two SQLite-backed Durable Object namespaces: `WORKSPACES` for workspace data and `RUNS` for run trees. Wrangler also provisions the `kasuri-runs` Cloudflare Queue for queue execution. Change the Worker name before deploying if necessary. Preserve the namespace/class/migration history when upgrading an installation that contains data. This is a fresh deployment configuration and does not migrate storage from the former TypeScript backend.
 
-Workspaces start empty and persist. An HttpOnly, SameSite=Strict cookie carries a workspace routing ID and an independent session token; only its hash is stored for management authorization. Secure is enabled on HTTPS. Foreign-Origin and cross-site mutation requests are rejected. There is no workspace expiration mode. Run and cron state is saved together in SQLite; alarms resume waits and dispatch scheduled core workflows.
+Configure [platform sign-in](platform-auth.md) before exposing the dashboard. The Worker opens the signed-in user's workspace directory using their verified identity. For an existing browser-owned directory, add the documented legacy owner mapping before switching sign-in on.
 
-For private deployments, configure Cloudflare Access or set optional Basic credentials:
-
-```sh
-pnpm exec wrangler secret put BASIC_AUTH
-```
-
-Enter `username:password`. The health endpoint is unauthenticated for probes. Do not store credentials in tracked configuration. For local configuration, copy `.dev.vars.example` to the ignored `.dev.vars` file and set `BASIC_AUTH="username:password"` if you need local authentication.
+`pnpm dev` enables loopback-only sessions for local development. Copy `.dev.vars.example` to the ignored `.dev.vars` file for local configuration. The health endpoint remains available to deployment probes. Foreign-Origin and cross-site browser mutations are rejected.
 
 ## API
 

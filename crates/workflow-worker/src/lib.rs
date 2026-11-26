@@ -6,6 +6,7 @@ mod files;
 mod http;
 mod mcp;
 mod mcp_client;
+mod platform_auth;
 mod runs;
 mod sentry;
 mod storage;
@@ -75,23 +76,29 @@ pub async fn main(req: Request, env: Env, _ctx: Context) -> Result<Response> {
                 .await?;
         return Ok(response.dyn_into::<worker::web_sys::Response>()?.into());
     }
-    let credentials = env
-        .secret("BASIC_AUTH")
-        .map(|s| s.to_string())
-        .or_else(|_| env.var("BASIC_AUTH").map(|v| v.to_string()))
-        .unwrap_or_default();
-    if !credentials.trim().is_empty() {
-        let expected = format!("Basic {}", STANDARD.encode(credentials.trim()));
-        let supplied = req.headers().get("Authorization")?.unwrap_or_default();
-        if !bool::from(
-            Sha256::digest(expected.as_bytes()).ct_eq(&Sha256::digest(supplied.as_bytes())),
-        ) {
-            let mut response = Response::error("Authentication required", 401)?;
-            response.headers_mut().set(
-                "WWW-Authenticate",
-                "Basic realm=\"Kasuri\", charset=\"UTF-8\"",
-            )?;
-            return Ok(response);
+    let identity = match platform_auth::authenticate(&req, &env, &url).await? {
+        Ok(identity) => identity,
+        Err(response) => return Ok(response),
+    };
+    if matches!(identity, platform_auth::BrowserAuth::Local) {
+        let credentials = env
+            .secret("BASIC_AUTH")
+            .map(|s| s.to_string())
+            .or_else(|_| env.var("BASIC_AUTH").map(|v| v.to_string()))
+            .unwrap_or_default();
+        if !credentials.trim().is_empty() {
+            let expected = format!("Basic {}", STANDARD.encode(credentials.trim()));
+            let supplied = req.headers().get("Authorization")?.unwrap_or_default();
+            if !bool::from(
+                Sha256::digest(expected.as_bytes()).ct_eq(&Sha256::digest(supplied.as_bytes())),
+            ) {
+                let mut response = Response::error("Authentication required", 401)?;
+                response.headers_mut().set(
+                    "WWW-Authenticate",
+                    "Basic realm=\"Kasuri\", charset=\"UTF-8\"",
+                )?;
+                return Ok(response);
+            }
         }
     }
     if !url.path().starts_with("/api/") {
@@ -138,6 +145,15 @@ pub async fn main(req: Request, env: Env, _ctx: Context) -> Result<Response> {
         response
             .headers_mut()
             .set("X-Content-Type-Options", "nosniff")?;
+        if response
+            .headers()
+            .get("Content-Type")?
+            .is_some_and(|value| value.starts_with("text/html"))
+        {
+            response
+                .headers_mut()
+                .set("Cache-Control", "private, no-store")?;
+        }
         set_document_security_headers(response.headers_mut())?;
         return Ok(response);
     }
@@ -168,6 +184,25 @@ pub async fn main(req: Request, env: Env, _ctx: Context) -> Result<Response> {
         }
     }
     let namespace = env.durable_object("WORKSPACES")?;
+    let mut forwarded = req.clone_mut()?;
+    for header in [
+        "X-Kasuri-Delegated",
+        "X-Kasuri-Session",
+        platform_auth::PRINCIPAL_HEADER,
+        "Cf-Access-Jwt-Assertion",
+    ] {
+        forwarded.headers_mut()?.delete(header)?;
+    }
+    if let platform_auth::BrowserAuth::Principal(principal) = identity {
+        let id = principal.directory(&env, &namespace)?;
+        platform_auth::forward(&mut forwarded, &principal)?;
+        let response = id.get_stub()?.fetch_with_request(forwarded).await?;
+        let headers = response.headers().clone();
+        let mut response = response.with_headers(headers);
+        response.headers_mut().set("Cache-Control", "no-store")?;
+        set_document_security_headers(response.headers_mut())?;
+        return Ok(response);
+    }
     let cookie = req.headers().get("Cookie")?.unwrap_or_default();
     let session = cookie
         .split(';')
@@ -194,8 +229,6 @@ pub async fn main(req: Request, env: Env, _ctx: Context) -> Result<Response> {
         Some(id) => id,
         None => namespace.unique_id()?,
     };
-    let mut forwarded = req.clone_mut()?;
-    forwarded.headers_mut()?.delete("X-Kasuri-Delegated")?;
     forwarded
         .headers_mut()?
         .set("X-Kasuri-Session", &session_token)?;
@@ -327,7 +360,18 @@ impl DurableObject for WorkflowWorkspace {
             return self.incoming_webhook(req).await;
         }
         let token = req.headers().get("X-Kasuri-Session")?.unwrap_or_default();
-        if !self.authorize_session(&token)? {
+        let identity = platform_auth::principal(&req)?;
+        if let Some(principal) = &identity {
+            if !self.authorize_account(
+                principal,
+                req.headers().get("X-Kasuri-Delegated")?.as_deref() == Some("1"),
+            )? {
+                return api_error(
+                    403,
+                    "Workspace is assigned to a different owner or is not a personal directory",
+                );
+            }
+        } else if !self.authorize_session(&token)? {
             return api_error(403, "Invalid workspace session");
         }
         if let Some(response) = self.workspace_route(&mut req, &token).await? {

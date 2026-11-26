@@ -98,6 +98,13 @@ fn definitions() -> Vec<(&'static str, &'static str, &'static str, bool, Value)>
             object(json!({"exampleId":id}), vec!["exampleId"]),
         ),
         (
+            "workspace_identity_get",
+            "",
+            "Identify the connected workspace, authenticated MCP credential and the verified user who authorized it, when recorded. Compares workspace IDs with the dashboard MCP page.",
+            false,
+            object(json!({}), vec![]),
+        ),
+        (
             "platform_capabilities_get",
             "read",
             "Read workflow execution, input/output wiring, publication, simulation, retry and scope semantics before designing a workflow.",
@@ -314,7 +321,7 @@ fn definitions() -> Vec<(&'static str, &'static str, &'static str, bool, Value)>
     ]
 }
 pub fn list(c: &Credential) -> Vec<Value> {
-    definitions().into_iter().filter(|(_,scope,_,_,_)|c.permits("read")&&c.permits(scope)).map(|(name,_,description,mutation,mut schema)|{
+    definitions().into_iter().filter(|(name,scope,_,_,_)|*name=="workspace_identity_get" || (c.permits("read")&&c.permits(scope))).map(|(name,_,description,mutation,mut schema)|{
         if matches!(name,"workflows_create"|"workflows_update"|"workflows_validate"){
             let mut definition=workflow_service::definition::schema();
             let defs=definition.as_object_mut().unwrap().remove("$defs").unwrap_or(json!({}));
@@ -779,6 +786,27 @@ pub fn call_with_data(
     data: Option<&mut dyn crate::DataAccess>,
 ) -> Value {
     let name = params["name"].as_str().unwrap_or("");
+    if name == "workspace_identity_get" {
+        if !params["arguments"].is_null()
+            && params["arguments"]
+                .as_object()
+                .is_none_or(|args| !args.is_empty())
+        {
+            return content(Err(err("invalid_arguments", "Expected no arguments")));
+        }
+        let workspace_id = url::Url::parse(&c.resource)
+            .ok()
+            .and_then(|url| url.path_segments()?.nth(1).map(str::to_owned));
+        let data = json!({
+            "workspaceId":workspace_id,
+            "endpoint":c.resource,
+            "principal":{"kind":"mcp_credential","id":c.id,"name":c.name,
+                "authentication":if c.client_id.is_some() {"oauth"} else {"token"},
+                "clientId":c.client_id,"scopes":c.scopes},
+            "authorizedBy":c.authorized_by
+        });
+        return content(Ok(data));
+    }
     let args = &params["arguments"];
     let Some((_, scope, _, mutation, schema)) =
         definitions().into_iter().find(|(n, _, _, _, _)| *n == name)
