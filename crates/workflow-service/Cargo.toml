@@ -16,6 +16,7 @@ chrono-tz = "0.10"
 croner = "4"
 connectors-clairic = { path = "../connectors-clairic" }
 connectors-mcp-client = { path = "../connectors-mcp-client" }
+connectors-sentry = { path = "../connectors-sentry" }
 connectors-email = { path = "../connectors-email" }
 connectors-http = { path = "../connectors-http" }
 connectors-webhook = { path = "../connectors-webhook" }

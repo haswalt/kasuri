@@ -53,7 +53,7 @@ Persist-before-dispatch closes one failure window but does **not** guarantee exa
 - The engine serializes execution: one in-flight task per run. Independent branches are supported but do not execute concurrently in this first implementation.
 - A single-parent node receives that parent's selected output directly. A node with multiple incoming edges waits for every parent to settle and receives an object keyed by **active parent ID**. Inactive parents are omitted. If no parent edge is active, the node is skipped, propagating through the untaken branch.
 - Normal nodes emit `success`; conditions emit `true` or `false`. All nodes can route a terminal failure through an explicit `error` edge. Retryable failures retry first. An exhausted or permanent failure without an error edge fails the run immediately. The error output contains only `{ "error": { "code": "external" } }` (or another stable code).
-- `Error Handler` is a passthrough destination for an error edge; it does not invent recovery behavior or invoke an external alert.
+- `Error Handler` is a passthrough destination for an error edge; connect a [Sentry node](sentry.md) downstream to report it externally.
 - `Manual Trigger`, `Webhook` and `Schedule` pass through a host-supplied event. They do not register endpoints, verify webhook signatures or register cron jobs.
 - `Merge` passes through the input assembled by the scheduler; it does not aggregate arbitrary items or implement streaming.
 

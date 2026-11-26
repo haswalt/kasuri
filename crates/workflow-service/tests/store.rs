@@ -569,6 +569,7 @@ fn every_published_example_runs_through_the_store<S: TestStore>() {
                     "HTTP Request"
                         | connectors_clairic::KIND
                         | connectors_mcp_client::KIND
+                        | connectors_sentry::KIND
                         | connectors_email::SEND
                 )
             )

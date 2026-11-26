@@ -138,6 +138,7 @@ fn every_published_example_simulates_without_input_or_configuration() {
                 "HTTP Request"
                     | connectors_clairic::KIND
                     | connectors_mcp_client::KIND
+                    | connectors_sentry::KIND
                     | connectors_email::SEND
             )
         }) {

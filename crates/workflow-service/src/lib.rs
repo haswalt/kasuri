@@ -407,6 +407,7 @@ impl RunRecord {
                             "HTTP Request"
                                 | connectors_clairic::KIND
                                 | connectors_mcp_client::KIND
+                                | connectors_sentry::KIND
                                 | connectors_email::SEND
                         ) && self.mode != Mode::Simulation)
                     {
@@ -496,6 +497,8 @@ impl RunRecord {
                         connectors_clairic::simulate(&task)
                     } else if task.node.kind == connectors_mcp_client::KIND {
                         connectors_mcp_client::simulate(&task)
+                    } else if task.node.kind == connectors_sentry::KIND {
+                        connectors_sentry::simulate(&task)
                     } else if task.node.kind == connectors_email::SEND {
                         connectors_email::simulate(&task)
                     } else if task.node.kind == connectors_email::TRIGGER {
@@ -1075,6 +1078,20 @@ impl Workspace {
                         return Err(error(
                             400,
                             "MCP Client requires one attempt to avoid repeating a tool call",
+                        ));
+                    }
+                }
+                if node.kind == connectors_sentry::KIND {
+                    connectors_sentry::validate(&node.config).map_err(|_| {
+                        error(
+                            400,
+                            "Set a Sentry project alias and an optional short message",
+                        )
+                    })?;
+                    if node.retry.max_attempts != 1 {
+                        return Err(error(
+                            400,
+                            "Sentry requires one attempt to avoid repeating a report",
                         ));
                     }
                 }
@@ -2197,6 +2214,7 @@ pub fn manifests() -> Vec<connector_sdk::NodeManifest> {
     manifests.push(connectors_http::manifest());
     manifests.push(connectors_clairic::manifest());
     manifests.push(connectors_mcp_client::manifest());
+    manifests.push(connectors_sentry::manifest());
     manifests.extend(connectors_email::manifests());
     manifests.extend(connectors_data::manifests());
     manifests.push(connector_sdk::NodeManifest{kind:"Respond to Webhook".into(),version:1,config_schema:json!({"type":"object","properties":{"status":{"oneOf":[{"type":"integer","minimum":200,"maximum":599},{"type":"string","description":"Numeric status or JSON-encoded $input reference"},{"type":"object","properties":{"$input":{"type":"string"}},"required":["$input"],"additionalProperties":false}],"default":200},"responseType":{"enum":["json","text"]},"headers":{"oneOf":[{"type":"object"},{"type":"string","description":"JSON-encoded response headers"}]},"body":{}},"additionalProperties":false}),output_ports:vec!["success".into(),"error".into()],has_external_side_effects:true});

@@ -8,6 +8,7 @@ import { InvocationBuilder } from './InvocationBuilder'
 import { CollectionBuilder } from './CollectionBuilder'
 import { workflowInputHints } from '../lib/input-hints'
 import { ClairicBuilder } from './ClairicBuilder'
+import { SentryBuilder } from './SentryBuilder'
 import { McpClientBuilder } from './McpClientBuilder'
 import { InputBindingsBuilder } from './InputBindingsBuilder'
 import { ExpressionBuilder } from './ExpressionBuilder'
@@ -202,7 +203,7 @@ export function WorkflowEditor({
   }
   const selectedResult = result?.nodes.find((n) => n.id === nodeId)
   const inputHints=workflowInputHints(workflow,node?.id,result,input)
-  const parameterKeys = [
+  const parameterKeys = node?.type === 'Sentry' ? [] : [
     ...new Set([
       ...(fields[node?.type || ''] || []).map((f) => f.key),
       ...Object.keys(
@@ -717,6 +718,7 @@ export function WorkflowEditor({
                         </label>
                       )
                     })}
+                    {node.type === 'Sentry' && <SentryBuilder key={node.id} config={node.config} onChange={config => editNode({ config })} />}
                     {node.type === 'Webhook' && (
                       <section className={styles.webhookSettings}>
                         <h2 className={styles.sectionTitle}>
@@ -801,6 +803,8 @@ export function WorkflowEditor({
                         ? 'Live runs use an approved connection. Simulations use the saved fixture.'
                         : node.type === 'Clairic'
                         ? 'Live runs send the selected text to Workers AI. Simulations use the saved fixture.'
+                        : node.type === 'Error Handler'
+                        ? 'Passes the failed node’s error code through. Connect a Sentry node to report it externally.'
                         : node.type === 'HTTP Request'
                         ? 'Public HTTPS is allowed by default. Credentials use named secrets. Simulations require a response fixture.'
                         : node.type === 'Map / Transform'

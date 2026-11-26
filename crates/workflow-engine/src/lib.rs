@@ -655,7 +655,9 @@ impl Run {
                     idempotency_key: self.effect_key(&node.id),
                     node: node.clone(),
                     input,
-                    context: if node.kind == "Expressions" || !node.input_bindings.is_empty() {
+                    context: if matches!(node.kind.as_str(), "Expressions" | "Sentry")
+                        || !node.input_bindings.is_empty()
+                    {
                         self.expression_context(node)
                     } else {
                         Value::Null
