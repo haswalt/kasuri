@@ -9,10 +9,11 @@ import { FixedValue } from './ExpressionBuilder'
 type Props = {
   config: Record<string, Json>
   hints: InputHints
+  target?: 'record'
   onChange: (config: Record<string, Json>) => void
 }
 
-export function TransformBuilder({ config, hints, onChange }: Props) {
+export function TransformBuilder({ config, hints, target, onChange }: Props) {
   const [name, setName] = useState('')
   const decoded = decodeJson(config.mapping)
   const mapping = decoded && typeof decoded === 'object' && !Array.isArray(decoded) ? decoded : {}
@@ -21,7 +22,7 @@ export function TransformBuilder({ config, hints, onChange }: Props) {
   const fieldName = name.trim()
 
   return <section className={styles.conditionBuilder}>
-    <p>Build a new object for the next node. Copy input fields to rename them, or add fixed values. Only the fields listed below are included.</p>
+    {target !== 'record' && <p>Build a new object for the next node. Copy input fields to rename them, or add fixed values. Only the fields listed below are included.</p>}
     {config.mapping !== undefined && decoded !== mapping && <p role="alert">The saved mapping is not a JSON object. Add a field to replace it.</p>}
     {entries.map(([key, value]) => {
       const pointer = value && typeof value === 'object' && !Array.isArray(value) &&
@@ -42,10 +43,10 @@ export function TransformBuilder({ config, hints, onChange }: Props) {
         <Button visual="ghost" onClick={() => update(Object.fromEntries(entries.filter(([field]) => field !== key)))}>Remove {key}</Button>
       </fieldset>
     })}
-    <label>Output field name<input value={name} placeholder="e.g. customerName" onChange={event => setName(event.target.value)} /></label>
+    <label>{target === 'record' ? 'Record field name' : 'Output field name'}<input value={name} placeholder="e.g. customerName" onChange={event => setName(event.target.value)} /></label>
     <Button disabled={!fieldName || Object.hasOwn(mapping, fieldName)} onClick={() => {
       update({ ...mapping, [fieldName]: { $input: '' } })
       setName('')
-    }}>Add output field</Button>
+    }}>{target === 'record' ? 'Add record field' : 'Add output field'}</Button>
   </section>
 }
