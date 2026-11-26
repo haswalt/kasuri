@@ -22,6 +22,14 @@ pub fn valid_scopes(scopes: &[String]) -> bool {
         && scopes.iter().all(|s| SCOPES.contains(&s.as_str()))
 }
 #[derive(Clone, Serialize, Deserialize)]
+pub struct UserIdentity {
+    pub issuer: String,
+    pub subject: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub email: Option<String>,
+}
+
+#[derive(Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Credential {
     pub id: String,
@@ -33,6 +41,8 @@ pub struct Credential {
     pub expires_at: u64,
     pub revoked: bool,
     pub client_id: Option<String>,
+    #[serde(default)]
+    pub authorized_by: Option<UserIdentity>,
     pub refresh_hash: Option<String>,
     pub refresh_until: u64,
     #[serde(default)]
@@ -82,6 +92,8 @@ pub struct GrantRequest {
     pub expires: u64,
     pub code_hash: Option<String>,
     pub approved: Option<Vec<String>>,
+    #[serde(default)]
+    pub authorized_by: Option<UserIdentity>,
     pub used: bool,
 }
 #[derive(Clone, Serialize, Deserialize)]
@@ -202,6 +214,7 @@ impl Auth {
             expires_at: now + lifetime,
             revoked: false,
             client_id: None,
+            authorized_by: None,
             refresh_hash: None,
             refresh_until: 0,
             used_refresh: vec![],
@@ -331,6 +344,7 @@ impl Auth {
             expires: now + 600000,
             code_hash: None,
             approved: None,
+            authorized_by: None,
             used: false,
         });
         Ok(id)
@@ -468,6 +482,7 @@ impl Auth {
         }
         let scopes = r.approved.clone().ok_or("invalid_grant")?;
         let client_id = r.client_id.clone();
+        let authorized_by = r.authorized_by.clone();
         r.used = true;
         if let Some(client) = self.clients.iter_mut().find(|c| c.id == client_id) {
             client.established = true;
@@ -482,6 +497,7 @@ impl Auth {
         let refresh = entropy();
         let c = self.credentials.last_mut().unwrap();
         c.client_id = Some(client_id);
+        c.authorized_by = authorized_by;
         c.refresh_hash = Some(hash(&refresh));
         c.refresh_until = now + 30 * 86400000;
         Ok(

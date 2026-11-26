@@ -68,8 +68,11 @@ async function mcp(request, portal = false) {
   }})
   return new Response(stream,{headers:{'Content-Type':'text/event-stream; charset=utf-8'}})
 }
-export default {async fetch(request){
+export default {async fetch(request, env){
  const url=new URL(request.url)
+ if (url.hostname === 'test-team.cloudflareaccess.com' && url.pathname === '/cdn-cgi/access/certs') {
+  return Response.json(JSON.parse(env.TEST_ACCESS_JWKS || '{"keys":[]}'))
+ }
  if(url.hostname==='cloudflare-dns.com'){
   if(request.headers.has('authorization')||request.headers.has('x-api-key')||request.headers.has('CF-Access-Client-Id')||request.headers.has('CF-Access-Client-Secret'))return new Response('Credentials leaked to DNS',{status:500})
   const name=url.searchParams.get('name');const type=url.searchParams.get('type')==='AAAA'?28:1

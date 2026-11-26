@@ -54,7 +54,7 @@ export function McpManagement({ authorizeId }: { authorizeId: string | null }) {
       .catch(() => {
         if (active)
           setError(
-            'This authorization request expired or belongs to another workspace. Open the consent link in the browser that owns the target workspace.'
+            'This authorization request expired or belongs to another workspace. Sign in as the owner of the target workspace and retry the connection.'
           )
       })
     return () => {
@@ -119,6 +119,17 @@ export function McpManagement({ authorizeId }: { authorizeId: string | null }) {
               className={styles.mono}
             />
           </label>
+          {data && <>
+            <label>
+              Workspace ID
+              <input readOnly value={data.workspaceId} className={styles.mono} />
+            </label>
+            {data.user && <>
+              {data.user.email && <label>Signed-in user<input readOnly value={data.user.email} /></label>}
+              <label>User subject<input readOnly value={data.user.subject} className={styles.mono} /></label>
+            </>}
+            <p>Use <code>workspace_identity_get</code> in your MCP client and compare the workspace ID above.</p>
+          </>}
           <div className={styles.actions}>
             <Button
               disabled={!data}

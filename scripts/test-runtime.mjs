@@ -20,6 +20,7 @@ import { checkWorkspaces } from './workspace-checks.mjs'
 import { checkMcp } from './mcp-checks.mjs'
 import { checkMcpClient } from './mcp-client-checks.mjs'
 import { checkSentry } from './sentry-checks.mjs'
+import { checkPlatformAuth } from './platform-auth-checks.mjs'
 import { checkMcpDiscovery } from './mcp-discovery-checks.mjs'
 import { checkDataTransfer } from './data-transfer-checks.mjs'
 import { checkExpressions } from './expression-checks.mjs'
@@ -62,11 +63,11 @@ const config = stageRuntimeFixture(data, { queues })
   .replace('        (name = "HTTP_SECRETS",', '        (name = "SENTRY_PROJECTS", fromEnvironment = "SENTRY_PROJECTS"),\n        (name = "MCP_CONNECTIONS", fromEnvironment = "MCP_CONNECTIONS"),\n        (name = "MCP_PORTAL_CLIENT_ID", fromEnvironment = "MCP_PORTAL_CLIENT_ID"),\n        (name = "MCP_PORTAL_CLIENT_SECRET", fromEnvironment = "MCP_PORTAL_CLIENT_SECRET"),\n        (name = "HTTP_SECRETS",')
   .replace(
     'services = [',
-    `services = [(name = "upstream", worker = (modules = [(name = "upstream.mjs", esModule = embed "upstream.mjs")], compatibilityDate = "2026-11-18")),`
+    `services = [(name = "upstream", worker = (modules = [(name = "upstream.mjs", esModule = embed "upstream.mjs")], compatibilityDate = "2026-11-18", bindings = [(name = "TEST_ACCESS_JWKS", fromEnvironment = "TEST_ACCESS_JWKS")])),`
   )
   .replace(
-    'compatibilityDate = "2026-11-18",',
-    'globalOutbound = "upstream", compatibilityDate = "2026-11-18",'
+    '\n      compatibilityDate = "2026-11-18",',
+    '\n      globalOutbound = "upstream", compatibilityDate = "2026-11-18",'
   )
 writeFileSync(configPath, config)
 const origin = `http://127.0.0.1:${port}`
@@ -88,7 +89,7 @@ function start(policy = {}) {
       cwd: data,
       env: {
         ...process.env,
-        BASIC_AUTH: 'test:runtime-check',
+        PLATFORM_AUTH: 'local', PLATFORM_ACCESS_ISSUER: '', PLATFORM_ACCESS_AUDIENCE: '', PLATFORM_ACCESS_LEGACY_OWNERS: '', BASIC_AUTH: 'test:runtime-check',
         PUBLIC_ORIGIN: '',
         HTTP_ALLOWED_HOSTS: '',
         HTTP_PRIVATE_HOSTS: '',
@@ -108,6 +109,7 @@ function start(policy = {}) {
           bearer: 'Bearer private-bearer',
           incoming_key: 'incoming-test-key'
         }),
+        TEST_ACCESS_JWKS: "",
         ...policy
       }
     }
@@ -128,10 +130,17 @@ async function stop() {
     await done
   }
 }
+async function restartPlatform(policy, keys) {
+  await stop()
+  start({ ...policy, TEST_ACCESS_JWKS: JSON.stringify(keys) })
+  await healthy(origin)
+}
 try {
   start()
   await healthy(origin)
-  if (process.argv.includes('--sentry-only')) {
+  if (process.argv.includes('--platform-auth-only')) {
+    await checkPlatformAuth(origin, restartPlatform)
+  } else if (process.argv.includes('--sentry-only')) {
     await checkSentry(origin, async policy => { await stop(); start(policy); await healthy(origin) })
   } else if (process.argv.includes('--mcp-client-only')) {
     await checkMcpClient(origin, async policy => { await stop(); start(policy); await healthy(origin) })
@@ -247,6 +256,8 @@ try {
     start({ BASIC_AUTH: '' })
     await healthy(origin)
     await checkAnonymousSecrets(origin)
+    await restartPlatform({}, { keys: [] })
+    await checkPlatformAuth(origin, restartPlatform)
   }
 } catch (e) {
   console.error(logs)

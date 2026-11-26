@@ -4,7 +4,7 @@
   "description": "",
   "main": "index.js",
   "scripts": {
-    "dev": "pnpm build && wrangler dev --ip 127.0.0.1",
+    "dev": "pnpm build && wrangler dev --ip 127.0.0.1 --var PLATFORM_AUTH:local",
     "build": "node scripts/cloudflare-build.mjs",
     "build:worker": "worker-build crates/workflow-worker --release --no-opt",
     "build:web": "pnpm --filter web build",

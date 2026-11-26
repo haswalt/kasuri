@@ -22,7 +22,7 @@ writeFileSync(configPath, stageRuntimeFixture(storage))
 const child = spawn(resolve('node_modules/workerd/bin/workerd'), [
   'serve', configPath, '--socket-addr', `http=127.0.0.1:${port}`,
   '--directory-path', `storage=${storage}`
-], { cwd: storage, env: { ...process.env, BASIC_AUTH: '', PUBLIC_ORIGIN: '', HTTP_ALLOWED_HOSTS: '', HTTP_PRIVATE_HOSTS: '', MAX_ACTIVE_RUNS: '', RUN_HISTORY: '', RUN_HISTORY_DAYS: '', FAILED_RUN_HISTORY_DAYS: '', RUN_EXECUTION: '', HTTP_SECRETS: '{}' } })
+], { cwd: storage, env: { ...process.env, PLATFORM_AUTH: 'local', PLATFORM_ACCESS_ISSUER: '', PLATFORM_ACCESS_AUDIENCE: '', PLATFORM_ACCESS_LEGACY_OWNERS: '', BASIC_AUTH: '', PUBLIC_ORIGIN: '', HTTP_ALLOWED_HOSTS: '', HTTP_PRIVATE_HOSTS: '', MAX_ACTIVE_RUNS: '', RUN_HISTORY: '', RUN_HISTORY_DAYS: '', FAILED_RUN_HISTORY_DAYS: '', RUN_EXECUTION: '', HTTP_SECRETS: '{}' } })
 let logs = '', cookie = ''
 child.stdout.on('data', b => logs += b)
 child.stderr.on('data', b => logs += b)

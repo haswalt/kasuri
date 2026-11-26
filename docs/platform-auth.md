@@ -1,37 +1,28 @@
-# Third-party platform authentication
+# Platform sign-in and workspace ownership
 
-Status: required feature; provider integration is not implemented yet. This is the implementation contract, not a claim that configuring an identity provider currently enables application-level identity.
+Cloudflare Access is the first identity provider supported by Kasuri. It handles sign-in. The Kasuri Worker verifies the signed application assertion and uses the issuer and subject to open that user's workspace directory. Different browser profiles for the same user see the same workspaces. Kasuri uses email for display.
 
-Kasuri must delegate user authentication to a third party. It will not implement password accounts, password recovery, MFA or its own identity service. Cloudflare hosting must not mandate Cloudflare Access: the same provider interface must support other deployments and other providers on Cloudflare.
+A deployment without a configured identity provider denies dashboard and browser API access. The explicitly enabled local mode used by `pnpm dev` uses browser sessions on loopback.
 
-## Current behavior
+## Configure Cloudflare Access
 
-The current runtime supports installation-wide Basic authentication through `BASIC_AUTH`, while browser cookies identify an owner directory and its workspaces. That cookie is not a third-party identity, shared membership system or account recovery mechanism. MCP has separate scoped bearer credentials/OAuth grants; webhook triggers have their own selected authentication. Existing Basic authentication is compatibility infrastructure, not the intended production identity model.
+1. Create a self-hosted Access application for the Kasuri hostname and authorize the intended users through your identity provider. Use a hostname that can route dashboard and machine endpoints separately. Cover the dashboard, browser API, and static assets.
+2. Keep MCP transport, OAuth machine endpoints and discovery, published webhook paths, and the health probe reachable under their own authentication rules. For a single hostname, configure more specific Access bypass applications as needed for `/mcp/*`, `/oauth/*`, `/.well-known/*`, `/hooks/*`, `/api/hooks/*`, and `/api/health`. The browser OAuth consent page under `/w/*` and approval endpoints under `/api/mcp/*` require sign-in.
+3. Set `PLATFORM_ACCESS_ISSUER` to the canonical HTTPS Access team domain, such as `https://your-team.cloudflareaccess.com`, and `PLATFORM_ACCESS_AUDIENCE` to the application's AUD tag. Set `PUBLIC_ORIGIN` to the canonical HTTPS hostname if multiple aliases are in use. Keep the original MCP hostname and endpoint working if older credentials are still in use, because credentials are bound to their original audience.
+4. Deploy the Worker and sign in. Visit MCP server to see the browser's workspace ID. Run `workspace_identity_get` from an MCP client to see its workspace ID, credential and scopes. New grants also report their authorizing identity. Earlier credentials return `authorizedBy: null`.
 
-An external identity proxy can protect access today, but does not automatically map its users to Kasuri accounts. Keep the runtime private behind the proxy and retain existing protection until the new integration has been implemented and verified. Protect dashboard API routes as well as HTML; protecting only the login page is insufficient.
+The Worker rejects missing or invalid JWTs, wrong issuers and audiences, expired assertions, and service-token identities. It verifies signatures with the team signing keys using Workers Web Crypto. The Access edge policy and the Worker must both be configured. [Cloudflare Access JWT validation](https://developers.cloudflare.com/cloudflare-one/access-controls/applications/http-apps/authorization-cookie/validating-json/).
 
-## Provider boundary
+## Recover a legacy workspace directory
 
-Implement a Rust authentication boundary which converts a verified third-party identity to a normalized principal: provider ID, issuer and stable subject, with optional verified display/email/group claims. Identity keys use issuer + subject, never mutable email alone. Workspace membership, authorization and audit attribution remain Kasuri responsibilities.
+Before upgrading, identify the existing personal workspace ID you want the account to retain. Use the workspace ID from its MCP endpoint or `workspace_identity_get`, and verify its ownership from existing deployment or session records. A bearer credential alone does not grant dashboard ownership. Obtain the assigned user's Access `sub` claim from an authenticated session or the Access identity record.
 
-Initial adapter paths:
+The deployment operator can set the Worker secret `PLATFORM_ACCESS_LEGACY_OWNERS` to a JSON object that maps subjects to the verified personal workspace IDs. For example:
 
-- Cloudflare Access: verify the signed assertion against configured issuer, application audience and trusted signing keys. Reject unsigned, expired, wrong-audience and wrong-issuer assertions. Header presence alone is not authentication. Cover custom domains and any alternative origin routes so users cannot bypass Access.
-- Standards-based OIDC: integrate a maintained authentication library/provider SDK compatible with Rust/Wasm, using provider discovery, authorization code + PKCE, state and nonce. Delegate sign-in and MFA to the configured provider. Do not write an OAuth/OIDC protocol implementation ourselves.
-- Trusted authentication proxy: support third-party identity middleware without making arbitrary client headers authoritative. Require a verified signed assertion, or a tightly enforced private/mutually authenticated proxy boundary with incoming identity headers stripped and replaced. Specify and test that trust contract before enabling an adapter.
+```json
+{
+  "access-user-subject": "existing-personal-workspace-durable-object-id"
+}
+```
 
-Cloudflare Access is an optional adapter on Cloudflare. Provider choice is independent of where workflow execution runs. Secrets and provider registration live in installation configuration, never workflow exports or public examples. Proposed configuration names are not usable runtime settings until implementation lands.
-
-## Protected surfaces and separate credentials
-
-Require authenticated principals for the dashboard, management `/api/*` endpoints and browser workspace mutations. Return a structured 401/403 to API clients rather than HTML login pages. Keep same-origin/CSRF protection for browser mutations. Any application session delegates authentication to the provider; use secure, HttpOnly, appropriately SameSite cookies with defined expiry/logout behavior.
-
-MCP transport continues to use its audience-bound token/OAuth flows and explicit scopes. Browser consent must require the authenticated owner and workspace permissions. Do not turn an MCP bearer token into a dashboard login. Webhook paths retain their published trigger auth policy; do not put an interactive dashboard login in front of public triggers. Health probes reveal no application data. Document ingress exceptions for `/hooks/*`, MCP, OAuth/discovery and health according to the selected deployment topology.
-
-## Ownership migration and acceptance
-
-Migrate existing cookie-owned directories through an explicit, authenticated owner-claim procedure with proof of existing ownership. Never silently assign existing workspaces to the first user who logs in. Retain compatibility until owners can migrate; keep migration atomic, audited and reversible from a backup. Define workspace owner/member roles and default-deny access before enabling multiple users.
-
-Test the provider contract on Cloudflare: valid sign-in, expired/revoked sessions and key rotation, forged identity headers, origin bypass, two-user workspace isolation, CSRF, logout, owner migration and unchanged MCP/webhook authentication. Missing provider configuration must fail closed in production mode, with a separate explicit loopback development mode. Deployment helpers must identify a third-party auth prerequisite rather than create local password accounts as the final production setup.
-
-Reference: [Cloudflare Access JWT validation](https://developers.cloudflare.com/cloudflare-one/access-controls/applications/http-apps/authorization-cookie/validating-json/). Access assertions require cryptographic validation, including audience and issuer checks; adapter implementation must verify current provider documentation and select a maintained compatible library.
+Set the mapping before the user's first sign-in so their existing directory becomes their personal workspace. Its named workspaces, runs, webhooks and MCP endpoint IDs stay in place. Use one existing personal directory per subject and keep the mapping in deployment configuration. Changing it switches directories without merging either directory. A directory already claimed by another identity rejects the new claim. The deployment operator should review the mapping and preserve a backup of the prior configuration.

@@ -1864,6 +1864,7 @@ dependencies = [
  "sha2",
  "subtle",
  "url",
+ "web-sys",
  "worker",
  "workflow-data",
  "workflow-files",

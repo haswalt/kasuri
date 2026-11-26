@@ -51,7 +51,7 @@ writeFileSync(join(data, 'scale.capnp'), config)
 const origin = `http://127.0.0.1:${port}`
 const child = spawn(resolve('node_modules/workerd/bin/workerd'), ['serve', join(data, 'scale.capnp'), '--socket-addr', `http=127.0.0.1:${port}`, '--directory-path', `storage=${data}`, ...(queues ? ['--experimental'] : [])], {
   cwd: data,
-  env: { ...process.env, BASIC_AUTH: 'scale:check', PUBLIC_ORIGIN: '', HTTP_ALLOWED_HOSTS: '', HTTP_PRIVATE_HOSTS: '', MAX_ACTIVE_RUNS: '', RUN_HISTORY: String(RUNS + 100), RUN_HISTORY_DAYS: '', FAILED_RUN_HISTORY_DAYS: '', RUN_EXECUTION: mode, HTTP_SECRETS: '{}' }
+  env: { ...process.env, PLATFORM_AUTH: 'local', PLATFORM_ACCESS_ISSUER: '', PLATFORM_ACCESS_AUDIENCE: '', PLATFORM_ACCESS_LEGACY_OWNERS: '', BASIC_AUTH: 'scale:check', PUBLIC_ORIGIN: '', HTTP_ALLOWED_HOSTS: '', HTTP_PRIVATE_HOSTS: '', MAX_ACTIVE_RUNS: '', RUN_HISTORY: String(RUNS + 100), RUN_HISTORY_DAYS: '', FAILED_RUN_HISTORY_DAYS: '', RUN_EXECUTION: mode, HTTP_SECRETS: '{}' }
 })
 let logs = ''
 child.stdout.on('data', b => { logs += b })
