@@ -352,3 +352,136 @@ fn credential_hashes_keep_their_stored_encoding() {
         "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad"
     );
 }
+
+#[test]
+fn workflow_updates_keep_redacted_credentials_only_at_the_original_node_and_origin() {
+    let mut auth = Auth::default();
+    let builder = auth
+        .issue(
+            "Builder",
+            role("builder"),
+            "https://kasuri.example/mcp/test/mcp",
+            0,
+            86400000,
+            &mut entropy(),
+        )
+        .unwrap()["token"]
+        .as_str()
+        .unwrap()
+        .to_owned();
+    for (id, headers) in [
+        (
+            "redacted-object",
+            json!({"X-Api-Key":"synthetic-secret","X-Trace":"initial"}),
+        ),
+        (
+            "redacted-json",
+            json!(r#"{ "X-Api-Key": "synthetic-secret", "X-Trace": "initial" }"#),
+        ),
+    ] {
+        let mut ws = Workspace::default();
+        let mut workflow: Value = serde_json::from_str(include_str!(
+            "../../../examples/workflows/06-public-http.json"
+        ))
+        .unwrap();
+        workflow["id"] = json!(id);
+        workflow["nodes"][1]["config"]["headers"] = headers.clone();
+        let created = call(
+            &mut ws,
+            &mut auth,
+            &builder,
+            "workflows_create",
+            json!({"workflow":workflow,"idempotencyKey":format!("{id}-create")}),
+        );
+        assert_eq!(created["isError"], false, "{created}");
+        let read = call(
+            &mut ws,
+            &mut auth,
+            &builder,
+            "workflows_get",
+            json!({"workflowId":id}),
+        );
+        assert!(!read.to_string().contains("synthetic-secret"));
+        let mut edited = read["structuredContent"].clone();
+        let version = edited["version"].clone();
+        edited["name"] = json!("Enrich data");
+        edited["nodes"].as_array_mut().unwrap().swap(1, 2);
+        edited["nodes"][2]["config"]["url"] = json!("https://jsonplaceholder.typicode.com/posts/2");
+        let update = |ws: &mut Workspace,
+                      auth: &mut Auth,
+                      workflow: &Value,
+                      suffix: &str,
+                      version: &Value| {
+            call(
+                ws,
+                auth,
+                &builder,
+                "workflows_update",
+                json!({"workflow":workflow,"expectedVersion":version,"idempotencyKey":format!("{id}-{suffix}")}),
+            )
+        };
+        let mut moved = edited.clone();
+        moved["nodes"][2]["config"]["url"] = json!("https://other.example/data");
+        let denied = update(&mut ws, &mut auth, &moved, "new-origin", &version);
+        assert_eq!(
+            denied["structuredContent"]["code"],
+            "redacted_configuration"
+        );
+        assert!(!denied.to_string().contains("synthetic-secret"));
+        let mut misplaced = edited.clone();
+        misplaced["nodes"][2]["config"]["headers"] = json!({"X-New-Api-Key":"[REDACTED]"});
+        assert_eq!(
+            update(&mut ws, &mut auth, &misplaced, "new-field", &version)["structuredContent"]["code"],
+            "redacted_configuration"
+        );
+        let mut new_node = edited.clone();
+        new_node["nodes"][2]["id"] = json!("new-fetch");
+        assert_eq!(
+            update(&mut ws, &mut auth, &new_node, "new-node", &version)["structuredContent"]["code"],
+            "redacted_configuration"
+        );
+        assert_eq!(
+            update(&mut ws, &mut auth, &edited, "stale", &json!(0))["structuredContent"]["code"],
+            "conflict"
+        );
+        let saved = update(&mut ws, &mut auth, &edited, "same-field", &version);
+        assert_eq!(saved["isError"], false, "{saved}");
+        assert!(!saved.to_string().contains("synthetic-secret"));
+        assert_eq!(
+            update(&mut ws, &mut auth, &edited, "same-field", &version),
+            saved
+        );
+        let stored = &ws.workflows[0];
+        assert_eq!(stored.graph.name, "Enrich data");
+        assert_eq!(
+            stored
+                .graph
+                .nodes
+                .iter()
+                .find(|n| n.id == "fetch")
+                .unwrap()
+                .config["headers"],
+            headers
+        );
+        let read = call(
+            &mut ws,
+            &mut auth,
+            &builder,
+            "workflows_get",
+            json!({"workflowId":id}),
+        );
+        assert!(!read.to_string().contains("synthetic-secret"));
+        let mut new_workflow = read["structuredContent"].clone();
+        new_workflow["id"] = json!("no-saved-source");
+        assert_eq!(
+            call(
+                &mut ws,
+                &mut auth,
+                &builder,
+                "workflows_create",
+                json!({"workflow":new_workflow,"idempotencyKey":format!("{id}-create-placeholder")})
+            )["structuredContent"]["code"],
+            "redacted_configuration"
+        );
+    }
+}
