@@ -67,33 +67,31 @@ Configure `url`, optional `method` (GET by default), `query` (JSON object), `hea
 
 Pointers refer to the node's incoming payload. A single parent passes its output directly; multiple active parents produce an object keyed by parent node ID. Put a Map / Transform node before HTTP to prepare fields and after HTTP to extract `/body` when needed.
 
-Custom headers accept ordinary string values, for example `{"X-Tenant":"team-a"}`. Sensitive headers such as Authorization, Cookie and API keys use named secret references instead of literal credentials:
+With `authentication` set to `none`, custom headers can include `Authorization` with any scheme, or an `Api-Key` or `X-Api-Key` header. Literal strings are saved in the workflow and included in exports. Use a workspace secret for a real credential.
+
+Header names are case-insensitive. The runtime manages transport/proxy headers and `Idempotency-Key`. Header names and values are checked for injection. A JSON body gets Content-Type automatically unless you set it explicitly.
+
+### Workspace secrets
+
+Open **Connections → Secrets** to create an alias and enter its allowed HTTPS origin, such as `https://api.example.com`. The origin includes the port if it is nonstandard. Use an origin you trust with the credential. The vault supports rotation and deletion. Existing references pick up a replacement value on the next dispatch.
+
+Use a credential expression in a custom header. The value may be the expression alone or a single authentication scheme followed by the expression.
 
 ```json
-{"Authorization":{"$secret":"service_bearer"},"X-Api-Key":{"$secret":"service_key"}}
+{"authentication":"none","headers":{"Authorization":"Bearer {{ secrets.service_token }}","X-Api-Key":"{{ secrets.service_key }}"}}
 ```
 
-The referenced secret contains the complete header value (`Bearer ...` when required). Header names are case-insensitive; transport and proxy headers such as Host, Content-Length, Connection and X-Forwarded-For are managed by the runtime. Header names and values are checked for injection. A JSON body gets Content-Type automatically unless a custom Content-Type is supplied. Idempotency-Key remains managed by the workflow engine.
-
-### Basic authentication and named secrets
-
-Set the node's `authentication` to `basic`, enter `username`, and set `passwordSecret` to a secret alias. The editor has these fields. For example:
+For Basic authentication, reference the password directly. A custom `Authorization` header conflicts with Basic authentication.
 
 ```json
-{"authentication":"basic","username":"api-user","passwordSecret":"service_password"}
+{"authentication":"basic","username":"api-user","passwordSecret":"{{ secrets.service_password }}"}
 ```
 
-Configure aliases in the installation's `HTTP_SECRETS` JSON map:
+The HTTP host resolves these references after persisting dispatch. It only sends them to the configured origin and never follows redirects. Workflow definitions, exports, expressions that process workflow data, simulations and run checkpoints have no access to the stored values. Successful responses redact known echoed credentials and Basic authorization encodings. An upstream can still disclose a credential it transforms, so only authorize trusted services. Simulations use fixtures and never resolve vault credentials.
 
-```json
-{"service_password":"YOUR_PASSWORD","service_bearer":"Bearer YOUR_TOKEN","service_key":"YOUR_API_KEY"}
-```
+### Installation-managed HTTP aliases
 
-Named HTTP secrets require the installation’s existing `BASIC_AUTH` protection to be configured, so anonymous workflow authors cannot use shared installation credentials. Without it, secret-backed requests fail with `egress_denied`; unauthenticated public HTTP requests still work.
-
-On Cloudflare, store that JSON with `pnpm exec wrangler secret put HTTP_SECRETS`. Locally, put it in ignored `.dev.vars`. Keep these values out of Git.
-
-The workflow contains the username and secret aliases. Password/header secret values are resolved only after dispatch is persisted, are not returned by the workspace API, and are not copied into task checkpoints. Known secret values and Basic authorization encodings are redacted from successful response bodies if echoed by an upstream. Missing aliases fail with `missing_input`; there is no fallback to plaintext passwords. Non-sensitive literal custom headers remain part of workflow JSON. Do not put credentials in URL queries, run input, ordinary literals or fixtures. OAuth and a connection-management vault UI remain future work.
+Existing `HTTP_SECRETS` aliases continue to work. Use `{"$secret":"service_bearer"}` as a custom header value, or `"passwordSecret":"service_password"` for Basic authentication. The header alias contains the complete value, including the scheme when needed. Installation aliases still require the deployment’s `BASIC_AUTH` gate. Store the JSON as a Worker secret, or in ignored `.dev.vars` for local development. Workspace expressions never fall back to those installation aliases.
 
 ### Optional destination restrictions
 

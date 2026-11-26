@@ -34,7 +34,15 @@ async function request<T>(
 export type WorkflowRevision = { workflowId: string; revision: number; graph: Workflow; fingerprint: string; publishedAt: string; publishedBy: string; legacyBaseline: boolean }
 export type PlatformUser = { issuer: string; subject: string; email?: string }
 export type WorkspaceMembership = { id: string; name: string }
+export type WorkspaceSecret = { alias: string; origin: string; updatedAt: number }
 export const api = {
+  secrets: () => request<{ configured: boolean; secrets: WorkspaceSecret[] }>('secrets'),
+  createSecret: (alias: string, origin: string, value: string) =>
+    request<WorkspaceSecret>(`secrets/${encodeURIComponent(alias)}`, 'POST', { origin, value }),
+  rotateSecret: (alias: string, value: string) =>
+    request<WorkspaceSecret>(`secrets/${encodeURIComponent(alias)}`, 'PUT', { value }),
+  deleteSecret: (alias: string) =>
+    request<{ deleted: boolean }>(`secrets/${encodeURIComponent(alias)}`, 'DELETE'),
   exportData: (id:string,format:"json"|"csv",cursor?:string,revision?:number) => request<{content:string;count:number;nextCursor:string|null;dataRevision:number}>(`tables/${id}/export?`+new URLSearchParams({format,...(cursor?{cursor}:{}),...(revision===undefined?{}:{dataRevision:String(revision)})})),
   importData: (id:string,input:{format:"json"|"csv";content:string;mode:"insert"|"upsert";expectedDataRevision:number;commit?:boolean;idempotencyKey?:string}) => request<{status:string;rows?:number;imported?:number;skippedExpired:number;dataRevision:number}>(`tables/${id}/import?`+new URLSearchParams({format:input.format,mode:input.mode,expectedDataRevision:String(input.expectedDataRevision),commit:String(input.commit??false),...(input.idempotencyKey?{idempotencyKey:input.idempotencyKey}:{})}),"POST",input.content,true),
   dataTables: (cursor?: string) => request<{tables: DataTableSummary[]; nextCursor: string | null}>('tables?limit=100' + (cursor ? '&cursor=' + encodeURIComponent(cursor) : '')),

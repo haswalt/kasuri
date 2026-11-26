@@ -107,6 +107,10 @@ pub fn validate(task: &Task) -> Result<RequestSpec, FailureCode> {
             url.query_pairs_mut().append_pair(key, &value);
         }
     }
+    let authentication = config
+        .get("authentication")
+        .and_then(Value::as_str)
+        .unwrap_or("none");
     let mut headers = BTreeMap::new();
     let mut secret_headers = BTreeMap::new();
     headers.insert("accept".into(), "application/json".into());
@@ -127,12 +131,16 @@ pub fn validate(task: &Task) -> Result<RequestSpec, FailureCode> {
                 .and_then(|v| v.get("$secret"))
                 .and_then(Value::as_str)
             {
-                if !valid_secret_name(alias) {
+                if !valid_secret_name(alias) && managed_secret(alias).is_none() {
                     return Err(FailureCode::InvalidConfig);
                 }
                 secret_headers.insert(name, alias.into());
+            } else if let Some(reference) = value.as_str().filter(|s| managed_secret(s).is_some()) {
+                secret_headers.insert(name, reference.into());
             } else {
-                if sensitive_header(&name) {
+                if sensitive_header(&name)
+                    && !(matches!(authentication, "none" | "") && custom_auth_header(&name))
+                {
                     return Err(FailureCode::InvalidConfig);
                 }
                 let value = value
@@ -143,11 +151,7 @@ pub fn validate(task: &Task) -> Result<RequestSpec, FailureCode> {
             }
         }
     }
-    let basic = match config
-        .get("authentication")
-        .and_then(Value::as_str)
-        .unwrap_or("none")
-    {
+    let basic = match authentication {
         "none" | "" => None,
         "basic" => {
             if headers.contains_key("authorization") || secret_headers.contains_key("authorization")
@@ -162,7 +166,10 @@ pub fn validate(task: &Task) -> Result<RequestSpec, FailureCode> {
             let password = config
                 .get("passwordSecret")
                 .and_then(Value::as_str)
-                .filter(|s| valid_secret_name(s))
+                .filter(|s| {
+                    valid_secret_name(s)
+                        || managed_secret(s).is_some_and(|(prefix, _)| prefix.is_empty())
+                })
                 .ok_or(FailureCode::InvalidConfig)?;
             Some((username.into(), password.into()))
         }
@@ -286,11 +293,29 @@ pub fn public_ip(ip: IpAddr) -> bool {
         IpAddr::V6(ip) => v6_public(ip),
     }
 }
-fn valid_secret_name(s: &str) -> bool {
+pub fn valid_secret_name(s: &str) -> bool {
     !s.is_empty()
         && s.len() <= 128
         && s.bytes()
             .all(|b| b.is_ascii_alphanumeric() || matches!(b, b'_' | b'-' | b'.'))
+}
+/// A credential-field expression. It is resolved by the HTTP host only.
+pub fn managed_secret(reference: &str) -> Option<(&str, &str)> {
+    let (prefix, expression) = if reference.starts_with("{{") {
+        ("", reference)
+    } else {
+        let (scheme, expression) = reference.split_once(' ')?;
+        if !valid_header_name(scheme) {
+            return None;
+        }
+        (&reference[..scheme.len() + 1], expression)
+    };
+    let alias = expression
+        .strip_prefix("{{")?
+        .strip_suffix("}}")?
+        .trim()
+        .strip_prefix("secrets.")?;
+    valid_secret_name(alias).then_some((prefix, alias))
 }
 fn valid_header_name(s: &str) -> bool {
     !s.is_empty()
@@ -298,7 +323,7 @@ fn valid_header_name(s: &str) -> bool {
         && s.bytes()
             .all(|b| b.is_ascii_alphanumeric() || b"!#$%&'*+-.^_`|~".contains(&b))
 }
-fn valid_header_value(s: &str) -> bool {
+pub fn valid_header_value(s: &str) -> bool {
     s.len() <= 8192 && s.bytes().all(|b| b == b'\t' || b >= 32 && b != 127)
 }
 fn reserved_header(s: &str) -> bool {
@@ -319,8 +344,12 @@ fn reserved_header(s: &str) -> bool {
         || s.starts_with("x-forwarded-")
         || s == "forwarded"
 }
+fn custom_auth_header(name: &str) -> bool {
+    matches!(name, "authorization" | "x-api-key" | "api-key")
+}
 fn sensitive_header(s: &str) -> bool {
-    matches!(s, "authorization" | "cookie" | "x-api-key" | "api-key")
+    custom_auth_header(s)
+        || s == "cookie"
         || s.contains("token")
         || s.contains("secret")
         || s.ends_with("-key")
@@ -332,36 +361,20 @@ pub fn authorization_headers(
 ) -> Result<(BTreeMap<String, String>, Vec<String>), FailureCode> {
     let mut headers = spec.headers.clone();
     let mut redactions = Vec::new();
+    for (name, value) in &headers {
+        if custom_auth_header(name) {
+            redact_credential(name, value, &mut redactions);
+        }
+    }
     for (name, alias) in &spec.secret_headers {
         let value = secrets
             .get(alias)
             .filter(|s| valid_header_value(s))
             .ok_or(FailureCode::MissingInput)?;
         headers.insert(name.clone(), value.clone());
-        redactions.push(value.clone());
-        if name == "cookie" {
-            for part in value.split(';') {
-                if let Some((_, token)) = part.trim().split_once('=') {
-                    redactions.push(token.to_string());
-                }
-            }
-        }
-        if name == "authorization" {
-            if let Some((scheme, token)) = value.split_once(' ') {
-                redactions.push(token.to_string());
-                if scheme.eq_ignore_ascii_case("basic") {
-                    if let Some(pair) = STANDARD
-                        .decode(token)
-                        .ok()
-                        .and_then(|bytes| String::from_utf8(bytes).ok())
-                    {
-                        if let Some((_, password)) = pair.split_once(':') {
-                            redactions.push(password.to_string());
-                        }
-                        redactions.push(pair);
-                    }
-                }
-            }
+        redact_credential(name, value, &mut redactions);
+        if let Some((prefix, _)) = managed_secret(alias) {
+            redactions.extend(value.strip_prefix(prefix).map(str::to_owned));
         }
     }
     if let Some((username, alias)) = &spec.basic {
@@ -378,6 +391,33 @@ pub fn authorization_headers(
     redactions.retain(|s| !s.is_empty());
     redactions.sort_by_key(|s| std::cmp::Reverse(s.len()));
     Ok((headers, redactions))
+}
+fn redact_credential(name: &str, value: &str, redactions: &mut Vec<String>) {
+    redactions.push(value.to_owned());
+    if name == "cookie" {
+        redactions.extend(value.split(';').filter_map(|part| {
+            part.trim()
+                .split_once('=')
+                .map(|(_, token)| token.to_owned())
+        }));
+    }
+    if name == "authorization"
+        && let Some((scheme, token)) = value.split_once(' ')
+    {
+        let token = token.trim();
+        redactions.push(token.to_owned());
+        if scheme.eq_ignore_ascii_case("basic")
+            && let Some(pair) = STANDARD
+                .decode(token)
+                .ok()
+                .and_then(|bytes| String::from_utf8(bytes).ok())
+        {
+            if let Some((_, password)) = pair.split_once(':') {
+                redactions.push(password.to_owned());
+            }
+            redactions.push(pair);
+        }
+    }
 }
 fn redact_text(text: &str, secrets: &[String]) -> String {
     let mut output = String::new();

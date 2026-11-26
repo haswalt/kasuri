@@ -18,6 +18,19 @@ Configure [platform sign-in](platform-auth.md) before exposing the dashboard. Th
 
 `pnpm dev` enables loopback-only sessions for local development. Copy `.dev.vars.example` to the ignored `.dev.vars` file for local configuration. The health endpoint remains available to deployment probes. Foreign-Origin and cross-site browser mutations are rejected.
 
+## Enable workspace secrets
+
+Set `WORKSPACE_SECRETS_KEY` as a [Cloudflare Worker secret](https://developers.cloudflare.com/workers/configuration/secrets/). Generate 32 random bytes as unpadded base64url and pipe the key directly into Wrangler.
+
+```sh
+set -o pipefail
+node -e "process.stdout.write(require('node:crypto').randomBytes(32).toString('base64url'))" | pnpm exec wrangler secret put WORKSPACE_SECRETS_KEY
+```
+
+Store a secure backup of the key for the installation. Use a different key for each deployment. Retain it across deployments and restores. Replacing the key makes previously stored values unreadable and requires re-entering them. Locally, put a separate key in ignored `.dev.vars`.
+
+Each workspace stores its secrets in its own SQLite vault. AES-256-GCM encrypts values with a fresh nonce and authenticates the workspace ID, alias and allowed origin. The dashboard returns metadata only. Create, rotate and delete entries appear in workspace audit with the alias. See [HTTP Request workspace secret references](connectors.md#workspace-secrets).
+
 ## API
 
 | Method | Path | Behavior |

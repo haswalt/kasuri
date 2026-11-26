@@ -72,22 +72,28 @@ async fn prepare(
     task: &Task,
     spec: &RequestSpec,
     env: &Env,
+    workspace: &str,
     signal: &AbortSignal,
 ) -> Result<Outcome> {
+    let url = Url::parse(&spec.url).unwrap();
     let private_hosts = env
         .var("HTTP_PRIVATE_HOSTS")
         .map(|v| v.to_string())
         .unwrap_or_default();
     if !connectors_http::private_opt_in(spec, &private_hosts)
         && (!connectors_http::public_destination(spec)
-            || !public_dns(&Url::parse(&spec.url).unwrap(), signal)
-                .await
-                .unwrap_or(false))
+            || !public_dns(&url, signal).await.unwrap_or(false))
     {
         return Ok(failure(FailureCode::EgressDenied, false));
     }
-    let needs_secrets = spec.basic.is_some() || !spec.secret_headers.is_empty();
-    let secrets = if needs_secrets {
+    let references = spec
+        .secret_headers
+        .values()
+        .chain(spec.basic.iter().map(|(_, reference)| reference));
+    let needs_installation_secrets = references
+        .clone()
+        .any(|reference| connectors_http::managed_secret(reference).is_none());
+    let mut secrets = if needs_installation_secrets {
         // Workspaces are otherwise anonymous browser capabilities. Never expose installation
         // credentials to arbitrary public workflow authors merely because they know an alias.
         let authentication = env
@@ -110,6 +116,16 @@ async fn prepare(
     } else {
         std::collections::BTreeMap::new()
     };
+    let origin = url.origin().ascii_serialization();
+    for reference in references {
+        if let Some((prefix, alias)) = connectors_http::managed_secret(reference) {
+            let value = match crate::secrets::resolve(env, workspace, &origin, alias).await {
+                Ok(value) => value,
+                Err(code) => return Ok(failure(code, false)),
+            };
+            secrets.insert(reference.clone(), format!("{prefix}{value}"));
+        }
+    }
     let (headers, redactions) = match connectors_http::authorization_headers(spec, &secrets) {
         Ok(v) => v,
         Err(code) => return Ok(failure(code, false)),
@@ -173,7 +189,7 @@ async fn request(task: &Task, spec: &RequestSpec, signal: &AbortSignal) -> Resul
         &bytes,
     ))
 }
-pub async fn execute(task: &Task, env: &Env) -> Outcome {
+pub async fn execute(task: &Task, env: &Env, workspace: &str) -> Outcome {
     let spec = match connectors_http::validate(task) {
         Ok(v) => v,
         Err(code) => return failure(code, false),
@@ -191,7 +207,7 @@ pub async fn execute(task: &Task, env: &Env) -> Outcome {
     }
     let controller = AbortController::default();
     let signal = controller.signal();
-    let fetch = Box::pin(prepare(task, &spec, env, &signal));
+    let fetch = Box::pin(prepare(task, &spec, env, workspace, &signal));
     let timeout = Box::pin(Delay::from(Duration::from_millis(remaining)));
     let outcome = match select(fetch, timeout).await {
         Either::Left((result, _)) => result.unwrap_or_else(|_| {

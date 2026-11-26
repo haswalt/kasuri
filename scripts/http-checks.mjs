@@ -16,11 +16,59 @@ export async function checkHttp(origin){
  await workflow({url:'https://unapproved.example/items'});run=await finish(await start());assert.equal(run.status,'succeeded')
  await workflow({url:'https://fixture.example/auth',authentication:'basic',username:'api-user',passwordSecret:'api_password',headers:{'X-Tenant':'team-a','X-Api-Key':{$secret:'api_key'}}});run=await finish(await start());assert.equal(run.status,'succeeded',JSON.stringify(run));let authOutput=run.nodes.find(n=>n.id==='http').output.body;assert.equal(authOutput.authenticated,true);assert.equal(authOutput.authorization,'[REDACTED]');assert.equal(authOutput.apiKey,'[REDACTED]');assert.equal(authOutput.password,'[REDACTED]');const visible=JSON.stringify({run,workspace:await api('workspace')});for(const secret of ['super-private-password','private-api-key',Buffer.from('api-user:super-private-password').toString('base64')])assert.equal(visible.includes(secret),false)
  await workflow({url:'https://fixture.example/bearer',headers:{Authorization:{$secret:'bearer'}}});run=await finish(await start());assert.equal(run.status,'succeeded');assert.equal(run.nodes.find(n=>n.id==='http').output.body.authenticated,true);assert.equal(run.nodes.find(n=>n.id==='http').output.body.echo,'[REDACTED]')
+ for (const [mode, headers] of [
+   ['bearer', { Authorization: 'Bearer synthetic-bearer' }],
+   ['scheme', { authorization: 'Api-Key synthetic-key' }],
+   ['header', { 'Api-Key': 'synthetic-key' }]
+ ]) {
+   await workflow({ url: `https://fixture.example/custom-auth?mode=${mode}`, authentication: 'none', headers })
+   assert.equal((await api('workflows/http-check/publish', 'POST')).status, 'active')
+   run = await finish(await start())
+   assert.equal(run.status, 'succeeded', JSON.stringify(run))
+   assert.deepEqual(run.nodes.find(node => node.id === 'http').output.body,
+     { authenticated: true, echo: '[REDACTED]', token: '[REDACTED]' })
+ }
+ const alias = 'fixture-credential'
+ const secretPath = `secrets/${alias}`
+ const targetOrigin = 'https://fixture.example'
+ const first = 'vault-fixture-first'
+ const rotated = 'vault-fixture-rotated'
+ assert.equal((await api('secrets')).configured, true)
+ assert.equal(JSON.stringify(await api(secretPath, 'POST', { origin: targetOrigin, value: first })).includes(first), false)
+ assert.deepEqual((await api('secrets')).secrets.map(({ alias, origin }) => ({ alias, origin })), [{ alias, origin: targetOrigin }])
+ const otherWorkspace = await fetch(`${origin}/api/secrets`, { headers: { Authorization: authorization } })
+ assert.deepEqual((await otherWorkspace.json()).secrets, [])
+ await workflow({ url: `${targetOrigin}/custom-auth?mode=vault`, authentication: 'none', headers: { Authorization: `Bearer {{ secrets.${alias} }}` } })
+ run = await finish(await start())
+ assert.equal(run.status, 'succeeded', JSON.stringify(run))
+ assert.deepEqual(run.nodes.find(node => node.id === 'http').output.body,
+   { authenticated: true, echo: '[REDACTED]', token: '[REDACTED]' })
+ await workflow({ url: `${targetOrigin}/custom-auth?mode=vault_basic`, authentication: 'basic', username: 'api-user', passwordSecret: `{{ secrets.${alias} }}` })
+ run = await finish(await start())
+ assert.equal(run.status, 'succeeded', JSON.stringify(run))
+ assert.deepEqual(run.nodes.find(node => node.id === 'http').output.body,
+   { authenticated: true, echo: '[REDACTED]', token: '[REDACTED]' })
+ assert.equal(JSON.stringify(await api(secretPath, 'PUT', { value: rotated })).includes(rotated), false)
+ await workflow({ url: `${targetOrigin}/custom-auth?mode=rotated`, headers: { Authorization: `Api-Key {{ secrets.${alias} }}` } })
+ run = await finish(await start())
+ assert.equal(run.status, 'succeeded', JSON.stringify(run))
+ const surfaces = JSON.stringify({ run, workspace: await api('workspace'), audit: await api('audit') })
+ for (const value of [first, rotated]) assert.equal(surfaces.includes(value), false)
+ await workflow({ url: 'https://unapproved.example/custom-auth?mode=rotated', headers: { Authorization: `Api-Key {{ secrets.${alias} }}` } })
+ run = await finish(await start())
+ assert.equal(run.nodes.find(node => node.id === 'http').error, 'egress_denied')
+ await api(secretPath, 'DELETE')
+ assert.deepEqual((await api('secrets')).secrets, [])
+ await workflow({ url: `${targetOrigin}/custom-auth?mode=rotated`, headers: { Authorization: `Api-Key {{ secrets.${alias} }}` }, simulationResponse: { status: 200, body: { simulated: true } } })
+ run = await finish(await start())
+ assert.equal(run.status, 'failed')
+ run = await finish(await start('simulation'))
+ assert.equal(run.status, 'succeeded')
  await workflow({url:'https://fixture.example/auth',authentication:'basic',username:'api-user',passwordSecret:'not_configured'});run=await finish(await start());assert.equal(run.status,'failed');assert.equal(run.nodes.find(n=>n.id==='http').error,'missing_input')
  await workflow({url:'https://fixture.example/slow',timeoutMs:100});run=await finish(await start());assert.equal(run.status,'failed');assert.equal(run.nodes.find(n=>n.id==='http').error,'timeout')
  await workflow({url:'https://fixture.example/slow'});run=await start();await sleep(300);await api(`runs/${run.id}/cancel`,'POST');await sleep(1700);run=await api('runs/'+run.id);assert.equal(run.status,'cancelled')
  await workflow({url:'https://unapproved.example/never-called',simulationResponse:{status:200,body:{simulated:true}}});run=await start('simulation');assert.equal(run.status,'succeeded');assert.deepEqual(run.nodes.find(n=>n.id==='http').output.body,{simulated:true})
- console.log('HTTP checks passed: real dispatch, query/body mapping, filtering/sorting, retry, egress policy, redirects, response bounds, cancellation and offline simulation.')
+ console.log('HTTP checks passed: custom authentication validation and dispatch, workspace vault lifecycle and origin checks, response redaction, retries, redirects, response bounds, cancellation and offline simulation.')
 }
 
 export async function checkRestrictedHttp(origin){

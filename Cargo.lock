@@ -1798,6 +1798,7 @@ version = "0.1.0"
 dependencies = [
  "base64",
  "connectors-data",
+ "connectors-http",
  "jsonschema",
  "serde",
  "serde_json",

@@ -17,5 +17,8 @@ RUN_EXECUTION=
 # Optional HTTP credential aliases. Use a Worker secret for production.
 HTTP_SECRETS={}
 
+# Optional workspace vault key. Use 32 random bytes encoded as unpadded base64url.
+WORKSPACE_SECRETS_KEY=
+
 # Optional canonical HTTPS origin. Defaults to the request origin.
 PUBLIC_ORIGIN=

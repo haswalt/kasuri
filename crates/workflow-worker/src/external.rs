@@ -16,7 +16,7 @@ pub(crate) async fn execute(task: &Task, env: &Env, workspace: &str) -> Outcome 
         return crate::email::send(task, env, workspace).await;
     }
     if task.node.kind != connectors_clairic::KIND {
-        return crate::http::execute(task, env).await;
+        return crate::http::execute(task, env, workspace).await;
     }
 
     let prepared = match connectors_clairic::prepare(task) {

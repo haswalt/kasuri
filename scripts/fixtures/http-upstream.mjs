@@ -80,6 +80,13 @@ export default {async fetch(request, env){
   return Response.json({Status:0,Answer:[{type,data}]})
  }
  if(url.pathname==='/mcp-client')return mcp(request)
+ if(url.pathname==='/custom-auth'){
+  const values={bearer:'Bearer synthetic-bearer',scheme:'Api-Key synthetic-key',header:'synthetic-key',vault:'Bearer vault-fixture-first',vault_basic:'Basic '+btoa('api-user:vault-fixture-first'),rotated:'Api-Key vault-fixture-rotated'}
+  const mode=url.searchParams.get('mode')
+  const header=request.headers.get(mode==='header'?'Api-Key':'Authorization')
+  if(header!==values[mode])return new Response(null,{status:401})
+  return Response.json({ authenticated:true, echo:header, token:header.split(' ').at(-1) })
+ }
  if(url.pathname==='/mcp-portal')return mcp(request,true)
  if(url.hostname==='sentry-fixture.example' && url.pathname==='/api/100/envelope/'){
   if(request.method!=='POST'||request.headers.get('content-type')!=='application/x-sentry-envelope')return new Response(null,{status:415})
