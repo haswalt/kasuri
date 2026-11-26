@@ -809,19 +809,17 @@ export function WorkflowEditor({
                       </details>
                       <a href="https://github.com/haswalt/kasuri/blob/develop/docs/email.md" target="_blank" rel="noreferrer">Email routing setup and JSON example</a>
                     </section>}
-                    {!['Email Trigger', 'Webhook', 'Data Tables', 'Context Store', 'Validate Schema', 'Map / Transform', 'Expressions', 'Each / Loop', 'Execute Workflow', 'Execute Workflow Trigger'].includes(node.type) && <div className={styles.infoBox}>
+                    {!['Email Trigger', 'Webhook', 'Data Tables', 'Context Store', 'Validate Schema', 'Map / Transform', 'Expressions', 'Each / Loop', 'Execute Workflow', 'Execute Workflow Trigger', 'Sentry'].includes(node.type) && <div className={styles.infoBox}>
                       {node.type === 'Respond to Webhook'
                         ? 'Responds at this point, then passes input onward. A second response attempt is an error. Run and Simulate only preview the response.'
                         : node.type === 'Send Email'
                         ? 'Enter fixed values or bind to, subject, text and optionally inReplyTo. Simulation previews delivery.'
                         : node.type === 'Error Handler'
-                        ? 'Connect a node’s error output to receive its failure code at /error/code. Other outputs, including IF false, pass their data through unchanged.'
+                        ? 'A node’s error output supplies a failure code at /error/code. Other outputs, including IF false, pass their data through unchanged. Connect Sentry downstream to report an error.'
                         : node.type === 'MCP Client'
                         ? 'Live runs use an approved connection. Simulations use the saved fixture.'
                         : node.type === 'Clairic'
                         ? 'Live runs send the selected text to Workers AI. Simulations use the saved fixture.'
-                        : node.type === 'Error Handler'
-                        ? 'Passes the failed node’s error code through. Connect a Sentry node to report it externally.'
                         : node.type === 'HTTP Request'
                         ? 'Public HTTPS is allowed by default. Credentials use named secrets. Simulations require a response fixture.'
                           : node.type === 'Schedule'
