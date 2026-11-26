@@ -1,8 +1,17 @@
-import { useState } from 'react'
+import { useId, useState } from 'react'
 import { fieldPointer } from '../lib/input-hints'
-type Props={label:string;ariaLabel?:string;value:string;choices:string[];onChange:(value:string)=>void;rootLabel?:string}
-export function FieldPicker({label,ariaLabel=label,value,choices,onChange,rootLabel='Whole input ($)'}:Props) {
+type Props={label:string;ariaLabel?:string;value:string;choices:string[];onChange:(value:string)=>void;rootLabel?:string;searchable?:boolean}
+export function FieldPicker({label,ariaLabel=label,value,choices,onChange,rootLabel='Whole input ($)',searchable=false}:Props) {
  const [custom,setCustom]=useState(false)
+ const [draft,setDraft]=useState<string|null>(null)
+ const listId=useId()
+ if (searchable) return <label>{label}
+   <input aria-label={ariaLabel} list={listId} value={draft??value} placeholder="Type a field path or choose a suggestion"
+     onChange={event=>{setDraft(event.target.value);onChange(event.target.value)}} onBlur={()=>setDraft(null)} />
+   <datalist id={listId}><option value="$" label={rootLabel} />
+     {choices.map(path=><option key={path} value={path} />)}
+   </datalist>
+ </label>
  const known=choices.find(path=>fieldPointer(path)===fieldPointer(value))
  const isRoot=value==='$'
  const showCustom=custom || (!known&&!isRoot&&value!=='') || choices.length===0&&!isRoot

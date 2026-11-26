@@ -186,7 +186,7 @@ export const editor = defineSlotRecipe({
     },
     editorLayout: {
       display: 'grid',
-      gridTemplateColumns: '240px minmax(0, 1fr) 320px',
+      gridTemplateColumns: '240px minmax(0, 1fr) clamp(280px, var(--inspector-width, 400px), max(280px, calc(100vw - 480px)))',
       flex: '1',
       minHeight: '0',
       overflow: 'hidden'
