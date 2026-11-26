@@ -1,9 +1,9 @@
 import { Button } from '../design/ui'
 import { styles } from '../design/styles'
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useRef, useState, type CSSProperties } from 'react'
 import type { Workflow } from '../lib/workflows'
 import { removeNode, validateWorkflow } from '../lib/workflows'
-import { connect, connectionError, ports, isTrigger } from '../lib/canvas'
+import { connect, ports, isTrigger } from '../lib/canvas'
 import { InvocationBuilder } from './InvocationBuilder'
 import { CollectionBuilder } from './CollectionBuilder'
 import { workflowInputHints } from '../lib/input-hints'
@@ -11,6 +11,8 @@ import { ClairicBuilder } from './ClairicBuilder'
 import { McpClientBuilder } from './McpClientBuilder'
 import { InputBindingsBuilder } from './InputBindingsBuilder'
 import { ExpressionBuilder } from './ExpressionBuilder'
+import { TransformBuilder } from './TransformBuilder'
+import { ValidateSchemaBuilder } from './ValidateSchemaBuilder'
 import { RoutingBuilder } from './RoutingBuilder'
 import { ConditionBuilder } from './ConditionBuilder'
 import { WorkflowCanvas } from './WorkflowCanvas'
@@ -55,6 +57,12 @@ export function WorkflowEditor({
     [error, setError] = useState(''),
     [tab, setTab] = useState('Parameters')
   const [edgeId, setSelectedEdge] = useState<string>()
+  const [inspectorWidth, setInspectorWidth] = useState(400)
+  const resizeStart = useRef<{ x: number; width: number }>(null)
+  function sizeInspector(width: number) {
+    const max = Math.min(680, Math.max(280, window.innerWidth - 480))
+    setInspectorWidth(Math.min(max, Math.max(280, width)))
+  }
   const setNodeId = useCallback((id?: string) => {
     setSelectedNode(id)
     setSelectedEdge(undefined)
@@ -81,8 +89,7 @@ export function WorkflowEditor({
     [speed, setSpeed] = useState(1),
     [pending, setPending] = useState(false)
   const node = workflow.nodes.find((n) => n.id === nodeId),
-    manifest = connectors.find((c) => c.kind === node?.type),
-    triggers = ['Manual Trigger', 'Webhook', 'Email Trigger', 'Schedule', 'Execute Workflow Trigger']
+    manifest = connectors.find((c) => c.kind === node?.type)
   const simulate = mode === 'simulate',
     errors = validateWorkflow(workflow)
   const graphKey = JSON.stringify({
@@ -159,16 +166,6 @@ export function WorkflowEditor({
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Invalid connection.')
     }
-  }
-  function addConnection() {
-    if (!node) return
-    for (const port of ports(node.type,node.config))
-      for (const target of workflow.nodes)
-        if (!connectionError(workflow, node.id, target.id, port)) {
-          update(connect(workflow, node.id, target.id, port))
-          return
-        }
-    setError('No valid connection is available.')
   }
   async function play() {
     if (playing) {
@@ -319,7 +316,7 @@ export function WorkflowEditor({
               <Icon name="pencil" />
               Build your draft
             </span>
-            <p>Drag nodes onto the canvas. Drop on a connection to insert.</p>
+            <p>Drag nodes onto the canvas. Drop on a connection to insert, or onto the current trigger to replace it.</p>
             <Button disabled={busy} onClick={runLive}>
               <Icon name="play" />
               Run now
@@ -340,7 +337,7 @@ export function WorkflowEditor({
           </Button>
         </div>
       )}
-      <div className={styles.editorLayout}>
+      <div className={styles.editorLayout} style={{ '--inspector-width': `${inspectorWidth}px` } as CSSProperties}>
         <aside className={styles.nodeSidebar}>
           {simulate ? (
             <>
@@ -400,20 +397,13 @@ export function WorkflowEditor({
                         <small>{items.length}</small>
                       </div>
                       {items.map((c) => {
-                        const disabled =
-                          triggers.includes(c.kind) &&
-                          workflow.nodes.some((n) => triggers.includes(n.type))
+                        const replacing = isTrigger(c.kind) && workflow.nodes.some(n => isTrigger(n.type))
                         return (
                           <Button
                             className={styles.paletteNode}
                             key={c.kind}
-                            disabled={disabled}
-                            draggable={!disabled}
-                            title={
-                              disabled
-                                ? 'Change the existing trigger in its configuration'
-                                : c.kind
-                            }
+                            draggable
+                            title={replacing ? 'Drop onto the existing trigger to replace it' : c.kind}
                             onDragStart={(e) => {
                               setDragging(true)
                               e.dataTransfer.setData(
@@ -424,7 +414,14 @@ export function WorkflowEditor({
                               e.dataTransfer.effectAllowed = 'copy'
                             }}
                             onDragEnd={() => setDragging(false)}
-                            onClick={() => setAddType(c.kind)}
+                            onClick={() => {
+                              if (replacing && !isTrigger(node?.type ?? '')) {
+                                setError('Select the existing trigger first, or drop the replacement onto it.')
+                                return
+                              }
+                              setError('')
+                              setAddType(c.kind)
+                            }}
                           >
                             <Tile kind={c.kind} size={22} />
                             <span>{c.kind}</span>
@@ -470,6 +467,28 @@ export function WorkflowEditor({
           readOnly={simulate}
         />
         <aside className={styles.inspector}>
+          <div className={styles.inspectorResize} role="separator" tabIndex={0}
+            aria-orientation="vertical" aria-label="Resize node settings"
+            aria-valuemin={280} aria-valuemax={680} aria-valuenow={inspectorWidth}
+            onPointerDown={event => {
+              if (event.button !== 0) return
+              const width = event.currentTarget.parentElement?.getBoundingClientRect().width ?? inspectorWidth
+              resizeStart.current = { x: event.clientX, width }
+              event.currentTarget.setPointerCapture(event.pointerId)
+            }}
+            onPointerMove={event => {
+              if (resizeStart.current && event.currentTarget.hasPointerCapture(event.pointerId)) {
+                sizeInspector(resizeStart.current.width + resizeStart.current.x - event.clientX)
+              }
+            }}
+            onLostPointerCapture={() => { resizeStart.current = null }}
+            onKeyDown={event => {
+              if (!['ArrowLeft', 'ArrowRight', 'Home', 'End'].includes(event.key)) return
+              event.preventDefault()
+              event.stopPropagation()
+              const width = event.currentTarget.parentElement?.getBoundingClientRect().width ?? inspectorWidth
+              sizeInspector(event.key === 'Home' ? 280 : event.key === 'End' ? 680 : width + (event.key === 'ArrowLeft' ? 24 : -24))
+            }} />
           {simulate ? (
             <>
               <div className={styles.panelHeading}>
@@ -611,31 +630,11 @@ export function WorkflowEditor({
                         onChange={(e) => editNode({ label: e.target.value })}
                       />
                     </label>
-                    {triggers.includes(node.type) && (
-                      <label>
-                        Trigger type
-                        <select
-                          value={node.type}
-                          onChange={(e) =>
-                            editNode({
-                              type: e.target.value,
-                              label: e.target.value,
-                              config:
-                                e.target.value === 'Schedule'
-                                  ? { cron: '* * * * *', timezone: 'UTC' }
-                                  : e.target.value === 'Webhook' ? { authentication: 'none' } : {}
-                            })
-                          }
-                        >
-                          {triggers.map((t) => (
-                            <option key={t}>{t}</option>
-                          ))}
-                        </select>
-                      </label>
-                    )}
                     {isTrigger(node.type)&&Object.keys(node.inputBindings??{}).length>0&&<p role="alert">Triggers expose the original event. <Button onClick={()=>editNode({inputBindings:{}})}>Remove trigger bindings</Button></p>}
-                    {!isTrigger(node.type)&&<InputBindingsBuilder key={`bindings:${node.id}`} workflow={workflow} nodeId={node.id} bindings={node.inputBindings??{}} hints={workflowInputHints(workflow,node.id,result,input,false,true)} nodeHints={id=>workflowInputHints(workflow,id,result,input,true)} triggerHints={workflowInputHints(workflow,workflow.nodes.find(n=>isTrigger(n.type))?.id,result,input)} onChange={inputBindings=>editNode({inputBindings})}/>}
-                    {node.type==='MCP Client'?<McpClientBuilder key={`mcp:${node.id}`} config={node.config} hints={inputHints} onChange={config=>editNode({config})}/>:node.type==='Clairic'?<ClairicBuilder key={`clairic:${node.id}`} config={node.config} hints={inputHints} onChange={config=>editNode({config})}/>:node.type==='Expressions'?<ExpressionBuilder config={node.config} workflow={workflow} nodeId={node.id} hints={inputHints} nodeHints={id=>workflowInputHints(workflow,id,result,input,true)} triggerHints={workflowInputHints(workflow,workflow.nodes.find(n=>isTrigger(n.type))?.id,result,input)} onChange={config=>editNode({config})}/>:node.type==='Switch / Router'||node.type==='Merge'?<RoutingBuilder kind={node.type} config={node.config} hints={inputHints} workflow={workflow} nodeId={node.id} nodeHints={id=>workflowInputHints(workflow,id,result,input,true)} onChange={config=>editNode({config})}/>:node.type==='Each / Loop'||node.type==='Execute Workflow'||node.type==='Execute Workflow Trigger' ? <InvocationBuilder node={node} workflow={workflow} hints={inputHints} onChange={config=>editNode({config})} /> : node.type === 'IF / Condition' ? <ConditionBuilder config={node.config} sample={inputHints.sample} schema={inputHints.schema} onChange={config => editNode({ config })} /> : node.type==='Filter'||node.type==='Sort'||node.type==='Split / Batch'||node.type==='Aggregate' ? <CollectionBuilder kind={node.type} config={node.config} hints={inputHints} onChange={config=>editNode({config})} /> : parameterKeys.map((key) => {
+                    {!isTrigger(node.type) && Object.keys(node.inputBindings ?? {}).length > 0 && <InputBindingsBuilder key={`bindings:${node.id}`} workflow={workflow} nodeId={node.id} bindings={node.inputBindings??{}} hints={workflowInputHints(workflow,node.id,result,input,false,true)} nodeHints={id=>workflowInputHints(workflow,id,result,input,true)} triggerHints={workflowInputHints(workflow,workflow.nodes.find(n=>isTrigger(n.type))?.id,result,input)} onChange={inputBindings=>editNode({inputBindings})}/>}
+                    {node.type==='MCP Client'?<McpClientBuilder key={`mcp:${node.id}`} config={node.config} hints={inputHints} onChange={config=>editNode({config})}/>:node.type==='Clairic'?<ClairicBuilder key={`clairic:${node.id}`} config={node.config} hints={inputHints} onChange={config=>editNode({config})}/>:node.type==='Map / Transform'?<TransformBuilder key={`mapping:${node.id}`} config={node.config} hints={inputHints} onChange={config=>editNode({config})}/>
+                    :node.type==='Validate Schema'?<ValidateSchemaBuilder key={`schema:${node.id}`} config={node.config} hints={inputHints} onChange={config=>editNode({config})}/>
+                    :node.type==='Expressions'?<ExpressionBuilder config={node.config} workflow={workflow} nodeId={node.id} hints={inputHints} nodeHints={id=>workflowInputHints(workflow,id,result,input,true)} triggerHints={workflowInputHints(workflow,workflow.nodes.find(n=>isTrigger(n.type))?.id,result,input)} onChange={config=>editNode({config})}/>:node.type==='Switch / Router'||node.type==='Merge'?<RoutingBuilder kind={node.type} config={node.config} hints={inputHints} workflow={workflow} nodeId={node.id} nodeHints={id=>workflowInputHints(workflow,id,result,input,true)} onChange={config=>editNode({config})}/>:node.type==='Each / Loop'||node.type==='Execute Workflow'||node.type==='Execute Workflow Trigger' ? <InvocationBuilder node={node} workflow={workflow} hints={inputHints} onChange={config=>editNode({config})} /> : node.type === 'IF / Condition' ? <ConditionBuilder config={node.config} sample={inputHints.sample} schema={inputHints.schema} onChange={config => editNode({ config })} /> : node.type==='Filter'||node.type==='Sort'||node.type==='Split / Batch'||node.type==='Aggregate' ? <CollectionBuilder kind={node.type} config={node.config} hints={inputHints} onChange={config=>editNode({config})} /> : parameterKeys.map((key) => {
                       const meta = fields[node.type]?.find((f) => f.key === key)
                       const property = (
                         (manifest?.configSchema.properties || {}) as Record<
@@ -788,27 +787,38 @@ export function WorkflowEditor({
                         </Button>
                       </section>
                     )}
-                    <div className={styles.infoBox}>
-                      {node.type === 'Validate Schema'
-                        ? 'Returns valid, errors and value. Use IF to route the result; validation does not send a response or choose a branch.'
-                        : node.type === 'Respond to Webhook'
+                    {node.type === 'Email Trigger' && <section className={styles.infoBox}>
+                      <h3>Receive email on this workflow</h3>
+                      <ol>
+                        <li>Save and publish this workflow.</li>
+                        <li>In the Worker’s settings, add or update the <code>EMAIL_ROUTES</code> secret. Add a lowercase recipient address and map it to the workspace and workflow IDs.</li>
+                        <li>In Cloudflare Email Routing, add a rule for that address. Choose <strong>Send to a Worker</strong> and select this Kasuri Worker.</li>
+                      </ol>
+                      <p>Workflow ID <code>{workflow.id}</code></p>
+                      <p>The workspace ID is the segment after <code>/mcp/</code> in this workspace’s <a href={path('mcp')} onClick={event => { event.preventDefault(); go(path('mcp')) }}>MCP endpoint</a>.</p>
+                      <details>
+                        <summary>Example EMAIL_ROUTES value</summary>
+                        <pre>{JSON.stringify({ 'booking@example.com': { workspaceId: 'your-workspace-id', workflowId: workflow.id } }, null, 2)}</pre>
+                      </details>
+                      <a href="https://github.com/haswalt/kasuri/blob/develop/docs/email.md" target="_blank" rel="noreferrer">Email routing setup and JSON example</a>
+                    </section>}
+                    {!['Email Trigger', 'Validate Schema', 'Map / Transform', 'Expressions', 'Each / Loop', 'Execute Workflow', 'Execute Workflow Trigger'].includes(node.type) && <div className={styles.infoBox}>
+                      {node.type === 'Respond to Webhook'
                         ? 'Responds at this point, then passes input onward. A second response attempt is an error. Run and Simulate only preview the response.'
-                        : node.type === 'Email Trigger'
-                        ? 'A configured Cloudflare Email route starts the published workflow.'
                         : node.type === 'Send Email'
                         ? 'Enter fixed values or bind to, subject, text and optionally inReplyTo. Simulation previews delivery.'
+                        : node.type === 'Error Handler'
+                        ? 'Connect a node’s error output to receive its failure code at /error/code. Other outputs, including IF false, pass their data through unchanged.'
                         : node.type === 'MCP Client'
                         ? 'Live runs use an approved connection. Simulations use the saved fixture.'
                         : node.type === 'Clairic'
                         ? 'Live runs send the selected text to Workers AI. Simulations use the saved fixture.'
                         : node.type === 'HTTP Request'
                         ? 'Public HTTPS is allowed by default. Credentials use named secrets. Simulations require a response fixture.'
-                        : node.type === 'Map / Transform'
-                          ? 'Use {"$input":"/name"} to reference an input field. Other values are JSON literals.'
                           : node.type === 'Schedule'
                             ? 'Five-field cron in an IANA time zone. Publish to register the schedule.'
                             : 'Configuration is validated by the Rust connector before execution.'}
-                    </div>
+                    </div>}
                   </>
                 ) : tab === 'Settings' ? (
                   <>
@@ -891,7 +901,7 @@ export function WorkflowEditor({
                                 .filter(
                                   (n) =>
                                     n.id !== node.id &&
-                                    !triggers.includes(n.type)
+                                    !isTrigger(n.type)
                                 )
                                 .map((n) => (
                                   <option key={n.id} value={n.id}>
@@ -916,10 +926,7 @@ export function WorkflowEditor({
                           </Button>
                         </div>
                       ))}
-                    <Button onClick={addConnection}>
-                      <Icon name="plus" />
-                      Add connection
-                    </Button>
+                    <p className={styles.muted}>Drag from an output handle on the canvas to connect another node.</p>
                   </>
                 ) : (
                   <>

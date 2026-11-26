@@ -5,6 +5,7 @@ export const inspector = defineSlotRecipe({
   slots: [
     'editorStatus',
     'inspector',
+    'inspectorResize',
     'inspectorHeading',
     'nodeId',
     'underlineTabs',
@@ -46,12 +47,19 @@ export const inspector = defineSlotRecipe({
       }
     },
     inspector: {
+      position: 'relative',
       borderLeft: '1px solid {colors.line}',
       background: '{colors.surface}',
       display: 'flex',
       flexDirection: 'column',
       overflow: 'hidden',
       minHeight: '0'
+    },
+    inspectorResize: {
+      position: 'absolute', insetBlock: '0', insetInlineStart: '0', width: '8px',
+      cursor: 'ew-resize', touchAction: 'none', zIndex: '1',
+      _hover: { background: '{colors.line-strong}' },
+      _focusVisible: { outline: '2px solid {colors.accent}', outlineOffset: '-2px' }
     },
     inspectorHeading: {
       padding: '18px 18px 14px',
