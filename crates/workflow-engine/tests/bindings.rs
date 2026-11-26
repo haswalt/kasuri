@@ -54,10 +54,7 @@ fn bindings_are_typed_persisted_and_stable_across_wait_restart_and_retry() {
         .complete(
             &task.id,
             Outcome::Failed {
-                failure: Failure {
-                    code: FailureCode::External,
-                    retryable: true,
-                },
+                failure: Failure::new(FailureCode::External, true),
             },
             now,
         )

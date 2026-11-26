@@ -126,10 +126,7 @@ fn concurrency_bound_holds_while_retrying_only_the_failed_branch() {
     run.complete(
         &a.id,
         Outcome::Failed {
-            failure: Failure {
-                code: FailureCode::External,
-                retryable: true,
-            },
+            failure: Failure::new(FailureCode::External, true),
         },
         1,
     )

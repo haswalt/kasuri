@@ -1328,7 +1328,7 @@ function App() {
                           <td className={styles.numeric + ' ' + styles.mono}>
                             {
                               r.nodes.filter((n) =>
-                                ['succeeded', 'failed', 'skipped'].includes(
+                                ['succeeded', 'failed', 'error_handled', 'skipped'].includes(
                                   n.status
                                 )
                               ).length

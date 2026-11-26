@@ -229,11 +229,21 @@ fn node_views(run: &Run, summary: bool) -> Vec<Value> {
             NodeState::Running{task}=>("running",task.attempt,None,None,Some(task.deadline_ms)),
             NodeState::Waiting{until_ms,output,attempts}=>("waiting",*attempts,Some(output),None,Some(*until_ms)),
             NodeState::Retry{at_ms,attempts}=>("retry",*attempts,None,None,Some(*at_ms)),
-            NodeState::Succeeded{output,attempts,..}=>("succeeded",*attempts,Some(output),None,None),
+            NodeState::Succeeded{output,port,attempts}=>(if port=="error"{"error_handled"}else{"succeeded"},*attempts,Some(output),None,None),
             NodeState::Skipped=>("skipped",0,None,None,None),
             NodeState::Failed{failure,attempts}=>("failed",*attempts,None,Some(&failure.code),None),
         };
         let mut value=json!({"id":n.id,"label":n.label,"type":n.kind,"status":status,"attempts":attempts,"untilMs":until,"error":code});
+        match s {
+            NodeState::Failed{failure,..} => {
+                if let Some(detail) = &failure.detail { value["errorDetail"] = json!(detail); }
+            }
+            NodeState::Succeeded{port,output,..} if port == "error" => {
+                if let Some(code) = output.pointer("/error/code").and_then(Value::as_str) { value["error"] = json!(code); }
+                if let Some(detail) = output.pointer("/error/detail").filter(|detail| detail.is_object()) { value["errorDetail"] = detail.clone(); }
+            }
+            _ => {}
+        }
         if !summary && let Some(output)=output { value["output"]=output.clone(); }
         value
     }).collect()
@@ -1134,8 +1144,20 @@ impl Workspace {
                     }
                 }
                 if node.kind == connectors_clairic::KIND {
-                    connectors_clairic::validate(&node.config).map_err(|_| {
-                        error(400, "Invalid Clairic configuration: check field names, types, allowed labels and simulation answers")
+                    connectors_clairic::validate(&node.config).map_err(|failure| {
+                        let Some(detail) = failure.detail else {
+                            return error(400, "Invalid Clairic configuration");
+                        };
+                        let mut result = error(400, &detail.message);
+                        result.diagnostics.push(
+                            workflow_schema::Diagnostic::new(
+                                "INVALID_CONNECTOR_CONFIG",
+                                format!("/nodes/{node_index}/config{}", detail.path),
+                                detail.message,
+                            )
+                            .node(&node.id, &node.kind),
+                        );
+                        result
                     })?;
                 }
                 if !manifests

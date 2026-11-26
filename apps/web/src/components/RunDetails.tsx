@@ -212,14 +212,19 @@ export function RunDetails({
                     <Pill status={node.status} />
                   </div>
                   <p>
-                    {node.error
-                      ? 'Connector failed: ' + node.error
-                      : node.status === 'skipped'
-                        ? 'This branch was not taken.'
-                        : node.status === 'pending'
-                          ? 'This step has not run.'
-                          : 'Recorded result from the workflow engine.'}
+                    {node.errorDetail?.message
+                      ? node.errorDetail.message
+                      : node.status === 'error_handled'
+                        ? 'This step continued through its error output.'
+                        : node.error
+                          ? 'Connector failed: ' + node.error
+                          : node.status === 'skipped'
+                            ? 'This branch was not taken.'
+                            : node.status === 'pending'
+                              ? 'This step has not run.'
+                              : 'Recorded result from the workflow engine.'}
                   </p>
+                  {node.errorDetail?.path && <code>{node.errorDetail.path}</code>}
                 </div>
                 <div className={styles.attempts}>
                   <span className={styles.eyebrow}>ATTEMPTS</span>

@@ -38,7 +38,8 @@ export function tone(status: string) {
     success: 'succeeded',
     retry: 'retrying',
     pending: 'queued',
-    skipped: 'cancelled'
+    skipped: 'cancelled',
+    error_handled: 'failed'
   }
   const original = status
   status = aliases[status] || status
@@ -60,7 +61,9 @@ export function tone(status: string) {
     label:
       original === 'skipped'
         ? 'Skipped'
-        : original === 'pending'
+        : original === 'error_handled'
+          ? 'Error handled'
+          : original === 'pending'
           ? 'Pending'
           : result.label
   }

@@ -889,6 +889,7 @@ export function WorkflowEditor({
                 ) : (
                   <>
                     <h3>Last simulation output</h3>
+                    {selectedResult?.errorDetail && <p role="status">{selectedResult.errorDetail.message}{selectedResult.errorDetail.path && <> <code>{selectedResult.errorDetail.path}</code></>}</p>}
                     <pre>
                       {selectedResult?.output !== undefined
                         ? JSON.stringify(selectedResult.output, null, 2)

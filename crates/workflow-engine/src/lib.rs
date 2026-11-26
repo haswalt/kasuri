@@ -539,10 +539,7 @@ impl Run {
                 self.apply(
                     &task.id,
                     Outcome::Failed {
-                        failure: Failure {
-                            code: FailureCode::Timeout,
-                            retryable: true,
-                        },
+                        failure: Failure::new(FailureCode::Timeout, true),
                     },
                     now_ms,
                 )?;
@@ -753,10 +750,7 @@ impl Run {
         }
         let outcome = if now_ms >= task.deadline_ms {
             Outcome::Failed {
-                failure: Failure {
-                    code: FailureCode::Timeout,
-                    retryable: true,
-                },
+                failure: Failure::new(FailureCode::Timeout, true),
             }
         } else {
             outcome
@@ -802,8 +796,12 @@ impl Run {
                     .iter()
                     .any(|e| e.source == task.node.id && e.source_port == "error")
                 {
+                    let mut output = json!({"error": {"code": failure.code}});
+                    if let Some(detail) = failure.detail {
+                        output["error"]["detail"] = json!(detail);
+                    }
                     NodeState::Succeeded {
-                        output: json!({"error": {"code": failure.code}}),
+                        output,
                         port: "error".into(),
                         attempts: task.attempt,
                     }

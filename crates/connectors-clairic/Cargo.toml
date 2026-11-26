@@ -9,4 +9,5 @@ workflow-files = { path = "../workflow-files" }
 connector-sdk.workspace = true
 serde.workspace = true
 serde_json.workspace = true
+serde_path_to_error = "0.1"
 chrono = { version = "0.4", default-features = false, features = ["std", "serde"] }

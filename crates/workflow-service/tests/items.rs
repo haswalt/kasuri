@@ -151,10 +151,7 @@ fn retries_are_local_to_the_failed_item_and_keep_effect_identity() {
         &first.0,
         &first.1.id,
         Outcome::Failed {
-            failure: Failure {
-                code: FailureCode::External,
-                retryable: true,
-            },
+            failure: Failure::new(FailureCode::External, true),
         },
         1,
     )
