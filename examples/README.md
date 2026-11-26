@@ -36,8 +36,20 @@ Every example accepts the default `{}` input. No accounts, API keys, environment
 
 | [34 Email booking enquiry](workflows/34-email-booking-enquiry.json) | Offline email routing | Route a synthetic email through Clairic and preview a threaded reply, without sending mail. |
 | [35 Clairic booking attachment](workflows/35-clairic-booking-attachment.json) | Offline file extraction | Classify a synthetic PDF reference using fixture answers. |
+| [38 Deduplicate API requests by header](workflows/38-header-idempotency.json) | Webhook and Data Tables | Preview missing-header `400`, then use an `Idempotency-Key` header on the published webhook to see `201` followed by `409`. The workflow creates its own table. |
 
 Together these cover every currently implemented node: Manual Trigger, Webhook, Schedule, Map / Transform, IF / Condition, Merge, Wait / Delay, JSON Utilities, Error Handler, HTTP Request, Filter, Sort, Clairic, Email Trigger and Send Email.
+
+## Try header deduplication
+
+Import example 38. Simulate with `{}` to see the missing-header response. To try real requests, generate the URL in the Webhook inspector, publish, and use that URL in both calls below. Use a fresh synthetic key when repeating the exercise. The key stays in the example Data Table.
+
+```sh
+curl -i -X POST "$WEBHOOK_URL" -H 'Content-Type: application/json' -H 'Idempotency-Key: synthetic-order-001' -d '{}'
+curl -i -X POST "$WEBHOOK_URL" -H 'Content-Type: application/json' -H 'Idempotency-Key: synthetic-order-001' -d '{}'
+```
+
+The first request returns `201`, and the second returns `409`. The Data Tables node uses an atomic insert-if-absent keyed by the header, so concurrent duplicates can only claim one row.
 
 ## MCP Client
 

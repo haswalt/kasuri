@@ -619,5 +619,19 @@
       }
     },
     "statuses": {}
+  },
+  {
+    "file": "workflows/38-header-idempotency.json",
+    "outputs": {},
+    "statuses": {
+      "table": "skipped",
+      "claim": "skipped"
+    },
+    "response": {
+      "status": 400,
+      "body": {
+        "error": "Send an Idempotency-Key header between 1 and 128 characters"
+      }
+    }
   }
 ]
