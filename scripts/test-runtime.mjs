@@ -139,7 +139,9 @@ async function restartPlatform(policy, keys) {
 try {
   start()
   await healthy(origin)
-  if (process.argv.includes('--http-only')) {
+  if (process.argv.includes('--mcp-only')) {
+    await checkMcp(origin, 'test:runtime-check', async () => { await stop(); start(); await healthy(origin) })
+  } else if (process.argv.includes('--http-only')) {
     await checkHttp(origin)
   } else if (process.argv.includes('--platform-auth-only')) {
     await checkPlatformAuth(origin, restartPlatform)

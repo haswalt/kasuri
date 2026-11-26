@@ -2,7 +2,7 @@
 //! Hosts must execute apply() inside one storage transaction, including its receipt.
 mod schema;
 pub mod transfer;
-pub use schema::{command_schema, mutation_schema, query_schema};
+pub use schema::{command_schema, definition_schema, mutation_schema, query_schema};
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 use sha2::{Digest, Sha256};

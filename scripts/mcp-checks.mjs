@@ -358,6 +358,10 @@ export async function checkMcp(origin, credentials, restart) {
   ).searchParams.get('authorize')
   const request = await owner('mcp/oauth/' + requestId)
   assert.equal(request.resource, endpoint)
+  assert.equal(request.scopeOmitted, false)
+  await owner('mcp/oauth/' + requestId + '/approve', 'POST', {
+    scopes: ['read', 'data_read', 'data_write']
+  }, 400)
   const csrf = await boundedFetch(
     origin + '/api/mcp/oauth/' + requestId + '/approve',
     {
@@ -430,6 +434,46 @@ export async function checkMcp(origin, credentials, restart) {
   await rpc(legacyAccess.access_token,'ping',{},401)
   const legacyRefresh=await oauth(discovery.token_endpoint,{grant_type:'refresh_token',client_id:client.client_id,resource:legacyEndpoint,refresh_token:legacyAccess.refresh_token})
   assert.ok(legacyRefresh.access_token)
+  const noScope = new URL(authUrl)
+  noScope.searchParams.delete('scope')
+  noScope.searchParams.set('state', 'data-editor-consent')
+  const dataRequest = await boundedFetch(noScope, { redirect: 'manual' })
+  assert.equal(dataRequest.status, 302)
+  const dataId = new URL(dataRequest.headers.get('location')).searchParams.get('authorize')
+  const dataConsent = await owner('mcp/oauth/' + dataId)
+  assert.equal(dataConsent.scopeOmitted, true)
+  assert.deepEqual(dataConsent.scopes, ['read', 'audit', 'data_read', 'data_write'])
+  const dataApproval = await owner('mcp/oauth/' + dataId + '/approve', 'POST', {
+    scopes: ['read', 'data_read', 'data_write']
+  })
+  const dataAccess = await oauth(discovery.token_endpoint, {
+    ...exchange, code: new URL(dataApproval.redirect).searchParams.get('code')
+  })
+  assert.equal(dataAccess.scope, 'read data_read data_write')
+  const dataTools = (await rpc(dataAccess.access_token, 'tools/list')).result.tools.map(tool => tool.name)
+  assert.ok(dataTools.includes('data_table_create'))
+  assert.ok(dataTools.includes('data_table_rename'))
+  assert.ok(!dataTools.includes('workflows_create'))
+  const tableTool = async (name, args) => {
+    const { result } = await rpc(dataAccess.access_token, 'tools/call', { name, arguments: args })
+    return result.structuredContent
+  }
+  const createTable = {
+    definition: { id: 'oauth-table', name: 'OAuth table', kind: 'table', fields: [{ name: 'status', kind: 'string' }] },
+    idempotencyKey: 'oauth-table-create'
+  }
+  const denied = await rpc(reader.token, 'tools/call', { name: 'data_table_create', arguments: createTable })
+  assert.equal(denied.result.structuredContent.code, 'forbidden')
+  const createdTable = await tableTool('data_table_create', createTable)
+  assert.equal(createdTable.status, 'created')
+  assert.equal(createdTable.tableId, 'oauth-table')
+  assert.deepEqual(await tableTool('data_table_create', createTable), createdTable)
+  const table = await tableTool('data_table_get', { tableId: createdTable.tableId })
+  const rename = { tableId: createdTable.tableId, name: 'Renamed OAuth table', expectedVersion: table.table.version }
+  const renamed = await tableTool('data_table_rename', { ...rename, idempotencyKey: 'oauth-table-rename' })
+  assert.equal(renamed.status, 'updated')
+  assert.equal((await tableTool('data_table_get', { tableId: createdTable.tableId })).table.definition.name, rename.name)
+  assert.equal((await tableTool('data_table_rename', { ...rename, idempotencyKey: 'oauth-table-stale-rename' })).status, 'conflict')
   await owner('mcp/credentials/' + builder.id, 'DELETE')
   await rpc(builder.token, 'ping', {}, 401)
   assert.equal(
@@ -437,6 +481,6 @@ export async function checkMcp(origin, credentials, restart) {
     false
   )
   console.log(
-    'MCP checks passed: discovery, isolated bearer scopes, idempotency/restart, CAS, audit, OAuth consent/PKCE/audience, refresh replay and revocation.'
+    'MCP checks passed: discovery, isolated bearer scopes, idempotency/restart, CAS, audit, OAuth consent/PKCE/audience, scoped table management, refresh replay and revocation.'
   )
 }

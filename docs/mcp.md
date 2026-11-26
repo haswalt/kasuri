@@ -31,7 +31,7 @@ A compatible client can connect using only the copied MCP endpoint and the autho
 
 1. The endpoint returns `401` with `WWW-Authenticate` pointing at this workspace's RFC 9728 protected-resource metadata.
 2. That metadata identifies its authorization server. RFC 8414 discovery advertises authorization, token, registration and revocation endpoints.
-3. Public clients register their exact callback URI using dynamic client registration (RFC 7591), then send an authorization request with PKCE `S256`, state and the target `resource` (RFC 8707). Omitting scopes requests the Reader defaults.
+3. Public clients register their exact callback URI using dynamic client registration (RFC 7591), then send an authorization request with PKCE `S256`, state and the target `resource` (RFC 8707). When a client omits `scope`, the owner can also select data access. Read and audit are still the only permissions selected by default.
 4. Kasuri opens the workspace's MCP portal. Sign in as the workspace owner, inspect the client ID and callback, and approve the requested permissions. Each checkbox displays the exact OAuth scope alongside its description. Client names are self-reported. Read and audit permissions are selected initially.
 5. A short-lived, one-use code returns to the registered callback. The client exchanges it with the matching verifier, client ID, callback and resource. Access tokens last one hour; rotating refresh access lasts up to 30 days. Reuse of a rotated refresh token revokes its grant. Clients should serialize refresh attempts.
 
@@ -56,7 +56,7 @@ Discovery only lists tools permitted by the credential. The server checks scopes
 | `control` | `runs_pause`, `runs_resume`, `runs_cancel` |
 | `delete` | `workflows_archive`, `workflows_restore` |
 | `data_read` | `data_tables_list`, `data_table_get`, `data_get`, `data_query` |
-| `data_write` | `data_apply`, `data_batch` |
+| `data_write` | `data_table_create`, `data_table_rename`, `data_apply`, `data_batch` |
 
 Use `workflows_get` to retrieve the saved graph and its `version`. This edit version changes on saved mutations. `revision` is a monotonic publication counter. Unchanged publish and repeated pause/resume are no-ops and preserve the edit version. Publishing unchanged paused content does not resume triggers. Update passes a `workflow` object and `expectedVersion`. Publication and execution pass `workflowId` and `expectedVersion`. Stale versions return a structured conflict. The UI also submits edit versions, so an agent edit cannot be silently overwritten by a stale UI save. The [HTTP API v2 migration](http-api.md) rejects omitted REST edit preconditions with 428 and stale versions with 409. MCP already requires explicit edit versions.
 
@@ -98,6 +98,8 @@ The earlier `/mcp/<workspace-id>/mcp` URL and its protected-resource discovery U
 Dataset scopes are explicit opt-ins. Existing Reader/Builder/Operator credentials and previously issued Manager grants are not expanded when dataset tools are installed. New Data viewer/Data editor profiles grant dataset access, and newly issued Manager credentials include the displayed dataset scopes. Baseline `read` is still required for every tool. Data editor permissions do not grant workflow draft editing or execution.
 
 Use `data_tables_list` for metadata summaries and `data_table_get` for schema/version details. `data_get` reads a key; `data_query` accepts bounded JSON-pointer filters and keyset cursors. An empty query page may still have `nextCursor`. Input discovery includes the supported command variants and query schema.
+
+`data_table_create` creates a data table or context store with optional typed fields. `data_table_rename` takes the current metadata version from `data_table_get` and preserves its records. Both require `idempotencyKey`. To enable these tools for a client, grant `read`, `data_read` and `data_write` during a new authorization or use a Data editor token.
 
 `data_apply` accepts one mutating `command`; `data_batch` accepts up to 100 mutating `commands`. Both require `idempotencyKey`. Prefer `patch` with an observed row version when changing known fields, so unmentioned fields and expiry remain intact. Credential-shaped values are redacted in read results; writing redaction placeholders is rejected. Replace them deliberately or patch only the fields you know. Data mutations return compact status/version references rather than copying record values into transport receipts; use a read tool for details.
 
