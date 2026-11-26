@@ -53,9 +53,19 @@ export function connect(workflow: Workflow, source: string, target: string, port
 }
 
 export function addCanvasNode(workflow: Workflow, type: string, position: Point, anchor?: { edgeId?: string; nodeId?: string }): { workflow: Workflow; nodeId: string; message: string } {
+  const node: WorkflowNode = { id: uid(), type, label: type, position, config: type==='Expressions'?{fields:{value:{op:'input',path:''}}}:type==='Switch / Router'?{rules:[{port:'route_1',condition:{match:'all',conditions:[{field:'$',operator:'exists'}]}}]}:type==='Aggregate'?{operation:'collect'}:type==='Split / Batch'?{batchSize:10}:type === 'Parse Body' ? {format:'json'} : type === 'Wait / Delay' ? { delayMs: '1000' }  : type === 'Webhook' ? { authentication: 'none' } : type === 'Schedule' ? { cron: '* * * * *', timezone: 'UTC' } : type === 'JSON Utilities' ? { operation: 'stringify' } : {} }
+  const trigger = isTrigger(type) ? workflow.nodes.find(existing => isTrigger(existing.type)) : undefined
+  if (trigger) {
+    if (trigger.id !== anchor?.nodeId) throw new Error('Drop onto the existing trigger to replace it.')
+    if (trigger.type === type) return { workflow, nodeId: trigger.id, message: 'This trigger is already on the canvas.' }
+    const replacement = { ...node, id: trigger.id, position: trigger.position }
+    return {
+      workflow: { ...workflow, status: 'draft', nodes: workflow.nodes.map(existing => existing.id === trigger.id ? replacement : existing) },
+      nodeId: trigger.id,
+      message: `Replaced ${trigger.label} with ${type}.`
+    }
+  }
   if (workflow.nodes.length >= 100) throw new Error('A workflow supports at most 100 nodes.')
-  if (isTrigger(type) && workflow.nodes.some(n => isTrigger(n.type))) throw new Error('Change the existing trigger instead of adding a second one.')
-  const node: WorkflowNode = { id: uid(), type, label: type, position, config: type==='Expressions'?{fields:{value:{op:'input',path:''}}}:type==='Switch / Router'?{rules:[{port:'route_1',condition:{match:'all',conditions:[{field:'$',operator:'exists'}]}}]}:type==='Aggregate'?{operation:'collect'}:type==='Split / Batch'?{batchSize:10}:type === 'Parse Body' ? {format:'json'} : type === 'Wait / Delay' ? { delayMs: '1000' } : type === 'Schedule' ? { cron: '* * * * *', timezone: 'UTC' } : type === 'JSON Utilities' ? { operation: 'stringify' } : {} }
   let next: Workflow = { ...workflow, status: 'draft', nodes: [...workflow.nodes, node] }
   if (isTrigger(type)) {
     const target = workflow.nodes.find(n => !workflow.edges.some(e => e.target === n.id))
@@ -75,7 +85,11 @@ export function addCanvasNode(workflow: Workflow, type: string, position: Point,
     return { workflow: next, nodeId: node.id, message: 'Inserted into the connection.' }
   }
   const positions = layout(workflow)
-  const available = workflow.nodes.flatMap(n => ports(n.type,n.config).filter(p => p !== 'error' && !workflow.edges.some(e => e.source === n.id && (e.sourcePort ?? 'success') === p)).map(port => ({ node: n, port })))
+  const errorHandler = type === 'Error Handler'
+  const available = workflow.nodes.flatMap(n => ports(n.type,n.config).filter(p =>
+    (errorHandler ? p === 'error' && !isTrigger(n.type) : p !== 'error') &&
+    !workflow.edges.some(e => e.source === n.id && (e.sourcePort ?? 'success') === p)
+  ).map(port => ({ node: n, port })))
   available.sort((a, b) => {
     if (a.node.id === anchor?.nodeId && b.node.id !== anchor?.nodeId) return -1
     if (b.node.id === anchor?.nodeId && a.node.id !== anchor?.nodeId) return 1
@@ -87,7 +101,7 @@ export function addCanvasNode(workflow: Workflow, type: string, position: Point,
     next = connect(next, from.node.id, node.id, from.port)
     return { workflow: next, nodeId: node.id, message: `Connected from ${from.node.label} (${from.port}).` }
   }
-  return { workflow: next, nodeId: node.id, message: workflow.nodes.length ? 'Added without a connection. Draw from an output handle to connect it.' : 'Trigger added.' }
+  return { workflow: next, nodeId: node.id, message: 'Added without a connection. Draw from an output handle to connect it.' }
 }
 
 /** Match the space between vertically laid-out nodes when a drop misses the thin SVG stroke. */

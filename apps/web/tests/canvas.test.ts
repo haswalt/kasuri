@@ -64,6 +64,39 @@ test('export/import retains positions and rejects malformed coordinates', () => 
 test('a second trigger cannot be dropped into an existing workflow', () => {
   assert.throws(() => addCanvasNode(createWorkflow(), 'Schedule', { x: 0, y: 0 }), /existing trigger/)
 })
+test('a newly placed webhook matches the server default for new triggers', () => {
+  const manual = createWorkflow()
+  const webhook = addCanvasNode(manual, 'Webhook', { x: 0, y: 0 }, { nodeId: manual.nodes[0].id })
+  assert.deepEqual(webhook.workflow.nodes[0].config, { authentication: 'none' })
+})
+test('dropping an error handler after IF connects its error output', () => {
+  const original = appendNode(createWorkflow(), 'IF / Condition')
+  const condition = original.nodes[1]
+  const added = addCanvasNode(original, 'Error Handler', { x: 0, y: 224 }, { nodeId: condition.id })
+  assert.deepEqual(added.workflow.edges.at(-1), {
+    id: added.workflow.edges.at(-1)?.id, source: condition.id, target: added.nodeId, sourcePort: 'error'
+  })
+  assert.equal(connectionError(added.workflow, condition.id, added.nodeId, 'false'), null)
+})
+test('multiple upstream outputs can share the merge input', () => {
+  const original = appendNode(appendNode(appendNode(createWorkflow(), 'Map / Transform'), 'Map / Transform'), 'Merge')
+  const [, first, second, merge] = original.nodes
+  const connected = connect(original, first.id, merge.id, 'success')
+  assert.deepEqual(connected.edges.filter(edge => edge.target === merge.id).map(edge => edge.source), [second.id, first.id])
+})
+test('replacing the existing trigger preserves its position and outgoing connections', () => {
+  const original = appendNode(createWorkflow(), 'Merge')
+  const trigger = original.nodes[0]
+  trigger.position = { x: 112, y: 48 }
+  const replacement = addCanvasNode(original, 'Schedule', { x: 999, y: 999 }, { nodeId: trigger.id })
+  assert.equal(replacement.nodeId, trigger.id)
+  assert.deepEqual(replacement.workflow.edges, original.edges)
+  assert.deepEqual(replacement.workflow.nodes[0], {
+    id: trigger.id, type: 'Schedule', label: 'Schedule', position: trigger.position,
+    config: { cron: '* * * * *', timezone: 'UTC' }
+  })
+  assert.deepEqual(validateWorkflow(replacement.workflow), [])
+})
 test('a deleted trigger can be replaced and reconnected to the remaining graph', () => {
   const original = appendNode(createWorkflow(), 'Merge')
   const withoutTrigger = { ...original, nodes: original.nodes.slice(1), edges: [] }

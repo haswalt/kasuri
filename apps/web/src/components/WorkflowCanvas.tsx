@@ -27,6 +27,7 @@ import {
   isTrigger,
   layout,
   NODE_WIDTH,
+  NODE_HEIGHT,
   NODE_GAP,
   ports
 } from '../lib/canvas'
@@ -228,7 +229,7 @@ function Canvas({
       if (!allowedTypes.includes(type))
         throw new Error('Choose an implemented node from the palette.')
       const result = addCanvasNode(workflow, type, position, { edgeId, nodeId })
-      update(result.workflow)
+      if (result.workflow !== workflow) update(result.workflow)
       select(result.nodeId)
       setMessage(result.message)
     } catch (error) {
@@ -243,7 +244,8 @@ function Canvas({
       x: 0,
       y: -NODE_GAP
     }
-    const position = { x: last.x, y: last.y + NODE_GAP }
+    const trigger = isTrigger(addType) && workflow.nodes.find(node => node.id === selectedId && isTrigger(node.type))
+    const position = (trigger && positions.get(trigger.id)) || { x: last.x, y: last.y + NODE_GAP }
     add(addType, position, undefined, selectedId)
     void setCenter(position.x + 100, position.y + 50, {
       zoom: Math.max(0.8, getZoom()),
@@ -287,6 +289,16 @@ function Canvas({
           x: event.clientX,
           y: event.clientY
         })
+        if (isTrigger(type)) {
+          const trigger = workflow.nodes.find(node => {
+            if (!isTrigger(node.type)) return false
+            const placed = positions.get(node.id)
+            return placed && position.x >= placed.x && position.x <= placed.x + NODE_WIDTH &&
+              position.y >= placed.y && position.y <= placed.y + NODE_HEIGHT
+          })
+          add(type, { x: position.x - NODE_WIDTH / 2, y: position.y }, undefined, trigger?.id)
+          return
+        }
         const target = event.target instanceof Element ? event.target : null
         let edgeId =
           target?.closest('.react-flow__edge')?.getAttribute('data-id') ??
