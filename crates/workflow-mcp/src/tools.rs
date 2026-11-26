@@ -735,7 +735,9 @@ pub fn redact(value: Value) -> Value {
                             || v.as_object().is_some_and(|o| {
                                 o.len() == 1 && o.get("$secret").is_some_and(Value::is_string)
                             })
-                            || v.as_str().and_then(connectors_http::managed_secret).is_some();
+                            || v.as_str()
+                                .and_then(connectors_http::managed_secret)
+                                .is_some();
                     (
                         k,
                         if sensitive && !alias {

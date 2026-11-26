@@ -214,8 +214,10 @@ impl WorkflowWorkspace {
             (origin.to_owned(), "secret.rotated")
         };
         let crypto = crypto()?;
-        let mut nonce = [0_u8; 12];
-        crypto.get_random_values_with_u8_array(&mut nonce)?;
+        let nonce = crypto
+            .get_random_values_with_js_u8_array(&Uint8Array::new_with_length(12))?
+            .unchecked_into::<Uint8Array>()
+            .to_vec();
         let ciphertext = crypt(
             &crypto,
             &key,
