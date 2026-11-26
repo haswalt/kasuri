@@ -67,6 +67,8 @@ Configure `url`, optional `method` (GET by default), `query` (JSON object), `hea
 
 Pointers refer to the node's incoming payload. A single parent passes its output directly; multiple active parents produce an object keyed by parent node ID. Put a Map / Transform node before HTTP to prepare fields and after HTTP to extract `/body` when needed.
 
+In the HTTP Request node’s **Input** tab, add, edit, or remove rows in **Query parameters** and **Custom headers**. A query row can use a fixed value or select an incoming field. For a credential header, choose **Workspace secret** and enter its alias and optional scheme. Imported workflow objects and legacy JSON strings both open in the list editor.
+
 With `authentication` set to `none`, custom headers can include `Authorization` with any scheme, or an `Api-Key` or `X-Api-Key` header. Literal strings are saved in the workflow and included in exports. Use a workspace secret for a real credential.
 
 Header names are case-insensitive. The runtime manages transport/proxy headers and `Idempotency-Key`. Header names and values are checked for injection. A JSON body gets Content-Type automatically unless you set it explicitly.
