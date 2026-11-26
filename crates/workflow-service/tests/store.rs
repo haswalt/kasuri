@@ -673,7 +673,8 @@ fn every_published_example_runs_through_the_store<S: TestStore>() {
                 "",
             );
             assert_eq!(
-                run["status"], "succeeded",
+                run["status"],
+                case["expectedStatus"].as_str().unwrap_or("succeeded"),
                 "{} ({mode}): {run}",
                 case["file"]
             );
