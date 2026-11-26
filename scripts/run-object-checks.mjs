@@ -102,8 +102,27 @@ export async function checkRunObjects(origin, credentials, data, mode, restart) 
   // A run and the children it invokes move out together, into one run object:
   // Each over four items, two at a time, so later children are created there and
   // reach the index through reports.
-  const worker = { ...wait, id: 'object-worker', name: 'Object worker', nodes: [{ id: 'start', type: 'Execute Workflow Trigger', label: 'Item', config: { outputNodeId: 'fetch' } }, { ...wait.nodes[1], config: { delayMs: 700 } }, wait.nodes[2]], edges: wait.edges }
-  const each = { ...wait, id: 'object-each', name: 'Object each', nodes: [wait.nodes[0], { id: 'items', type: 'Map / Transform', label: 'Items', config: { mapping: { items: [1, 2, 3, 4] } } }, { id: 'each', type: 'Each / Loop', label: 'Each', config: { workflowId: worker.id, arrayPointer: '/items', concurrency: 2, failurePolicy: 'collect' } }], edges: [{ id: 'a', source: 'start', target: 'items' }, { id: 'b', source: 'items', target: 'each' }] }
+  const worker = {
+    ...wait, id: 'object-worker', name: 'Object worker',
+    nodes: [
+      { id: 'start', type: 'Execute Workflow Trigger', label: 'Item', config: { outputNodeId: 'fetch' } },
+      { id: 'should-hold', type: 'IF / Condition', label: 'Hold item for cancellation', config: {
+        conditions: [{ field: 'hold', operator: 'equals', valueType: 'boolean', value: true }]
+      } },
+      { ...hold.nodes[1], id: 'held-item' },
+      { ...wait.nodes[1], config: { delayMs: 700 } },
+      wait.nodes[2]
+    ],
+    edges: [
+      { id: 'a', source: 'start', target: 'should-hold' },
+      { id: 'b', source: 'should-hold', sourcePort: 'true', target: 'held-item' },
+      { id: 'c', source: 'should-hold', sourcePort: 'false', target: 'wait' },
+      { id: 'd', source: 'held-item', target: 'fetch' },
+      { id: 'e', source: 'wait', target: 'fetch' }
+    ]
+  }
+  const itemsToRun = [true, false, false, false].map(hold => ({ hold }))
+  const each = { ...wait, id: 'object-each', name: 'Object each', nodes: [wait.nodes[0], { id: 'items', type: 'Map / Transform', label: 'Items', config: { mapping: { items: itemsToRun } } }, { id: 'each', type: 'Each / Loop', label: 'Each', config: { workflowId: worker.id, arrayPointer: '/items', concurrency: 2, failurePolicy: 'collect' } }], edges: [{ id: 'a', source: 'start', target: 'items' }, { id: 'b', source: 'items', target: 'each' }] }
   for (const doc of [worker, each]) {
     await api('workflows/' + doc.id, 'PUT', doc)
     await api('workflows/' + doc.id + '/publish', 'POST')
