@@ -13,6 +13,8 @@ import { McpClientBuilder } from './McpClientBuilder'
 import { InputBindingsBuilder } from './InputBindingsBuilder'
 import { ExpressionBuilder } from './ExpressionBuilder'
 import { TransformBuilder } from './TransformBuilder'
+import { DataCommandBuilder } from './DataCommandBuilder'
+import { WebhookBuilder } from './WebhookBuilder'
 import { ValidateSchemaBuilder } from './ValidateSchemaBuilder'
 import { RoutingBuilder } from './RoutingBuilder'
 import { ConditionBuilder } from './ConditionBuilder'
@@ -634,6 +636,9 @@ export function WorkflowEditor({
                     {isTrigger(node.type)&&Object.keys(node.inputBindings??{}).length>0&&<p role="alert">Triggers expose the original event. <Button onClick={()=>editNode({inputBindings:{}})}>Remove trigger bindings</Button></p>}
                     {!isTrigger(node.type) && Object.keys(node.inputBindings ?? {}).length > 0 && <InputBindingsBuilder key={`bindings:${node.id}`} workflow={workflow} nodeId={node.id} bindings={node.inputBindings??{}} hints={workflowInputHints(workflow,node.id,result,input,false,true)} nodeHints={id=>workflowInputHints(workflow,id,result,input,true)} triggerHints={workflowInputHints(workflow,workflow.nodes.find(n=>isTrigger(n.type))?.id,result,input)} onChange={inputBindings=>editNode({inputBindings})}/>}
                     {node.type==='MCP Client'?<McpClientBuilder key={`mcp:${node.id}`} config={node.config} hints={inputHints} onChange={config=>editNode({config})}/>:node.type==='Clairic'?<ClairicBuilder key={`clairic:${node.id}`} config={node.config} hints={inputHints} onChange={config=>editNode({config})}/>:node.type==='Map / Transform'?<TransformBuilder key={`mapping:${node.id}`} config={node.config} hints={inputHints} onChange={config=>editNode({config})}/>
+                    :node.type==='Data Tables'||node.type==='Context Store'?<DataCommandBuilder key={`data:${node.id}`} workflow={workflow} nodeId={node.id} config={node.config}
+                      kind={node.type==='Data Tables'?'table':'context'} hints={inputHints} onChange={config=>editNode({config})}/>
+                    :node.type==='Webhook'?<WebhookBuilder key={`webhook:${node.id}`} config={node.config} onChange={config=>editNode({config})}/>
                     :node.type==='Validate Schema'?<ValidateSchemaBuilder key={`schema:${node.id}`} config={node.config} hints={inputHints} onChange={config=>editNode({config})}/>
                     :node.type==='Expressions'?<ExpressionBuilder config={node.config} workflow={workflow} nodeId={node.id} hints={inputHints} nodeHints={id=>workflowInputHints(workflow,id,result,input,true)} triggerHints={workflowInputHints(workflow,workflow.nodes.find(n=>isTrigger(n.type))?.id,result,input)} onChange={config=>editNode({config})}/>:node.type==='Switch / Router'||node.type==='Merge'?<RoutingBuilder kind={node.type} config={node.config} hints={inputHints} workflow={workflow} nodeId={node.id} nodeHints={id=>workflowInputHints(workflow,id,result,input,true)} onChange={config=>editNode({config})}/>:node.type==='Each / Loop'||node.type==='Execute Workflow'||node.type==='Execute Workflow Trigger' ? <InvocationBuilder node={node} workflow={workflow} hints={inputHints} onChange={config=>editNode({config})} /> : node.type === 'IF / Condition' ? <ConditionBuilder config={node.config} sample={inputHints.sample} schema={inputHints.schema} onChange={config => editNode({ config })} /> : node.type==='Filter'||node.type==='Sort'||node.type==='Split / Batch'||node.type==='Aggregate' ? <CollectionBuilder kind={node.type} config={node.config} hints={inputHints} onChange={config=>editNode({config})} /> : parameterKeys.map((key) => {
                       const meta = fields[node.type]?.find((f) => f.key === key)
@@ -663,7 +668,7 @@ export function WorkflowEditor({
                           {meta?.label || key}
                           {property?.enum ? (
                             <select
-                              value={value || (node.type === 'Webhook' && key === 'authentication' ? 'bearer' : property.enum[0])}
+                              value={value || property.enum[0]}
                               onChange={(e) =>
                                 editNode({
                                   config: {
@@ -804,7 +809,7 @@ export function WorkflowEditor({
                       </details>
                       <a href="https://github.com/haswalt/kasuri/blob/develop/docs/email.md" target="_blank" rel="noreferrer">Email routing setup and JSON example</a>
                     </section>}
-                    {!['Email Trigger', 'Validate Schema', 'Map / Transform', 'Expressions', 'Each / Loop', 'Execute Workflow', 'Execute Workflow Trigger'].includes(node.type) && <div className={styles.infoBox}>
+                    {!['Email Trigger', 'Webhook', 'Data Tables', 'Context Store', 'Validate Schema', 'Map / Transform', 'Expressions', 'Each / Loop', 'Execute Workflow', 'Execute Workflow Trigger'].includes(node.type) && <div className={styles.infoBox}>
                       {node.type === 'Respond to Webhook'
                         ? 'Responds at this point, then passes input onward. A second response attempt is an error. Run and Simulate only preview the response.'
                         : node.type === 'Send Email'

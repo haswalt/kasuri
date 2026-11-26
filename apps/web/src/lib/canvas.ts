@@ -53,7 +53,7 @@ export function connect(workflow: Workflow, source: string, target: string, port
 }
 
 export function addCanvasNode(workflow: Workflow, type: string, position: Point, anchor?: { edgeId?: string; nodeId?: string }): { workflow: Workflow; nodeId: string; message: string } {
-  const node: WorkflowNode = { id: uid(), type, label: type, position, config: type==='Expressions'?{fields:{value:{op:'input',path:''}}}:type==='Switch / Router'?{rules:[{port:'route_1',condition:{match:'all',conditions:[{field:'$',operator:'exists'}]}}]}:type==='Aggregate'?{operation:'collect'}:type==='Split / Batch'?{batchSize:10}:type === 'Parse Body' ? {format:'json'} : type === 'Wait / Delay' ? { delayMs: '1000' } : type === 'Schedule' ? { cron: '* * * * *', timezone: 'UTC' } : type === 'JSON Utilities' ? { operation: 'stringify' } : {} }
+  const node: WorkflowNode = { id: uid(), type, label: type, position, config: type==='Expressions'?{fields:{value:{op:'input',path:''}}}:type==='Switch / Router'?{rules:[{port:'route_1',condition:{match:'all',conditions:[{field:'$',operator:'exists'}]}}]}:type==='Aggregate'?{operation:'collect'}:type==='Split / Batch'?{batchSize:10}:type === 'Parse Body' ? {format:'json'} : type === 'Wait / Delay' ? { delayMs: '1000' }  : type === 'Webhook' ? { authentication: 'none' } : type === 'Schedule' ? { cron: '* * * * *', timezone: 'UTC' } : type === 'JSON Utilities' ? { operation: 'stringify' } : {} }
   const trigger = isTrigger(type) ? workflow.nodes.find(existing => isTrigger(existing.type)) : undefined
   if (trigger) {
     if (trigger.id !== anchor?.nodeId) throw new Error('Drop onto the existing trigger to replace it.')
