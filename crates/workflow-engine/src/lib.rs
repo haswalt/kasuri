@@ -472,7 +472,9 @@ impl Run {
         json!([self.id, node_id, attempt]).to_string()
     }
     fn valid_port(node: &workflow_schema::Node, port: &str) -> bool {
-        if node.kind == "IF / Condition" {
+        if node.kind == "Fail Workflow" {
+            false
+        } else if node.kind == "IF / Condition" {
             matches!(port, "true" | "false" | "error")
         } else if node.kind == "Switch / Router" {
             matches!(port, "fallback" | "error")
@@ -785,7 +787,13 @@ impl Run {
                 }
             }
             Outcome::Failed { failure } => {
-                if failure.retryable && task.attempt < task.node.retry.max_attempts {
+                if failure.code == FailureCode::WorkflowFailed {
+                    self.terminate(FailureCode::WorkflowFailed);
+                    NodeState::Failed {
+                        failure,
+                        attempts: task.attempt,
+                    }
+                } else if failure.retryable && task.attempt < task.node.retry.max_attempts {
                     NodeState::Retry {
                         at_ms: now_ms.saturating_add(task.node.retry.backoff_ms(task.attempt)),
                         attempts: task.attempt,

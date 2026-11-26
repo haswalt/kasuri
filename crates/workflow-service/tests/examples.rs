@@ -54,7 +54,12 @@ fn drain_data(ws: &mut Workspace, store: &mut workflow_data::MemoryStore, now: u
     }
 }
 fn check(case: &Value, run: &Value) {
-    assert_eq!(run["status"], "succeeded", "{}: {run}", case["file"]);
+    assert_eq!(
+        run["status"],
+        case["expectedStatus"].as_str().unwrap_or("succeeded"),
+        "{}: {run}",
+        case["file"]
+    );
     if let Some(response) = case["response"].as_object() {
         for (key, value) in response {
             assert_eq!(

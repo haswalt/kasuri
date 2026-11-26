@@ -161,6 +161,10 @@ export const catalogue = [
     "category": "Utilities, data processing, security and monitoring"
   },
   {
+    "name": "Fail Workflow",
+    "category": "Utilities, data processing, security and monitoring"
+  },
+  {
     "name": "JSON Utilities",
     "category": "Utilities, data processing, security and monitoring"
   },

@@ -38,8 +38,9 @@ Every example accepts the default `{}` input. No accounts, API keys, environment
 | [34 Email booking enquiry](workflows/34-email-booking-enquiry.json) | Offline email routing | Route a synthetic email through Clairic and preview a threaded reply, without sending mail. |
 | [35 Clairic booking attachment](workflows/35-clairic-booking-attachment.json) | Offline file extraction | Classify a synthetic PDF reference using fixture answers. |
 | [38 Deduplicate API requests by header](workflows/38-header-idempotency.json) | Webhook and Data Tables | Preview missing-header `400`, then use an `Idempotency-Key` header on the published webhook to see `201` followed by `409`. The workflow creates its own table. |
+| [40 Reject a webhook and fail the run](workflows/40-webhook-failure-after-response.json) | Webhook and Fail Workflow | Reply with `422` and record the run as failed. Simulating previews the response and produces the same failed run status. |
 
-Together these cover every currently implemented node: Manual Trigger, Webhook, Schedule, Map / Transform, IF / Condition, Merge, Wait / Delay, JSON Utilities, Error Handler, HTTP Request, Filter, Sort, Clairic, Email Trigger and Send Email.
+The example suite checks coverage for every currently implemented connector.
 
 ## Try header deduplication
 
