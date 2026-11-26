@@ -16,8 +16,18 @@ const scopeLabels: Record<string, string> = {
   control: 'Pause, resume or cancel runs',
   delete: 'Move workflows to trash and restore them',
   data_read: 'Read workspace data tables and context values',
-  data_write: 'Create, update and permanently delete workspace records'
+  data_write:
+    'Create or rename data tables and context stores, and add, update or permanently delete their records'
 }
+function ScopeLabel({ scope }: { scope: string }) {
+  return (
+    <span>
+      <code className={styles.mono}>{scope}</code>
+      {scopeLabels[scope] && <> — {scopeLabels[scope]}</>}
+    </span>
+  )
+}
+
 export function McpManagement({ authorizeId }: { authorizeId: string | null }) {
   const [data, setData] = useState<McpStatus | null>(null),
     [error, setError] = useState(''),
@@ -290,14 +300,18 @@ export function McpManagement({ authorizeId }: { authorizeId: string | null }) {
                   Builder — edit drafts and simulate
                 </option>
                 <option value="operator">Operator — publish and execute</option>
-                <option value="manager">Manager — full platform management</option>
+                <option value="manager">
+                  Manager — manage workflows, runs and data
+                </option>
                 <option value="data_viewer">Data viewer — inspect records</option>
                 <option value="data_editor">Data editor — manage persistent records</option>
               </select>
             </label>
             <ul>
               {(data?.roles[role] || []).map((scope) => (
-                <li key={scope}>{scopeLabels[scope]}</li>
+                <li key={scope}>
+                  <ScopeLabel scope={scope} />
+                </li>
               ))}
             </ul>
             <label>
@@ -425,7 +439,7 @@ export function McpManagement({ authorizeId }: { authorizeId: string | null }) {
                 >
                   <input
                     type="checkbox"
-                    className={css({ width: '16px', height: '16px' })}
+                    className={css({ width: '16px', height: '16px', flexShrink: 0 })}
                     checked={approved.includes(scope)}
                     onChange={(e) =>
                       setApproved((v) =>
@@ -435,7 +449,7 @@ export function McpManagement({ authorizeId }: { authorizeId: string | null }) {
                       )
                     }
                   />
-                  {scopeLabels[scope] || scope}
+                  <ScopeLabel scope={scope} />
                 </label>
               ))}
             </div>
