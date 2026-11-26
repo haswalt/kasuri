@@ -48,6 +48,7 @@ export const api = {
   createWorkspace: (name: string) => request<WorkspaceMembership>('workspaces', 'POST', { name }),
   renameWorkspace: (id: string, name: string) => request<WorkspaceMembership>(`workspaces/${id}`, 'PATCH', { name }),
   mcpClientConnections: () => request<{connections:McpClientConnection[]}>('mcp-client/connections'),
+  sentryProjects: () => request<{projects: string[]}>('sentry/projects'),
   mcp: () => request<McpStatus>('mcp'),
   createMcpCredential: (name: string, role: string, expiresDays: number) =>
     request<McpCredential & { token: string }>('mcp/credentials', 'POST', {

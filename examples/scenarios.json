@@ -110,6 +110,18 @@
     }
   },
   {
+    "file": "workflows/39-sentry-error-report.json",
+    "outputs": {
+      "report": {
+        "status": "preview",
+        "eventId": null
+      }
+    },
+    "statuses": {
+      "report": "succeeded"
+    }
+  },
+  {
     "file": "workflows/06-public-http.json",
     "outputs": {
       "result": {

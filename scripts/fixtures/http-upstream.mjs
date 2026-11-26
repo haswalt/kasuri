@@ -78,6 +78,17 @@ export default {async fetch(request){
  }
  if(url.pathname==='/mcp-client')return mcp(request)
  if(url.pathname==='/mcp-portal')return mcp(request,true)
+ if(url.hostname==='sentry-fixture.example' && url.pathname==='/api/100/envelope/'){
+  if(request.method!=='POST'||request.headers.get('content-type')!=='application/x-sentry-envelope')return new Response(null,{status:415})
+  const [header,item,event]=(await request.text()).trimEnd().split('\n').map(line=>JSON.parse(line))
+  if(header.dsn!=='https://fixture@sentry-fixture.example/100'||item.type!=='event'||
+     event.event_id!==header.event_id||!event.tags['kasuri.run_id']||
+     event.tags['kasuri.error_code']!=='invalid_config'||event.logentry?.formatted!=='Kasuri workflow node failed'||
+     typeof event.timestamp!=='number') {
+   return new Response(null,{status:400})
+  }
+  return Response.json({id:header.event_id,privateFixtureResponse:'not returned to the run'})
+ }
  // The upstream's clock, for load measurements (scripts/scale-check.mjs).
  if(url.pathname==='/clock')return Response.json({now:Date.now()})
  if(url.pathname==='/item-worker'){

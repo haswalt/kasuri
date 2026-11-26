@@ -19,6 +19,7 @@ import { checkPublications } from './publication-checks.mjs'
 import { checkWorkspaces } from './workspace-checks.mjs'
 import { checkMcp } from './mcp-checks.mjs'
 import { checkMcpClient } from './mcp-client-checks.mjs'
+import { checkSentry } from './sentry-checks.mjs'
 import { checkMcpDiscovery } from './mcp-discovery-checks.mjs'
 import { checkDataTransfer } from './data-transfer-checks.mjs'
 import { checkExpressions } from './expression-checks.mjs'
@@ -58,7 +59,7 @@ const queues = process.env.RUN_EXECUTION === 'queues'
 // The run-object checks use queues when the suite does, otherwise run objects.
 const offloaded = queues ? 'queues' : 'objects'
 const config = stageRuntimeFixture(data, { queues })
-  .replace('        (name = "HTTP_SECRETS",', '        (name = "MCP_CONNECTIONS", fromEnvironment = "MCP_CONNECTIONS"),\n        (name = "MCP_PORTAL_CLIENT_ID", fromEnvironment = "MCP_PORTAL_CLIENT_ID"),\n        (name = "MCP_PORTAL_CLIENT_SECRET", fromEnvironment = "MCP_PORTAL_CLIENT_SECRET"),\n        (name = "HTTP_SECRETS",')
+  .replace('        (name = "HTTP_SECRETS",', '        (name = "SENTRY_PROJECTS", fromEnvironment = "SENTRY_PROJECTS"),\n        (name = "MCP_CONNECTIONS", fromEnvironment = "MCP_CONNECTIONS"),\n        (name = "MCP_PORTAL_CLIENT_ID", fromEnvironment = "MCP_PORTAL_CLIENT_ID"),\n        (name = "MCP_PORTAL_CLIENT_SECRET", fromEnvironment = "MCP_PORTAL_CLIENT_SECRET"),\n        (name = "HTTP_SECRETS",')
   .replace(
     'services = [',
     `services = [(name = "upstream", worker = (modules = [(name = "upstream.mjs", esModule = embed "upstream.mjs")], compatibilityDate = "2026-11-18")),`
@@ -95,6 +96,7 @@ function start(policy = {}) {
         RUN_HISTORY: '',
         RUN_HISTORY_DAYS: '',
         FAILED_RUN_HISTORY_DAYS: '',
+        SENTRY_PROJECTS: '',
         MCP_CONNECTIONS: '',
         MCP_PORTAL_CLIENT_ID: '',
         MCP_PORTAL_CLIENT_SECRET: '',
@@ -129,7 +131,9 @@ async function stop() {
 try {
   start()
   await healthy(origin)
-  if (process.argv.includes('--mcp-client-only')) {
+  if (process.argv.includes('--sentry-only')) {
+    await checkSentry(origin, async policy => { await stop(); start(policy); await healthy(origin) })
+  } else if (process.argv.includes('--mcp-client-only')) {
     await checkMcpClient(origin, async policy => { await stop(); start(policy); await healthy(origin) })
   } else if (process.argv.includes('--validation-only')) {
     await checkParsing(origin, 'test:runtime-check', async () => {await stop();start();await healthy(origin)})
@@ -209,6 +213,7 @@ try {
       await healthy(origin)
     })
     await checkHttp(origin)
+    await checkSentry(origin, async policy => { await stop(); start(policy); await healthy(origin) })
     await checkMcpClient(origin, async policy => { await stop(); start(policy); await healthy(origin) })
     await stop(); start(); await healthy(origin)
     await checkMcp(origin, 'test:runtime-check', async () => {

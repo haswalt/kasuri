@@ -7,6 +7,7 @@ mod http;
 mod mcp;
 mod mcp_client;
 mod runs;
+mod sentry;
 mod storage;
 mod webhook;
 mod workspaces;
@@ -334,6 +335,9 @@ impl DurableObject for WorkflowWorkspace {
         }
         if path == "/api/mcp-client/connections" && req.method() == Method::Get {
             return mcp_client::list_connections(&self.env, &self.state.id().to_string());
+        }
+        if path == "/api/sentry/projects" && req.method() == Method::Get {
+            return sentry::list_projects(&self.env, &self.state.id().to_string());
         }
         if path == "/api/mcp" || path.starts_with("/api/mcp/") {
             return self.mcp_management(req).await;

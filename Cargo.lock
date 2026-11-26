@@ -226,6 +226,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "connectors-sentry"
+version = "0.1.0"
+dependencies = [
+ "connector-sdk",
+ "serde_json",
+ "sha2",
+ "url",
+]
+
+[[package]]
 name = "connectors-validation"
 version = "0.1.0"
 dependencies = [
@@ -1822,6 +1832,7 @@ dependencies = [
  "connectors-email",
  "connectors-http",
  "connectors-mcp-client",
+ "connectors-sentry",
  "connectors-webhook",
  "croner",
  "jsonschema",
@@ -1845,6 +1856,7 @@ dependencies = [
  "connectors-email",
  "connectors-http",
  "connectors-mcp-client",
+ "connectors-sentry",
  "connectors-webhook",
  "futures-util",
  "serde",

@@ -269,6 +269,13 @@ pub fn describe(kind: &str, config: &Map<String, Value>) -> Value {
         "Split / Parallel" => {
             "Enables bounded durable branch concurrency and passes input to each connected success branch. Use Join for explicit completion/failure semantics."
         }
+        connectors_sentry::KIND => {
+            output = object(
+                json!({"status":{"enum":["accepted","preview"]},"eventId":{"type":["string","null"]}}),
+                &["status", "eventId"],
+            );
+            "Reports a stable upstream failure code to an authorized Sentry project. Set a short literal message to report a business-rule rejection, such as an IF false path. Simulations preview without sending."
+        }
         "Error Handler" => {
             "Receives the explicit failed-node error output and passes it onward. It does not independently intercept unrelated node failures."
         }
