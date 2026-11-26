@@ -3,7 +3,7 @@ import type { NodeCategory } from './tokens.ts'
 import type { Run } from '../../../../packages/contracts/src/index.ts'
 export function category(kind: string): NodeCategory {
   if (['Manual Trigger', 'Webhook', 'Email Trigger', 'Schedule', 'Execute Workflow Trigger'].includes(kind)) return 'trigger'
-  if (/HTTP|AI|OpenAI|Claude|MCP|Embeddings/.test(kind)) return 'http'
+  if (kind === 'Clairic' || /HTTP|AI|OpenAI|Claude|MCP|Embeddings/.test(kind)) return 'http'
   if (/Error|Sentry|PagerDuty/.test(kind)) return 'error'
   if (/Cloudflare|D1|R2|KV|Queues/.test(kind)) return 'cf'
   if (
@@ -23,7 +23,7 @@ export function nodeIcon(kind: string) {
         ? 'branch'
         : /HTTP/.test(kind)
           ? 'runs'
-          : /AI|MCP/.test(kind)
+          : kind === 'Clairic' || /AI|MCP/.test(kind)
             ? 'spark'
             : category(kind) === 'cf'
               ? 'database'

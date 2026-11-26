@@ -774,11 +774,29 @@ impl Workspace {
         workflow_id: Option<&str>,
         status: Option<&str>,
     ) -> Result<Vec<Value>, ApiError> {
+        self.list_run_entries(limit, workflow_id, status, false)
+    }
+    fn list_run_entries(
+        &self,
+        limit: usize,
+        workflow_id: Option<&str>,
+        status: Option<&str>,
+        visible_workflows_only: bool,
+    ) -> Result<Vec<Value>, ApiError> {
         if let Some(archive) = &self.archive.0 {
             return archive
-                .list_runs(limit, workflow_id, status)
+                .list_run_entries(limit, workflow_id, status, visible_workflows_only)
                 .map_err(|e| error(500, e.to_string()));
         }
+        let visible: std::collections::HashSet<_> = if visible_workflows_only {
+            self.workflows
+                .iter()
+                .filter(|w| w.archived_at.is_none())
+                .map(|w| w.graph.id.as_str())
+                .collect()
+        } else {
+            Default::default()
+        };
         let mut items = Vec::new();
         for record in &self.runs {
             if items.len() >= limit {
@@ -787,6 +805,10 @@ impl Workspace {
             let view = record.view(true)?;
             if workflow_id.is_some_and(|w| view["workflowId"] != w)
                 || status.is_some_and(|s| view["status"] != s)
+                || (visible_workflows_only
+                    && !view["workflowId"]
+                        .as_str()
+                        .is_some_and(|id| visible.contains(id)))
             {
                 continue;
             }
@@ -819,7 +841,7 @@ impl Workspace {
     }
     pub fn snapshot(&self) -> Result<Value, ApiError> {
         Ok(
-            json!({"apiVersion":2,"editPreconditionsRequired":true,"workflows":self.workflows.iter().filter(|w|w.archived_at.is_none()).collect::<Vec<_>>(),"runs":self.list_runs(100,None,None)?,"connectors":manifests()}),
+            json!({"apiVersion":2,"editPreconditionsRequired":true,"workflows":self.workflows.iter().filter(|w|w.archived_at.is_none()).collect::<Vec<_>>(),"runs":self.list_run_entries(100,None,None,true)?,"connectors":manifests()}),
         )
     }
     fn index(&self, id: &str) -> Result<usize, ApiError> {
@@ -1348,6 +1370,8 @@ impl Workspace {
                 "workflow.resumed"
             } else if path.ends_with("/archive") {
                 "workflow.archived"
+            } else if method == "DELETE" && path.ends_with("/trash") {
+                "workflow.deleted"
             } else if path.contains("/revisions/") {
                 "workflow.revision_restored"
             } else if path.ends_with("/restore") {
@@ -1462,6 +1486,25 @@ impl Workspace {
                 .all(|b| b.is_ascii_alphanumeric() || b == b'-' || b == b'_')
         {
             return Err(error(400, "Invalid resource ID"));
+        }
+        if parts[1] == "workflows" && method == "DELETE" && parts.get(3..) == Some(&["trash"]) {
+            let index = self.index(id)?;
+            let doc = &self.workflows[index];
+            if doc.archived_at.is_none() {
+                return Err(error(409, "Move the workflow to trash before deleting it"));
+            }
+            let input: Value = serde_json::from_slice(body)
+                .map_err(|_| error(400, "Expected edit precondition"))?;
+            let expected = input["expectedVersion"]
+                .as_u64()
+                .ok_or_else(|| error(428, "expectedVersion is required"))?;
+            if expected != doc.version {
+                return Err(error(409, "Workflow changed; reload before deleting it"));
+            }
+            self.workflows.remove(index);
+            self.revisions.retain(|revision| revision.workflow_id != id);
+            self.webhooks.retain(|webhook| webhook.workflow_id != id);
+            return Ok((200, json!({"deleted":true})));
         }
         if parts[1] == "workflows"
             && method == "POST"

@@ -66,7 +66,6 @@ function App() {
   const [workspaceName, setWorkspaceName] = useState('')
   const [historyTarget, setHistoryTarget] = useState<Workflow | null>(null)
   const [archiveTarget, setArchiveTarget] = useState<Workflow | null>(null)
-  const [showTrash, setShowTrash] = useState(false)
   const workspaceLabel = memberships.find((w) => w.id === route.workspaceKey)?.name || (route.workspaceKey === 'personal' ? 'Personal workspace' : 'Workspace')
   const [workflows, setWorkflows] = useState<Workflow[]>([]),
     [runs, setRuns] = useState<Run[]>([]),
@@ -859,6 +858,23 @@ function App() {
                   Try again
                 </Button>
               </section>
+            ) : route.page === 'workflows' && route.section === 'trash' ? (
+              <WorkflowTrash
+                back={() => navigate('workflows')}
+                restored={(restored) => {
+                  generation.current++
+                  replace(restored)
+                  undo.current = null
+                  setUndoAvailable(false)
+                  setNotice('Workflow restored. Triggers remain paused.')
+                  void refresh()
+                }}
+                deleted={(deleted) => {
+                  undo.current = null
+                  setUndoAvailable(false)
+                  setNotice(`“${deleted.name}” permanently deleted.`)
+                }}
+              />
             ) : route.page === 'workflows' ? (
               <>
                 <PageHeader
@@ -872,7 +888,7 @@ function App() {
                   }
                   actions={
                     <>
-                      <Button disabled={disabled} onClick={() => setShowTrash(true)}>Trash</Button>
+                      <Button disabled={disabled} onClick={() => navigate('workflows/trash')}>Trash</Button>
                       <Button
                         disabled={disabled}
                         onClick={() => fileInput.current?.click()}
@@ -1152,7 +1168,7 @@ function App() {
                 <PageHeader
                   eyebrow="OBSERVE"
                   title="Runs"
-                  description="Every retained execution across your workflows. Select a run to inspect it step by step."
+                  description="Recent executions for your current workflows. Select a run to inspect it step by step."
                   actions={
                     <Button
                       onClick={() =>
@@ -1621,7 +1637,6 @@ function App() {
           }}
         />
       )}
-      {showTrash && <WorkflowTrash close={() => setShowTrash(false)} restored={(restored) => { replace(restored); undo.current = null; setUndoAvailable(false); setNotice('Workflow restored. Triggers remain paused.'); void refresh() }} />}
       {archiveTarget && <Dialog title="Move workflow to trash" onClose={() => {if (!busy) setArchiveTarget(null)}}>
         <div className={styles.settingsFields}>
           <p>Move “{archiveTarget.name}” to trash? This stops new triggers and schedules. Existing runs finish, and the workflow, history and runs remain recoverable.</p>
@@ -1629,6 +1644,7 @@ function App() {
             const current = dirty.current.has(archiveTarget.id) ? await save(archiveTarget) : archiveTarget
             const archived = await api.workflowAction(current.id, 'archive', current.version)
             setWorkflows((entries) => entries.filter((w) => w.id !== archived.id))
+            setRuns((entries) => entries.filter((run) => run.workflowId !== archived.id))
             setArchiveTarget(null)
             setNotice('Workflow moved to trash. Existing runs continue.')
             setUndoAvailable(true)

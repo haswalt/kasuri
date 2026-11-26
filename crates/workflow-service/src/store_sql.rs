@@ -573,11 +573,12 @@ impl<E: SqlExec> RunArchive for SqlStore<E> {
             .map(|body| decode_run(&body.text()?))
             .transpose()
     }
-    fn list_runs(
+    fn list_run_entries(
         &self,
         limit: usize,
         workflow_id: Option<&str>,
         status: Option<&str>,
+        visible_workflows_only: bool,
     ) -> Result<Vec<Value>, StoreError> {
         let mut filters = Vec::new();
         let mut params = Vec::new();
@@ -588,6 +589,11 @@ impl<E: SqlExec> RunArchive for SqlStore<E> {
         if let Some(status) = status {
             filters.push("status=?");
             params.push(text(status));
+        }
+        if visible_workflows_only {
+            filters.push(
+                "EXISTS (SELECT 1 FROM ws_workflows WHERE id=ws_runs.workflow_id AND json_extract(body, '$.archivedAt') IS NULL)",
+            );
         }
         let filter = if filters.is_empty() {
             String::new()

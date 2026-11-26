@@ -40,6 +40,8 @@ export const api = {
   data: (command: DataCommand, idempotencyKey?: string) => request<DataResponse>('data', 'POST', {command, ...(idempotencyKey ? {idempotencyKey} : {})}),
   dataBatch: (commands: DataCommand[], idempotencyKey: string) => request<DataResponse>('data', 'POST', {commands, idempotencyKey}),
   trash: () => request<{workflows: Workflow[]}>('workflows/trash'),
+  deleteWorkflow: (id: string, expectedVersion: number) =>
+    request<{deleted: boolean}>(`workflows/${id}/trash`, 'DELETE', {expectedVersion}),
   revisions: (id: string) => request<{revisions: WorkflowRevision[]; needsReview: boolean}>(`workflows/${id}/revisions`),
   restoreRevision: (id: string, revision: number, expectedVersion?: number) => request<Workflow>(`workflows/${id}/revisions/${revision}/restore`, 'POST', {expectedVersion}),
   workspaces: () => request<{ workspaces: WorkspaceMembership[] }>('workspaces'),
