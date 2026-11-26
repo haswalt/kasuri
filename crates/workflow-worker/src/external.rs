@@ -21,10 +21,15 @@ pub(crate) async fn execute(task: &Task, env: &Env, workspace: &str) -> Outcome 
 
     let prepared = match connectors_clairic::prepare(task) {
         Ok(prepared) => prepared,
-        Err(code) => return connectors_clairic::failed(code),
+        Err(failure) => return Outcome::Failed { failure },
     };
     let Ok(ai) = env.ai("AI") else {
-        return connectors_clairic::failed(FailureCode::InvalidConfig);
+        return Outcome::Failed {
+            failure: connector_sdk::Failure::permanent(FailureCode::MissingBinding).with_detail(
+                "",
+                "Enable the Workers AI binding named AI on this Kasuri deployment to run Clairic.",
+            ),
+        };
     };
     let remaining = task.deadline_ms.saturating_sub(crate::now());
     if remaining == 0 {

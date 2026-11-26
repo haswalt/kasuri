@@ -98,10 +98,7 @@ fn retries_back_off_and_preserve_effect_key_but_change_attempt_identity() {
     let mut run = run(workflow);
     let first = task(&mut run, 0);
     let failure = Outcome::Failed {
-        failure: Failure {
-            code: FailureCode::External,
-            retryable: true,
-        },
+        failure: Failure::new(FailureCode::External, true),
     };
     run.complete(&first.id, failure.clone(), 0).unwrap();
     assert_eq!(run.next(999).unwrap(), Dispatch::SleepUntil(1000));

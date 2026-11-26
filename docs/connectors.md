@@ -22,7 +22,7 @@ Use `/values/<field>` in IF or Switch. An absent or incomplete answer is null, a
 
 For simulations, set `simulationResponse` to an object such as `{"answers":{"guest_count":{"value":80,"confidence":0.95}}}`, with one answer per configured field. Simulations validate the selected input and use the fixture without calling Workers AI. Try the [booking reply](../examples/workflows/32-clairic-booking-reply.json) and [human handoff](../examples/workflows/33-clairic-booking-handoff.json) examples with the default `{}` input.
 
-For live runs on a trusted deployment, enable the `"ai": { "binding": "AI" }` entry in `wrangler.jsonc` and deploy. The Worker uses the installation's Workers AI binding and account usage. Only selected text and configured field definitions are sent. For image and PDF inputs, point **Attachments** at an array of [file references](files.md), such as the email trigger's `/attachments`. Text is optional when the file list is nonempty.
+For live runs on a trusted deployment, enable the `"ai": { "binding": "AI" }` entry in `wrangler.jsonc` and deploy. Use that installation configuration for future deployments. The Worker uses the installation's Workers AI binding and account usage. If the binding is absent, a live run reports `missing_binding` with setup instructions. Workflow validation reports invalid extraction settings at their configuration paths. Only selected text and configured field definitions are sent. For image and PDF inputs, point **Attachments** at an array of [file references](files.md), such as the email trigger's `/attachments`. Text is optional when the file list is nonempty.
 
 ## Data Tables and Context Store
 

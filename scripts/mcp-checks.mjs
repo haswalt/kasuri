@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict'
 import { createHash, randomBytes } from 'node:crypto'
 import { readFileSync } from 'node:fs'
+import { setTimeout as delay } from 'node:timers/promises'
 
 const boundedFetch = (url, init = {}) =>
   fetch(url, { ...init, signal: AbortSignal.timeout(10000) })
@@ -78,6 +79,39 @@ export async function checkMcp(origin, credentials, restart) {
     clientInfo: { name: 'Runtime tests', version: '1' }
   })
   assert.equal(init.result.protocolVersion, '2025-11-25')
+  const clairic = {
+    schemaVersion: 1, id: 'clairic-diagnostics', name: 'Clairic diagnostics', status: 'draft', updatedAt: '',
+    nodes: [
+      { id: 'start', type: 'Manual Trigger', label: 'Start', config: {} },
+      { id: 'extract', type: 'Clairic', label: 'Extract', config: { fields: [{ name: 'name', type: 'text' }, { name: 'name', type: 'text' }] } },
+      { id: 'recover', type: 'Error Handler', label: 'Recover', config: {} }
+    ],
+    edges: [
+      { id: 'start-extract', source: 'start', target: 'extract' },
+      { id: 'extract-recover', source: 'extract', sourcePort: 'error', target: 'recover' }
+    ]
+  }
+  const validation = (await rpc(builder.token, 'tools/call', {
+    name: 'workflows_validate', arguments: { workflow: clairic }
+  })).result.structuredContent
+  assert.equal(validation.valid, false)
+  assert.ok(validation.errors.some(error => error.nodeId === 'extract' && error.path === '/nodes/1/config/fields/1/name' && error.message.includes('unique')))
+  const invalidDraft = await owner('workflows/' + clairic.id, 'PUT', clairic)
+  const rejected = await owner('workflows/' + clairic.id + '/publish', 'POST', { expectedVersion: invalidDraft.version }, 400)
+  assert.equal(rejected.errors[0].path, '/nodes/1/config/fields/1/name')
+  clairic.nodes[1].config.fields.pop()
+  const updated = await owner('workflows/' + clairic.id, 'PUT', { ...clairic, version: invalidDraft.version })
+  let clairicRun = await owner('runs', 'POST', { workflowId: clairic.id, expectedVersion: updated.version, mode: 'run', input: 'Synthetic enquiry' }, 201)
+  for (let attempt = 0; attempt < 100 && clairicRun.status === 'running'; attempt++) {
+    await delay(100)
+    clairicRun = await owner('runs/' + clairicRun.id)
+  }
+  assert.equal(clairicRun.status, 'succeeded')
+  const extraction = clairicRun.nodes.find(node => node.id === 'extract')
+  assert.equal(extraction.status, 'error_handled')
+  assert.equal(extraction.error, 'missing_binding')
+  assert.match(extraction.errorDetail.message, /Workers AI binding named AI/)
+  assert.equal(clairicRun.nodes.find(node => node.id === 'recover').output.error.detail.message, extraction.errorDetail.message)
   const listed = (await rpc(reader.token, 'tools/list')).result.tools
   assert.ok(listed.some((t) => t.name === 'audit_list'))
   assert.ok(!listed.some((t) => t.name === 'workflows_create'))

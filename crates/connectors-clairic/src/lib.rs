@@ -74,52 +74,119 @@ pub struct MediaPart {
     pub base64: String,
 }
 
-fn parse(config: &Map<String, Value>) -> Result<Config, FailureCode> {
-    let parsed: Config = serde_json::from_value(Value::Object(config.clone()))
-        .map_err(|_| FailureCode::InvalidConfig)?;
-    let mut names = HashSet::new();
-    let valid = !parsed.fields.is_empty()
-        && parsed.fields.iter().all(|entry| {
-            let mut bytes = entry.name.bytes();
-            let valid_name = bytes.next().is_some_and(|b| b.is_ascii_alphabetic())
-                && bytes.all(|b| b.is_ascii_alphanumeric() || b == b'_');
-            let valid_choices = match (entry.kind, &entry.choices) {
-                (FieldType::Enum, Some(choices)) => {
-                    let mut unique = HashSet::new();
-                    !choices.is_empty()
-                        && choices
-                            .iter()
-                            .all(|value| !value.trim().is_empty() && unique.insert(value))
+fn invalid(path: impl Into<String>, message: &'static str) -> Failure {
+    Failure::permanent(FailureCode::InvalidConfig).with_detail(path, message)
+}
+
+fn parse(config: &Map<String, Value>) -> Result<Config, Failure> {
+    let parsed: Config =
+        serde_path_to_error::deserialize(Value::Object(config.clone())).map_err(|error| {
+            use serde_path_to_error::Segment;
+            let mut path = String::new();
+            for segment in error.path() {
+                let part = match segment {
+                    Segment::Map { key } => key.replace('~', "~0").replace('/', "~1"),
+                    Segment::Seq { index } => index.to_string(),
+                    _ => break,
+                };
+                path.push('/');
+                path.push_str(&part);
+            }
+            let message = match path.rsplit('/').next().unwrap_or_default() {
+                "type" => "Choose a Clairic field type: text, number, date, boolean or enum.",
+                "name" => "Set the extraction field name to a string.",
+                "instructions" => "Set extraction instructions to a string.",
+                "referenceDate" => "Use a valid reference date in YYYY-MM-DD format.",
+                "inputPointer" | "attachmentsPointer" => {
+                    "Set the input selector to a JSON Pointer string."
                 }
-                (FieldType::Enum, None) | (_, Some(_)) => false,
-                (_, None) => true,
+                "fields" => {
+                    "Provide an array of extraction fields with a name and type for each entry."
+                }
+                _ if path.starts_with("/fields/") => {
+                    "Check this extraction field's required names, types and options."
+                }
+                _ if path.starts_with("/simulationResponse") => {
+                    "Use a Clairic simulation response with an answers object."
+                }
+                _ => "Provide extraction fields and use only supported Clairic settings.",
             };
-            valid_name && names.insert(&entry.name) && valid_choices
-        })
-        && [
-            parsed.input_pointer.as_ref(),
-            parsed.attachments_pointer.as_ref(),
-        ]
-        .into_iter()
-        .flatten()
-        .all(|pointer| {
-            pointer.is_empty()
-                || (pointer.starts_with('/')
-                    && pointer
-                        .split('~')
-                        .skip(1)
-                        .all(|part| part.starts_with('0') || part.starts_with('1')))
-        });
-    if !valid {
-        return Err(FailureCode::InvalidConfig);
+            invalid(path, message)
+        })?;
+    if parsed.fields.is_empty() {
+        return Err(invalid("/fields", "Add at least one extraction field."));
+    }
+    let mut names = HashSet::new();
+    for (index, entry) in parsed.fields.iter().enumerate() {
+        let mut bytes = entry.name.bytes();
+        if !bytes.next().is_some_and(|b| b.is_ascii_alphabetic())
+            || !bytes.all(|b| b.is_ascii_alphanumeric() || b == b'_')
+        {
+            return Err(invalid(
+                format!("/fields/{index}/name"),
+                "Start the field name with an ASCII letter and use only letters, digits and underscores.",
+            ));
+        }
+        if !names.insert(&entry.name) {
+            return Err(invalid(
+                format!("/fields/{index}/name"),
+                "Extraction field names must be unique.",
+            ));
+        }
+        let problem = match (entry.kind, &entry.choices) {
+            (FieldType::Enum, Some(choices)) => {
+                let mut unique = HashSet::new();
+                (choices.is_empty()
+                    || !choices
+                        .iter()
+                        .all(|label| !label.trim().is_empty() && unique.insert(label)))
+                .then_some("Provide distinct, non-blank labels for this enum field.")
+            }
+            (FieldType::Enum, None) => Some("Provide allowed labels for this enum field."),
+            (_, Some(_)) => Some("Only enum fields accept allowed labels."),
+            (_, None) => None,
+        };
+        if let Some(message) = problem {
+            return Err(invalid(format!("/fields/{index}/enum"), message));
+        }
+    }
+    for (path, pointer) in [
+        ("/inputPointer", &parsed.input_pointer),
+        ("/attachmentsPointer", &parsed.attachments_pointer),
+    ] {
+        if let Some(pointer) = pointer
+            && !pointer.is_empty()
+            && (!pointer.starts_with('/')
+                || !pointer
+                    .split('~')
+                    .skip(1)
+                    .all(|part| part.starts_with('0') || part.starts_with('1')))
+        {
+            return Err(invalid(
+                path,
+                "Use a JSON Pointer starting with /, escaping ~ as ~0 and / as ~1. Leave it empty to select the whole input.",
+            ));
+        }
     }
     Ok(parsed)
 }
 
-pub fn validate(config: &Map<String, Value>) -> Result<(), FailureCode> {
+pub fn validate(config: &Map<String, Value>) -> Result<(), Failure> {
     let config = parse(config)?;
     if let Some(fixture) = &config.simulation_response {
-        normalize(&config, fixture).map_err(|_| FailureCode::InvalidConfig)?;
+        normalize(&config, fixture).map_err(|failure| match failure.detail {
+            Some(detail) => Failure {
+                detail: Some(connector_sdk::FailureDetail {
+                    path: format!("/simulationResponse{}", detail.path),
+                    message: detail.message,
+                }),
+                ..Failure::permanent(FailureCode::InvalidConfig)
+            },
+            None => invalid(
+                "/simulationResponse",
+                "The simulation response exceeds the node output limit.",
+            ),
+        })?;
     }
     Ok(())
 }
@@ -156,13 +223,18 @@ impl Prepared<'_> {
 
     pub fn complete(&self, response: Value) -> Outcome {
         serde_json::from_value::<ModelResponse>(response)
-            .map_err(|_| FailureCode::InvalidResponse)
+            .map_err(|_| {
+                Failure::permanent(FailureCode::InvalidResponse).with_detail(
+                    "",
+                    "Workers AI returned a Clairic response without a valid answers object.",
+                )
+            })
             .and_then(|response| normalize(&self.config, &response))
-            .map_or_else(failed, Outcome::success)
+            .map_or_else(|failure| Outcome::Failed { failure }, Outcome::success)
     }
 }
 
-pub fn prepare(task: &Task) -> Result<Prepared<'_>, FailureCode> {
+pub fn prepare(task: &Task) -> Result<Prepared<'_>, Failure> {
     let config = parse(&task.node.config)?;
     let files: Vec<FileReference> = match config
         .attachments_pointer
@@ -171,31 +243,45 @@ pub fn prepare(task: &Task) -> Result<Prepared<'_>, FailureCode> {
     {
         None | Some(Value::Null) => Vec::new(),
         Some(Value::Array(files)) if files.len() > MAX_MEDIA_ITEMS => {
-            return Err(FailureCode::BudgetExceeded);
+            return Err(Failure::permanent(FailureCode::BudgetExceeded));
         }
-        Some(list) => {
-            serde_json::from_value(list.clone()).map_err(|_| FailureCode::InvalidConfig)?
-        }
+        Some(list) => serde_json::from_value(list.clone()).map_err(|_| {
+            invalid(
+                "/attachmentsPointer",
+                "The selected input must be an array of private file references.",
+            )
+        })?,
     };
     let mut ids = HashSet::new();
     if !files
         .iter()
         .all(|file| file.valid() && ids.insert(&file.id))
     {
-        return Err(FailureCode::InvalidConfig);
+        return Err(invalid(
+            "/attachmentsPointer",
+            "The selected attachments contain an invalid or duplicate file reference.",
+        ));
     }
     if files.iter().map(|file| file.size).sum::<u64>() > MAX_MEDIA_BYTES {
-        return Err(FailureCode::BudgetExceeded);
+        return Err(Failure::permanent(FailureCode::BudgetExceeded));
     }
     let pointer = config.input_pointer.as_deref().unwrap_or("");
     let text = match task.input.pointer(pointer) {
         Some(Value::String(text)) => text,
         None | Some(Value::Null) if !files.is_empty() => "",
         Some(_) if config.input_pointer.is_none() && !files.is_empty() => "",
-        _ => return Err(FailureCode::MissingInput),
+        _ => {
+            return Err(Failure::permanent(FailureCode::MissingInput).with_detail(
+                "/inputPointer",
+                "The selected input must contain non-empty text or valid attachments.",
+            ));
+        }
     };
     if text.trim().is_empty() && files.is_empty() {
-        return Err(FailureCode::MissingInput);
+        return Err(Failure::permanent(FailureCode::MissingInput).with_detail(
+            "/inputPointer",
+            "The selected input must contain non-empty text or valid attachments.",
+        ));
     }
     Ok(Prepared {
         config,
@@ -211,10 +297,15 @@ pub fn simulate(task: &Task) -> Outcome {
                 .config
                 .simulation_response
                 .as_ref()
-                .ok_or(FailureCode::InvalidConfig)?;
+                .ok_or_else(|| {
+                    invalid(
+                        "/simulationResponse",
+                        "Add a Clairic response fixture to run an offline simulation.",
+                    )
+                })?;
             normalize(&prepared.config, fixture)
         })
-        .map_or_else(failed, Outcome::success)
+        .map_or_else(|failure| Outcome::Failed { failure }, Outcome::success)
 }
 
 pub fn failed(code: FailureCode) -> Outcome {
@@ -223,21 +314,32 @@ pub fn failed(code: FailureCode) -> Outcome {
     }
 }
 
-fn normalize(config: &Config, response: &ModelResponse) -> Result<Value, FailureCode> {
+fn normalize(config: &Config, response: &ModelResponse) -> Result<Value, Failure> {
     let mut values = Map::new();
     let mut confidence = Map::new();
     for entry in &config.fields {
+        let invalid_answer = |suffix: &str, message| {
+            Failure::permanent(FailureCode::InvalidResponse)
+                .with_detail(format!("/answers/{}{suffix}", entry.name), message)
+        };
         let answer = response
             .answers
             .get(&entry.name)
             .and_then(Value::as_object)
-            .ok_or(FailureCode::InvalidResponse)?;
+            .ok_or_else(|| {
+                invalid_answer(
+                    "",
+                    "Provide an answer object for each configured extraction field.",
+                )
+            })?;
         let incomplete = answer.get("valid").and_then(Value::as_bool) == Some(false)
             || answer.get("complete").and_then(Value::as_bool) == Some(false);
         let value = if incomplete {
             &Value::Null
         } else {
-            answer.get("value").ok_or(FailureCode::InvalidResponse)?
+            answer.get("value").ok_or_else(|| {
+                invalid_answer("/value", "Provide a value or mark this answer incomplete.")
+            })?
         };
         let valid = value.is_null()
             || match entry.kind {
@@ -257,7 +359,10 @@ fn normalize(config: &Config, response: &ModelResponse) -> Result<Value, Failure
                 }),
             };
         if !valid {
-            return Err(FailureCode::InvalidResponse);
+            return Err(invalid_answer(
+                "/value",
+                "The answer must match the extraction field type or allowed labels.",
+            ));
         }
         let score = answer
             .get("confidence")
@@ -266,7 +371,12 @@ fn normalize(config: &Config, response: &ModelResponse) -> Result<Value, Failure
                 value
                     .as_f64()
                     .filter(|score| (0.0..=1.0).contains(score))
-                    .ok_or(FailureCode::InvalidResponse)
+                    .ok_or_else(|| {
+                        invalid_answer(
+                            "/confidence",
+                            "Confidence must be a number between zero and one.",
+                        )
+                    })
             })
             .transpose()?;
         values.insert(entry.name.clone(), value.clone());
@@ -282,7 +392,7 @@ fn normalize(config: &Config, response: &ModelResponse) -> Result<Value, Failure
     let output =
         json!({"values": values, "confidence": confidence, "truncated": response.truncated});
     if output.to_string().len() > MAX_OUTPUT_BYTES {
-        return Err(FailureCode::BudgetExceeded);
+        return Err(Failure::permanent(FailureCode::BudgetExceeded));
     }
     Ok(output)
 }
@@ -400,7 +510,13 @@ mod tests {
         assert!(request.get("images").is_none());
 
         task.input["attachments"][0]["id"] = json!("https://example.test/private.pdf");
-        assert!(matches!(prepare(&task), Err(FailureCode::InvalidConfig)));
+        assert!(matches!(
+            prepare(&task),
+            Err(Failure {
+                code: FailureCode::InvalidConfig,
+                ..
+            })
+        ));
     }
 
     #[test]
@@ -421,10 +537,11 @@ mod tests {
             }))
         );
         response["answers"]["event_date"]["value"] = json!("2027-02-29");
-        assert_eq!(
-            prepared.complete(response),
-            failed(FailureCode::InvalidResponse)
+        assert!(
+            matches!(prepared.complete(response), Outcome::Failed { failure } if failure.code == FailureCode::InvalidResponse && failure.detail.as_ref().unwrap().path == "/answers/event_date/value")
         );
-        assert_eq!(simulate(&task), failed(FailureCode::InvalidConfig));
+        assert!(
+            matches!(simulate(&task), Outcome::Failed { failure } if failure.code == FailureCode::InvalidConfig && failure.detail.as_ref().unwrap().path == "/simulationResponse")
+        );
     }
 }

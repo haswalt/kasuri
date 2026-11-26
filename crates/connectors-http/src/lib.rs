@@ -21,7 +21,7 @@ pub struct RequestSpec {
 }
 pub fn failure(code: FailureCode, retryable: bool) -> Outcome {
     Outcome::Failed {
-        failure: Failure { code, retryable },
+        failure: Failure::new(code, retryable),
     }
 }
 pub fn is_read(task: &Task) -> bool {

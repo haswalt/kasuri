@@ -22,6 +22,7 @@ pub struct Task {
 #[serde(rename_all = "snake_case")]
 pub enum FailureCode {
     InvalidConfig,
+    MissingBinding,
     MissingInput,
     UnsupportedNode,
     External,
@@ -35,18 +36,38 @@ pub enum FailureCode {
     InvocationFailed,
 }
 
-/// Codes only: raw upstream error bodies may contain secrets and do not belong in checkpoints.
+/// Operator-friendly diagnostics authored by the host or connector. Never copy upstream bodies.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct FailureDetail {
+    pub path: String,
+    pub message: String,
+}
+
+/// Raw upstream errors may contain secrets and do not belong in checkpoints.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Failure {
     pub code: FailureCode,
     pub retryable: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub detail: Option<FailureDetail>,
 }
 impl Failure {
     pub fn permanent(code: FailureCode) -> Self {
+        Self::new(code, false)
+    }
+    pub fn new(code: FailureCode, retryable: bool) -> Self {
         Self {
             code,
-            retryable: false,
+            retryable,
+            detail: None,
         }
+    }
+    pub fn with_detail(mut self, path: impl Into<String>, message: &'static str) -> Self {
+        self.detail = Some(FailureDetail {
+            path: path.into(),
+            message: message.into(),
+        });
+        self
     }
 }
 
