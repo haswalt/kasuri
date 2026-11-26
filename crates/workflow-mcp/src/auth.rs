@@ -89,6 +89,8 @@ pub struct GrantRequest {
     pub challenge: String,
     pub state: String,
     pub scopes: Vec<String>,
+    #[serde(default)]
+    pub scope_omitted: bool,
     pub expires: u64,
     pub code_hash: Option<String>,
     pub approved: Option<Vec<String>>,
@@ -307,7 +309,12 @@ impl Auth {
             .iter()
             .find(|c| c.id == get("client_id"))
             .ok_or("invalid_client")?;
-        let scopes: Vec<String> = if get("scope").is_empty() {
+        let scope_omitted = input.get("scope").is_none();
+        let scopes: Vec<String> = if scope_omitted {
+            // Offer data permissions at consent when the client leaves scope selection
+            // to Kasuri. The consent UI still selects only the Reader defaults.
+            crate::role("data_editor")
+        } else if get("scope").is_empty() {
             crate::role("reader")
         } else {
             get("scope")
@@ -341,6 +348,7 @@ impl Auth {
             challenge: get("code_challenge").into(),
             state: get("state").into(),
             scopes,
+            scope_omitted,
             expires: now + 600000,
             code_hash: None,
             approved: None,
@@ -361,7 +369,7 @@ impl Auth {
             .find(|c| c.id == r.client_id)
             .ok_or("invalid_client")?;
         Ok(
-            json!({"id":r.id,"clientName":client.name,"clientId":client.id,"redirectUri":r.redirect,"scopes":r.scopes,"resource":r.resource}),
+            json!({"id":r.id,"clientName":client.name,"clientId":client.id,"redirectUri":r.redirect,"scopes":r.scopes,"resource":r.resource,"scopeOmitted":r.scope_omitted}),
         )
     }
     pub fn consent(

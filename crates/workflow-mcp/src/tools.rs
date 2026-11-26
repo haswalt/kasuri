@@ -15,6 +15,7 @@ fn definitions() -> Vec<(&'static str, &'static str, &'static str, bool, Value)>
     };
     let version = json!({"type":"integer","minimum":0});
     let workflow = json!({"$ref":"#/$defs/WorkflowDefinition"});
+    let data_commands = workflow_data::mutation_schema();
     vec![
         (
             "data_tables_list",
@@ -32,6 +33,26 @@ fn definitions() -> Vec<(&'static str, &'static str, &'static str, bool, Value)>
             "Inspect a table/context definition and metadata version.",
             false,
             object(json!({"tableId":id}), vec!["tableId"]),
+        ),
+        (
+            "data_table_create",
+            "data_write",
+            "Create a workspace data table or context store. Supply a stable definition ID, name, kind and optional typed fields.",
+            true,
+            mutate(
+                json!({"definition":workflow_data::definition_schema()}),
+                vec!["definition"],
+            ),
+        ),
+        (
+            "data_table_rename",
+            "data_write",
+            "Rename a data table or context store. The ID and records stay the same. Read its current metadata version with data_table_get first.",
+            true,
+            mutate(
+                json!({"tableId":id,"name":{"type":"string","minLength":1,"maxLength":160},"expectedVersion":version}),
+                vec!["tableId", "name", "expectedVersion"],
+            ),
         ),
         (
             "data_get",
@@ -58,10 +79,7 @@ fn definitions() -> Vec<(&'static str, &'static str, &'static str, bool, Value)>
             "data_write",
             "Create/rename a data set or insert/put/patch/delete a record. Patch preserves unmentioned fields and expiry. Mutations use persistent receipts; delete is permanent.",
             true,
-            mutate(
-                json!({"command":workflow_data::mutation_schema()}),
-                vec!["command"],
-            ),
+            mutate(json!({"command":data_commands}), vec!["command"]),
         ),
         (
             "data_batch",
@@ -69,7 +87,7 @@ fn definitions() -> Vec<(&'static str, &'static str, &'static str, bool, Value)>
             "Apply up to 100 mutating data commands in one storage transaction. Per-command existing/conflict statuses remain explicit outcomes.",
             true,
             mutate(
-                json!({"commands":{"type":"array","minItems":1,"maxItems":100,"items":workflow_data::mutation_schema()}}),
+                json!({"commands":{"type":"array","minItems":1,"maxItems":100,"items":data_commands}}),
                 vec!["commands"],
             ),
         ),
@@ -454,6 +472,8 @@ fn execute(
         }
         let (commands,batch,receipt)=match name {
             "data_table_get"=>(vec![workflow_data::Command::GetTable{table_id:required(args,"tableId")?.into()}],false,None),
+            "data_table_create"=>(vec![workflow_data::Command::CreateTable{definition:serde_json::from_value(args["definition"].clone()).map_err(|_|err("invalid_arguments","Invalid data table definition"))?}],false,args["idempotencyKey"].as_str()),
+            "data_table_rename"=>(vec![workflow_data::Command::RenameTable{table_id:required(args,"tableId")?.into(),name:required(args,"name")?.into(),expected_version:args["expectedVersion"].as_u64().ok_or_else(||err("invalid_arguments","Use the current table version"))?}],false,args["idempotencyKey"].as_str()),
             "data_get"=>(vec![serde_json::from_value::<workflow_data::Command>(json!({"operation":"get","tableId":args["tableId"],"key":args["key"]})).map_err(|_|err("invalid_arguments","Invalid keyed read"))?],false,None),
             "data_query"=>(vec![serde_json::from_value::<workflow_data::Command>(json!({"operation":"query","tableId":args["tableId"],"query":args.get("query").cloned().unwrap_or(json!({}))})).map_err(|_|err("invalid_arguments","Invalid query"))?],false,None),
             "data_apply"=>(vec![serde_json::from_value::<workflow_data::Command>(args["command"].clone()).map_err(|_|err("invalid_arguments","Invalid data command"))?],false,args["idempotencyKey"].as_str()),

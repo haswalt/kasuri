@@ -398,9 +398,10 @@ export function McpManagement({ authorizeId }: { authorizeId: string | null }) {
           <div className={styles.settingsFields}>
             <h3>{consent.clientName}</h3>
             <p>
-              This client requests access to this workspace. Its name is
-              supplied by the client; review the callback and permissions before
-              approving.
+              {consent.scopeOmitted
+                ? 'This client left permission selection to Kasuri. Select data access only if the client needs it.'
+                : 'This client requests access to this workspace. Review the callback and permissions before approving.'}
+              {' '}The client supplies its own name.
             </p>
             <label>
               Client ID

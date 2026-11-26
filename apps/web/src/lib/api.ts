@@ -132,6 +132,7 @@ export type OAuthRequest = {
   clientId: string
   redirectUri: string
   scopes: string[]
+  scopeOmitted?: boolean
   resource: string
 }
 export type AuditEvent = {
